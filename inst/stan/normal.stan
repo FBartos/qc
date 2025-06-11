@@ -13,26 +13,47 @@ data {
   vector[is_ss == 1 ? 1 : 0] ss_mean;
   vector[is_ss == 1 ? 1 : 0] ss_sd;
 
+  // model type (1 if the parameter is estimated, 0 if parameter is fixed)
+  int estimate_mu;
+  int estimate_sigma;
+
   // range of the parameters
-  vector[2] bounds_mu;
-  vector[2] bounds_sigma;
-  array[2] int bounds_type_mu;
-  array[2] int bounds_type_sigma;
+  vector[estimate_mu    == 1 ? 2 : 0] bounds_mu;
+  vector[estimate_sigma == 1 ? 2 : 0] bounds_sigma;
+  array[estimate_mu    == 1 ? 2 : 0] int bounds_type_mu;
+  array[estimate_sigma == 1 ? 2 : 0] int bounds_type_sigma;
 
   // prior distribution specification of the parameteres
-  vector[3] prior_parameters_mu;
-  vector[3] prior_parameters_sigma;
+  array[estimate_mu     == 0 ? 1 : 0] real fixed_mu;
+  array[estimate_sigma  == 0 ? 1 : 0] real fixed_sigma;
+  vector[estimate_mu    == 1 ? 3 : 0] prior_parameters_mu;
+  vector[estimate_sigma == 1 ? 3 : 0] prior_parameters_sigma;
   int prior_type_mu;
   int prior_type_sigma;
 }
 parameters{
-  real<lower = coefs_lb(bounds_type_mu, bounds_mu),       upper = coefs_ub(bounds_type_mu, bounds_mu)>       mu;
-  real<lower = coefs_lb(bounds_type_sigma, bounds_sigma), upper = coefs_ub(bounds_type_sigma, bounds_sigma)> sigma;
+  array[estimate_mu]    real<lower = coefs_lb(bounds_type_mu, bounds_mu),       upper = coefs_ub(bounds_type_mu, bounds_mu)>       mu_est;
+  array[estimate_sigma] real<lower = coefs_lb(bounds_type_sigma, bounds_sigma), upper = coefs_ub(bounds_type_sigma, bounds_sigma)> sigma_est;
+}
+transformed parameters {
+  real mu;
+  real sigma;
+
+  if(estimate_mu == 1){
+    mu = mu_est[1];
+  }else{
+    mu = fixed_mu[1];
+  }
+  if(estimate_sigma == 1){
+    sigma = sigma_est[1];
+  }else{
+    sigma = fixed_sigma[1];
+  }
 }
 model {
-  // priors for mu and sigma2
-  target += set_prior(mu,     prior_type_mu,     prior_parameters_mu,     bounds_type_mu,     bounds_mu);
-  target += set_prior(sigma,  prior_type_sigma,  prior_parameters_sigma,  bounds_type_sigma,  bounds_sigma);
+  // priors for mu and sigma
+  if(estimate_mu    == 1) target += set_prior(mu_est[1],     prior_type_mu,     prior_parameters_mu,     bounds_type_mu,     bounds_mu);
+  if(estimate_sigma == 1) target += set_prior(sigma_est[1],  prior_type_sigma,  prior_parameters_sigma,  bounds_type_sigma,  bounds_sigma);
 
   // likelihood of the data
   if(is_ss == 0){
