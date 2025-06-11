@@ -113,7 +113,7 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15, brid
   out <- list()
 
   # special handling of the Jeffreys priors pseudo-distributions
-  if(parameter %in% c("mu", "sigma") && is.character(prior) && prior %in% c("Jeffreys_mu", "Jeffreys_sigma")){
+  if(parameter %in% c("mu", "sigma", "nu") && is.character(prior) && prior %in% c("Jeffreys_mu", "Jeffreys_sigma", "uniform_nu")){
 
     out[[paste0("estimate_", parameter)]]  <- 1
     out[[paste0("fixed_",    parameter)]]  <- numeric()
@@ -121,18 +121,21 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15, brid
     out[[paste0("prior_type_", parameter)]] <- switch(
       prior,
       "Jeffreys_mu"     = 98,
-      "Jeffreys_sigma"  = 99
+      "Jeffreys_sigma"  = 99,
+      "uniform_nu"      = 98
     )
 
     out[[paste0("bounds_", parameter)]]      <- switch(
       prior,
       "Jeffreys_mu"     = c(999, 999),
-      "Jeffreys_sigma"  = c(0,   999)
+      "Jeffreys_sigma"  = c(0,   999),
+      "uniform_nu"      = c(0,   999)
     )
     out[[paste0("bounds_type_", parameter)]] <- switch(
       prior,
       "Jeffreys_mu"     = c(0, 0),
-      "Jeffreys_sigma"  = c(1, 0)
+      "Jeffreys_sigma"  = c(1, 0),
+      "uniform_nu"      = c(1, 0)
     )
 
     out[[paste0("prior_parameters_", parameter)]] <- c(999, 999, 999)

@@ -90,9 +90,9 @@ bpc <- function(
 .bpc_fit    <- function(data, priors, control) {
 
   model_call <- list(
-    object    = stanmodels[[if (is.null(priors[["prior_type_nu"]])) "normal" else "t"]],
+    object    = stanmodels[[if (.bpc_stan_priors.is_t(priors)) "t" else "normal"]],
     data      = c(data, priors),
-    pars      = c("mu", "sigma", if (!is.null(priors[["prior_type_nu"]])) "nu"),
+    pars      = c("mu", if (.bpc_stan_priors.is_t(priors)) c("scale", "nu") else "sigma"),
     chains    = control[["chains"]],
     warmup    = control[["warmup"]],
     iter      = control[["iter"]],
@@ -118,6 +118,11 @@ bpc <- function(
   fit <- tryCatch(suppressWarnings(do.call(rstan::sampling, model_call)), error = function(e)e)
 
   return(fit)
+}
+
+# helpers
+.bpc_stan_priors.is_t <- function(priors) {
+  return(!is.null(priors[["prior_type_nu"]]))
 }
 
 

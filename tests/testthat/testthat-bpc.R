@@ -33,3 +33,23 @@ testthat::test_that("fit control", {
 
   fit$stanfit
 })
+
+
+testthat::test_that("fit with t-distribution", {
+
+  set.seed(1)
+  x <- rnorm(100, 10, 2)
+
+  fit <- bpc(
+    x,
+    prior_nu    = prior("exp",  list(1))
+  )
+
+  fit2 <- bpc(
+    x,
+    prior_nu    = prior("uniform", list(0, 100))
+  )
+
+  fit$stanfit
+  fit2$stanfit
+})

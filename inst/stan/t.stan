@@ -21,7 +21,7 @@ data {
 
   // fixed values for non-estimated parameters
   array[estimate_mu    == 0 ? 1 : 0] real fixed_mu;
-  array[estimate_sigma == 0 ? 1 : 0] real fixed_scale;
+  array[estimate_sigma == 0 ? 1 : 0] real fixed_sigma;
   array[estimate_nu    == 0 ? 1 : 0] real fixed_nu;
 
   // prior distribution specification of the parameters
@@ -55,7 +55,7 @@ transformed parameters {
   if (estimate_sigma == 1) {
     scale = sigma_est[1] / sqrt(nu / (nu - 2.0));
   } else {
-    scale = fixed_scale[1];
+    scale = fixed_sigma[1] / sqrt(nu / (nu - 2.0));
   }
 }
 model {
