@@ -4,7 +4,7 @@
 \alias{summarize_capability_metrics}
 \title{Title}
 \usage{
-summarize_capability_metrics(fit, ...)
+summarize_capability_metrics(fit, cri_width = 0.95, ...)
 }
 \arguments{
 \item{...}{}

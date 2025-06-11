@@ -82,12 +82,12 @@ compute_capability_metrics <- function(fit, LSL = -1, USL = 1, target = 0) {
 #' @export
 #'
 #' @examples
-summarize_capability_metrics <- function(fit, ...) {
+summarize_capability_metrics <- function(fit, cri_width = 0.95,...) {
   UseMethod("summarize_capability_metrics")
 }
 
 #' @export
-summarize_capability_metrics.bpc <- function(fit, LSL = -1, USL = 1, target = 0, ...) {
+summarize_capability_metrics.bpc <- function(fit, cri_width = 0.95, LSL = -1, USL = 1, target = 0, ...) {
 
   metrics <- compute_capability_metrics(fit, LSL, USL, target)
   return(summarize_capability_metrics(metrics))
@@ -95,10 +95,13 @@ summarize_capability_metrics.bpc <- function(fit, LSL = -1, USL = 1, target = 0,
 }
 
 #' @export
-summarize_capability_metrics.capability_metrics <- function(fit, ...) {
+summarize_capability_metrics.capability_metrics <- function(fit, cri_width = 0.95, ...) {
+
+  h <- (1 - cri_width) / 2
+  probs <- c(h, .5, 1 - h)
 
   out <- t(vapply(fit, function(x) {
-    quantiles <- unname(stats::quantile(x, probs = c(0.025, .5, 0.975)))
+    quantiles <- unname(stats::quantile(x, probs = probs))
     c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
   }, numeric(5L)))
 
