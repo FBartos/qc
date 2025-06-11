@@ -19,7 +19,7 @@ compute_capability_metrics <- function(fit, LSL = -1, USL = 1, target = 0) {
   # Eq. 8.13 of Montgomery, 8th edition
   Cpm <- Cp / sqrt(1 + xi^2)
 
-  ls <- list(
+  lst <- list(
     Cp  = Cp,
     CpU = CpU,
     CpL = CpL,
