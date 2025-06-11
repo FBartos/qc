@@ -27,32 +27,72 @@ namespace model_t_namespace {
 using stan::model::model_base_crtp;
 using namespace stan::math;
 stan::math::profile_map profiles__;
-static constexpr std::array<const char*, 177> locations_array__ =
+static constexpr std::array<const char*, 217> locations_array__ =
   {" (found before start of program)",
-  " (in 'string', line 208, column 2 to column 112)",
-  " (in 'string', line 209, column 2 to column 115)",
-  " (in 'string', line 210, column 2 to column 114)",
-  " (in 'string', line 213, column 2 to column 24)",
-  " (in 'string', line 214, column 2 to column 45)",
-  " (in 'string', line 218, column 2 to column 105)",
-  " (in 'string', line 219, column 2 to column 108)",
-  " (in 'string', line 220, column 2 to column 105)",
-  " (in 'string', line 222, column 2 to column 46)",
+  " (in 'string', line 216, column 2 to column 138)",
+  " (in 'string', line 217, column 2 to column 141)",
+  " (in 'string', line 218, column 2 to column 138)",
+  " (in 'string', line 221, column 2 to column 10)",
+  " (in 'string', line 222, column 2 to column 13)",
+  " (in 'string', line 223, column 2 to column 10)",
+  " (in 'string', line 227, column 4 to column 21)",
+  " (in 'string', line 226, column 9 to line 228, column 3)",
+  " (in 'string', line 225, column 4 to column 23)",
+  " (in 'string', line 224, column 24 to line 226, column 3)",
+  " (in 'string', line 224, column 2 to line 228, column 3)",
+  " (in 'string', line 232, column 4 to column 21)",
+  " (in 'string', line 231, column 9 to line 233, column 3)",
+  " (in 'string', line 230, column 4 to column 19)",
+  " (in 'string', line 229, column 24 to line 231, column 3)",
+  " (in 'string', line 229, column 2 to line 233, column 3)",
+  " (in 'string', line 237, column 4 to column 27)",
+  " (in 'string', line 236, column 9 to line 238, column 3)",
+  " (in 'string', line 235, column 4 to column 49)",
+  " (in 'string', line 234, column 27 to line 236, column 3)",
+  " (in 'string', line 234, column 2 to line 238, column 3)",
+  " (in 'string', line 242, column 27 to column 137)",
+  " (in 'string', line 242, column 2 to column 137)",
+  " (in 'string', line 243, column 27 to column 140)",
+  " (in 'string', line 243, column 2 to column 140)",
+  " (in 'string', line 244, column 27 to column 137)",
+  " (in 'string', line 244, column 2 to column 137)",
+  " (in 'string', line 246, column 2 to column 46)",
   " (in 'string', line 189, column 2 to column 17)",
   " (in 'string', line 191, column 9 to column 10)",
   " (in 'string', line 191, column 2 to column 14)",
-  " (in 'string', line 193, column 2 to column 22)",
-  " (in 'string', line 194, column 2 to column 25)",
-  " (in 'string', line 195, column 2 to column 22)",
-  " (in 'string', line 196, column 2 to column 30)",
-  " (in 'string', line 197, column 2 to column 33)",
-  " (in 'string', line 198, column 2 to column 30)",
-  " (in 'string', line 200, column 2 to column 32)",
-  " (in 'string', line 201, column 2 to column 35)",
-  " (in 'string', line 202, column 2 to column 32)",
-  " (in 'string', line 203, column 2 to column 20)",
-  " (in 'string', line 204, column 2 to column 23)",
-  " (in 'string', line 205, column 2 to column 20)",
+  " (in 'string', line 193, column 2 to column 18)",
+  " (in 'string', line 194, column 2 to column 21)",
+  " (in 'string', line 195, column 2 to column 18)",
+  " (in 'string', line 197, column 9 to column 36)",
+  " (in 'string', line 197, column 2 to column 48)",
+  " (in 'string', line 198, column 9 to column 36)",
+  " (in 'string', line 198, column 2 to column 51)",
+  " (in 'string', line 199, column 9 to column 36)",
+  " (in 'string', line 199, column 2 to column 48)",
+  " (in 'string', line 200, column 8 to column 35)",
+  " (in 'string', line 200, column 2 to column 56)",
+  " (in 'string', line 201, column 8 to column 35)",
+  " (in 'string', line 201, column 2 to column 59)",
+  " (in 'string', line 202, column 8 to column 35)",
+  " (in 'string', line 202, column 2 to column 56)",
+  " (in 'string', line 204, column 8 to column 35)",
+  " (in 'string', line 204, column 2 to column 51)",
+  " (in 'string', line 205, column 8 to column 35)",
+  " (in 'string', line 205, column 2 to column 54)",
+  " (in 'string', line 206, column 8 to column 35)",
+  " (in 'string', line 206, column 2 to column 51)",
+  " (in 'string', line 208, column 9 to column 36)",
+  " (in 'string', line 208, column 2 to column 58)",
+  " (in 'string', line 209, column 9 to column 36)",
+  " (in 'string', line 209, column 2 to column 61)",
+  " (in 'string', line 210, column 9 to column 36)",
+  " (in 'string', line 210, column 2 to column 58)",
+  " (in 'string', line 211, column 2 to column 20)",
+  " (in 'string', line 212, column 2 to column 23)",
+  " (in 'string', line 213, column 2 to column 20)",
+  " (in 'string', line 216, column 8 to column 19)",
+  " (in 'string', line 217, column 8 to column 22)",
+  " (in 'string', line 218, column 8 to column 19)",
   " (in 'string', line 6, column 4 to column 13)",
   " (in 'string', line 5, column 32 to line 7, column 3)",
   " (in 'string', line 9, column 4 to column 24)",
@@ -257,7 +297,7 @@ Jeffreys_mu_lpdf(const T0__& mu, std::ostream* pstream__) {
   // suppress unused var warning
   (void) DUMMY_VAR__;
   try {
-    current_statement__ = 25;
+    current_statement__ = 65;
     return 0;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -273,7 +313,7 @@ Jeffreys_sigma_lpdf(const T0__& sigma, std::ostream* pstream__) {
   // suppress unused var warning
   (void) DUMMY_VAR__;
   try {
-    current_statement__ = 27;
+    current_statement__ = 67;
     return stan::math::log((1 / sigma));
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -298,27 +338,27 @@ coefs_lb(const std::vector<int>& type_in, const T1__& bound_in_arg__,
     int type = std::numeric_limits<int>::min();
     local_scalar_t__ bound = DUMMY_VAR__;
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 37;
+    current_statement__ = 77;
     if (stan::math::logical_eq(stan::math::num_elements(type_in), 0)) {
-      current_statement__ = 35;
+      current_statement__ = 75;
       return stan::math::negative_infinity();
     } else {
-      current_statement__ = 32;
+      current_statement__ = 72;
       type = stan::model::rvalue(type_in, "type_in",
                stan::model::index_uni(1));
-      current_statement__ = 33;
+      current_statement__ = 73;
       bound = stan::model::rvalue(bound_in, "bound_in",
                 stan::model::index_uni(1));
     }
-    current_statement__ = 40;
+    current_statement__ = 80;
     if (stan::math::logical_eq(type, 0)) {
-      current_statement__ = 39;
+      current_statement__ = 79;
       lb = stan::math::negative_infinity();
     } else {
-      current_statement__ = 38;
+      current_statement__ = 78;
       lb = bound;
     }
-    current_statement__ = 41;
+    current_statement__ = 81;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -343,27 +383,27 @@ coefs_ub(const std::vector<int>& type_in, const T1__& bound_in_arg__,
     int type = std::numeric_limits<int>::min();
     local_scalar_t__ bound = DUMMY_VAR__;
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 51;
+    current_statement__ = 91;
     if (stan::math::logical_eq(stan::math::num_elements(type_in), 0)) {
-      current_statement__ = 49;
+      current_statement__ = 89;
       return stan::math::positive_infinity();
     } else {
-      current_statement__ = 46;
+      current_statement__ = 86;
       type = stan::model::rvalue(type_in, "type_in",
                stan::model::index_uni(2));
-      current_statement__ = 47;
+      current_statement__ = 87;
       bound = stan::model::rvalue(bound_in, "bound_in",
                 stan::model::index_uni(2));
     }
-    current_statement__ = 54;
+    current_statement__ = 94;
     if (stan::math::logical_eq(type, 0)) {
-      current_statement__ = 53;
+      current_statement__ = 93;
       lb = stan::math::positive_infinity();
     } else {
-      current_statement__ = 52;
+      current_statement__ = 92;
       lb = bound;
     }
-    current_statement__ = 55;
+    current_statement__ = 95;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -386,16 +426,16 @@ data_lb(const int& is_trunc, const T1__& trunc_in_arg__, std::ostream*
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 60;
+    current_statement__ = 100;
     if (stan::math::logical_eq(is_trunc, 0)) {
-      current_statement__ = 59;
+      current_statement__ = 99;
       lb = stan::math::negative_infinity();
     } else {
-      current_statement__ = 58;
+      current_statement__ = 98;
       lb = stan::model::rvalue(trunc_in, "trunc_in",
              stan::model::index_uni(1));
     }
-    current_statement__ = 61;
+    current_statement__ = 101;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -418,16 +458,16 @@ data_ub(const int& is_trunc, const T1__& trunc_in_arg__, std::ostream*
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ ub = DUMMY_VAR__;
-    current_statement__ = 66;
+    current_statement__ = 106;
     if (stan::math::logical_eq(is_trunc, 0)) {
-      current_statement__ = 65;
+      current_statement__ = 105;
       ub = stan::math::positive_infinity();
     } else {
-      current_statement__ = 64;
+      current_statement__ = 104;
       ub = stan::model::rvalue(trunc_in, "trunc_in",
              stan::model::index_uni(2));
     }
-    current_statement__ = 67;
+    current_statement__ = 107;
     return ub;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -457,15 +497,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ ll = DUMMY_VAR__;
-    current_statement__ = 174;
+    current_statement__ = 214;
     if (stan::math::logical_eq(prior_type, 1)) {
-      current_statement__ = 163;
+      current_statement__ = 203;
       ll = stan::math::normal_lpdf<false>(parameter,
              stan::model::rvalue(prior_parameters, "prior_parameters",
                stan::model::index_uni(1)),
              stan::model::rvalue(prior_parameters, "prior_parameters",
                stan::model::index_uni(2)));
-      current_statement__ = 172;
+      current_statement__ = 212;
       if ((stan::math::primitive_value(
              stan::math::logical_neq(
                stan::model::rvalue(bounds_type, "bounds_type",
@@ -475,7 +515,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
             stan::math::logical_neq(
               stan::model::rvalue(bounds_type, "bounds_type",
                 stan::model::index_uni(2)), 0)))) {
-        current_statement__ = 170;
+        current_statement__ = 210;
         ll = (ll -
           stan::math::log_diff_exp(
             stan::math::normal_lcdf(
@@ -491,11 +531,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::model::rvalue(prior_parameters, "prior_parameters",
                 stan::model::index_uni(2)))));
       } else {
-        current_statement__ = 169;
+        current_statement__ = 209;
         if (stan::math::logical_neq(
               stan::model::rvalue(bounds_type, "bounds_type",
                 stan::model::index_uni(1)), 0)) {
-          current_statement__ = 167;
+          current_statement__ = 207;
           ll = (ll -
             stan::math::normal_lccdf(
               stan::model::rvalue(bounds, "bounds", stan::model::index_uni(1)),
@@ -504,11 +544,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::model::rvalue(prior_parameters, "prior_parameters",
                 stan::model::index_uni(2))));
         } else {
-          current_statement__ = 166;
+          current_statement__ = 206;
           if (stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(2)), 0)) {
-            current_statement__ = 164;
+            current_statement__ = 204;
             ll = (ll -
               stan::math::normal_lcdf(
                 stan::model::rvalue(bounds, "bounds",
@@ -521,15 +561,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
         }
       }
     } else {
-      current_statement__ = 162;
+      current_statement__ = 202;
       if (stan::math::logical_eq(prior_type, 2)) {
-        current_statement__ = 151;
+        current_statement__ = 191;
         ll = stan::math::lognormal_lpdf<false>(parameter,
                stan::model::rvalue(prior_parameters, "prior_parameters",
                  stan::model::index_uni(1)),
                stan::model::rvalue(prior_parameters, "prior_parameters",
                  stan::model::index_uni(2)));
-        current_statement__ = 160;
+        current_statement__ = 200;
         if ((stan::math::primitive_value(
                stan::math::logical_neq(
                  stan::model::rvalue(bounds_type, "bounds_type",
@@ -539,7 +579,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(2)), 0)))) {
-          current_statement__ = 158;
+          current_statement__ = 198;
           ll = (ll -
             stan::math::log_diff_exp(
               stan::math::lognormal_lcdf(
@@ -557,11 +597,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::model::rvalue(prior_parameters, "prior_parameters",
                   stan::model::index_uni(2)))));
         } else {
-          current_statement__ = 157;
+          current_statement__ = 197;
           if (stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(1)), 0)) {
-            current_statement__ = 155;
+            current_statement__ = 195;
             ll = (ll -
               stan::math::lognormal_lccdf(
                 stan::model::rvalue(bounds, "bounds",
@@ -571,11 +611,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::model::rvalue(prior_parameters, "prior_parameters",
                   stan::model::index_uni(2))));
           } else {
-            current_statement__ = 154;
+            current_statement__ = 194;
             if (stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(2)), 0)) {
-              current_statement__ = 152;
+              current_statement__ = 192;
               ll = (ll -
                 stan::math::lognormal_lcdf(
                   stan::model::rvalue(bounds, "bounds",
@@ -588,15 +628,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
           }
         }
       } else {
-        current_statement__ = 150;
+        current_statement__ = 190;
         if (stan::math::logical_eq(prior_type, 3)) {
-          current_statement__ = 139;
+          current_statement__ = 179;
           ll = stan::math::cauchy_lpdf<false>(parameter,
                  stan::model::rvalue(prior_parameters, "prior_parameters",
                    stan::model::index_uni(1)),
                  stan::model::rvalue(prior_parameters, "prior_parameters",
                    stan::model::index_uni(2)));
-          current_statement__ = 148;
+          current_statement__ = 188;
           if ((stan::math::primitive_value(
                  stan::math::logical_neq(
                    stan::model::rvalue(bounds_type, "bounds_type",
@@ -606,7 +646,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(2)), 0)))) {
-            current_statement__ = 146;
+            current_statement__ = 186;
             ll = (ll -
               stan::math::log_diff_exp(
                 stan::math::cauchy_lcdf(
@@ -624,11 +664,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::model::rvalue(prior_parameters, "prior_parameters",
                     stan::model::index_uni(2)))));
           } else {
-            current_statement__ = 145;
+            current_statement__ = 185;
             if (stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(1)), 0)) {
-              current_statement__ = 143;
+              current_statement__ = 183;
               ll = (ll -
                 stan::math::cauchy_lccdf(
                   stan::model::rvalue(bounds, "bounds",
@@ -638,11 +678,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::model::rvalue(prior_parameters, "prior_parameters",
                     stan::model::index_uni(2))));
             } else {
-              current_statement__ = 142;
+              current_statement__ = 182;
               if (stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(2)), 0)) {
-                current_statement__ = 140;
+                current_statement__ = 180;
                 ll = (ll -
                   stan::math::cauchy_lcdf(
                     stan::model::rvalue(bounds, "bounds",
@@ -655,9 +695,9 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
             }
           }
         } else {
-          current_statement__ = 138;
+          current_statement__ = 178;
           if (stan::math::logical_eq(prior_type, 4)) {
-            current_statement__ = 127;
+            current_statement__ = 167;
             ll = stan::math::student_t_lpdf<false>(parameter,
                    stan::model::rvalue(prior_parameters, "prior_parameters",
                      stan::model::index_uni(1)),
@@ -665,7 +705,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                      stan::model::index_uni(2)),
                    stan::model::rvalue(prior_parameters, "prior_parameters",
                      stan::model::index_uni(3)));
-            current_statement__ = 136;
+            current_statement__ = 176;
             if ((stan::math::primitive_value(
                    stan::math::logical_neq(
                      stan::model::rvalue(bounds_type, "bounds_type",
@@ -675,7 +715,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(2)), 0)))) {
-              current_statement__ = 134;
+              current_statement__ = 174;
               ll = (ll -
                 stan::math::log_diff_exp(
                   stan::math::student_t_lcdf(
@@ -697,11 +737,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::model::rvalue(prior_parameters, "prior_parameters",
                       stan::model::index_uni(3)))));
             } else {
-              current_statement__ = 133;
+              current_statement__ = 173;
               if (stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(1)), 0)) {
-                current_statement__ = 131;
+                current_statement__ = 171;
                 ll = (ll -
                   stan::math::student_t_lccdf(
                     stan::model::rvalue(bounds, "bounds",
@@ -713,11 +753,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::model::rvalue(prior_parameters, "prior_parameters",
                       stan::model::index_uni(3))));
               } else {
-                current_statement__ = 130;
+                current_statement__ = 170;
                 if (stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(2)), 0)) {
-                  current_statement__ = 128;
+                  current_statement__ = 168;
                   ll = (ll -
                     stan::math::student_t_lcdf(
                       stan::model::rvalue(bounds, "bounds",
@@ -732,15 +772,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               }
             }
           } else {
-            current_statement__ = 126;
+            current_statement__ = 166;
             if (stan::math::logical_eq(prior_type, 5)) {
-              current_statement__ = 115;
+              current_statement__ = 155;
               ll = stan::math::gamma_lpdf<false>(parameter,
                      stan::model::rvalue(prior_parameters,
                        "prior_parameters", stan::model::index_uni(1)),
                      stan::model::rvalue(prior_parameters,
                        "prior_parameters", stan::model::index_uni(2)));
-              current_statement__ = 124;
+              current_statement__ = 164;
               if ((stan::math::primitive_value(
                      stan::math::logical_neq(
                        stan::model::rvalue(bounds_type, "bounds_type",
@@ -750,7 +790,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(2)), 0)))) {
-                current_statement__ = 122;
+                current_statement__ = 162;
                 ll = (ll -
                   stan::math::log_diff_exp(
                     stan::math::gamma_lcdf(
@@ -768,11 +808,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::model::rvalue(prior_parameters,
                         "prior_parameters", stan::model::index_uni(2)))));
               } else {
-                current_statement__ = 121;
+                current_statement__ = 161;
                 if (stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(1)), 0)) {
-                  current_statement__ = 119;
+                  current_statement__ = 159;
                   ll = (ll -
                     stan::math::gamma_lccdf(
                       stan::model::rvalue(bounds, "bounds",
@@ -782,11 +822,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::model::rvalue(prior_parameters,
                         "prior_parameters", stan::model::index_uni(2))));
                 } else {
-                  current_statement__ = 118;
+                  current_statement__ = 158;
                   if (stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(2)), 0)) {
-                    current_statement__ = 116;
+                    current_statement__ = 156;
                     ll = (ll -
                       stan::math::gamma_lcdf(
                         stan::model::rvalue(bounds, "bounds",
@@ -799,15 +839,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 }
               }
             } else {
-              current_statement__ = 114;
+              current_statement__ = 154;
               if (stan::math::logical_eq(prior_type, 6)) {
-                current_statement__ = 103;
+                current_statement__ = 143;
                 ll = stan::math::inv_gamma_lpdf<false>(parameter,
                        stan::model::rvalue(prior_parameters,
                          "prior_parameters", stan::model::index_uni(1)),
                        stan::model::rvalue(prior_parameters,
                          "prior_parameters", stan::model::index_uni(2)));
-                current_statement__ = 112;
+                current_statement__ = 152;
                 if ((stan::math::primitive_value(
                        stan::math::logical_neq(
                          stan::model::rvalue(bounds_type, "bounds_type",
@@ -817,7 +857,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(2)), 0)))) {
-                  current_statement__ = 110;
+                  current_statement__ = 150;
                   ll = (ll -
                     stan::math::log_diff_exp(
                       stan::math::inv_gamma_lcdf(
@@ -835,11 +875,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         stan::model::rvalue(prior_parameters,
                           "prior_parameters", stan::model::index_uni(2)))));
                 } else {
-                  current_statement__ = 109;
+                  current_statement__ = 149;
                   if (stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(1)), 0)) {
-                    current_statement__ = 107;
+                    current_statement__ = 147;
                     ll = (ll -
                       stan::math::inv_gamma_lccdf(
                         stan::model::rvalue(bounds, "bounds",
@@ -849,11 +889,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         stan::model::rvalue(prior_parameters,
                           "prior_parameters", stan::model::index_uni(2))));
                   } else {
-                    current_statement__ = 106;
+                    current_statement__ = 146;
                     if (stan::math::logical_neq(
                           stan::model::rvalue(bounds_type, "bounds_type",
                             stan::model::index_uni(2)), 0)) {
-                      current_statement__ = 104;
+                      current_statement__ = 144;
                       ll = (ll -
                         stan::math::inv_gamma_lcdf(
                           stan::model::rvalue(bounds, "bounds",
@@ -866,24 +906,24 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   }
                 }
               } else {
-                current_statement__ = 102;
+                current_statement__ = 142;
                 if (stan::math::logical_eq(prior_type, 7)) {
-                  current_statement__ = 100;
+                  current_statement__ = 140;
                   ll = stan::math::uniform_lpdf<false>(parameter,
                          stan::model::rvalue(prior_parameters,
                            "prior_parameters", stan::model::index_uni(1)),
                          stan::model::rvalue(prior_parameters,
                            "prior_parameters", stan::model::index_uni(2)));
                 } else {
-                  current_statement__ = 99;
+                  current_statement__ = 139;
                   if (stan::math::logical_eq(prior_type, 8)) {
-                    current_statement__ = 88;
+                    current_statement__ = 128;
                     ll = stan::math::beta_lpdf<false>(parameter,
                            stan::model::rvalue(prior_parameters,
                              "prior_parameters", stan::model::index_uni(1)),
                            stan::model::rvalue(prior_parameters,
                              "prior_parameters", stan::model::index_uni(2)));
-                    current_statement__ = 97;
+                    current_statement__ = 137;
                     if ((stan::math::primitive_value(
                            stan::math::logical_neq(
                              stan::model::rvalue(bounds_type, "bounds_type",
@@ -893,7 +933,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                           stan::math::logical_neq(
                             stan::model::rvalue(bounds_type, "bounds_type",
                               stan::model::index_uni(2)), 0)))) {
-                      current_statement__ = 95;
+                      current_statement__ = 135;
                       ll = (ll -
                         stan::math::log_diff_exp(
                           stan::math::beta_lcdf(
@@ -911,11 +951,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::model::rvalue(prior_parameters,
                               "prior_parameters", stan::model::index_uni(2)))));
                     } else {
-                      current_statement__ = 94;
+                      current_statement__ = 134;
                       if (stan::math::logical_neq(
                             stan::model::rvalue(bounds_type, "bounds_type",
                               stan::model::index_uni(1)), 0)) {
-                        current_statement__ = 92;
+                        current_statement__ = 132;
                         ll = (ll -
                           stan::math::beta_lccdf(
                             stan::model::rvalue(bounds, "bounds",
@@ -925,11 +965,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::model::rvalue(prior_parameters,
                               "prior_parameters", stan::model::index_uni(2))));
                       } else {
-                        current_statement__ = 91;
+                        current_statement__ = 131;
                         if (stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(2)), 0)) {
-                          current_statement__ = 89;
+                          current_statement__ = 129;
                           ll = (ll -
                             stan::math::beta_lcdf(
                               stan::model::rvalue(bounds, "bounds",
@@ -942,13 +982,13 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       }
                     }
                   } else {
-                    current_statement__ = 87;
+                    current_statement__ = 127;
                     if (stan::math::logical_eq(prior_type, 9)) {
-                      current_statement__ = 76;
+                      current_statement__ = 116;
                       ll = stan::math::exponential_lpdf<false>(parameter,
                              stan::model::rvalue(prior_parameters,
                                "prior_parameters", stan::model::index_uni(1)));
-                      current_statement__ = 85;
+                      current_statement__ = 125;
                       if ((stan::math::primitive_value(
                              stan::math::logical_neq(
                                stan::model::rvalue(bounds_type,
@@ -958,7 +998,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(2)), 0)))) {
-                        current_statement__ = 83;
+                        current_statement__ = 123;
                         ll = (ll -
                           stan::math::log_diff_exp(
                             stan::math::exponential_lcdf(
@@ -972,11 +1012,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                               stan::model::rvalue(prior_parameters,
                                 "prior_parameters", stan::model::index_uni(1)))));
                       } else {
-                        current_statement__ = 82;
+                        current_statement__ = 122;
                         if (stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(1)), 0)) {
-                          current_statement__ = 80;
+                          current_statement__ = 120;
                           ll = (ll -
                             stan::math::exponential_lccdf(
                               stan::model::rvalue(bounds, "bounds",
@@ -984,12 +1024,12 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                               stan::model::rvalue(prior_parameters,
                                 "prior_parameters", stan::model::index_uni(1))));
                         } else {
-                          current_statement__ = 79;
+                          current_statement__ = 119;
                           if (stan::math::logical_neq(
                                 stan::model::rvalue(bounds_type,
                                   "bounds_type", stan::model::index_uni(2)),
                                 0)) {
-                            current_statement__ = 77;
+                            current_statement__ = 117;
                             ll = (ll -
                               stan::math::exponential_lcdf(
                                 stan::model::rvalue(bounds, "bounds",
@@ -1001,14 +1041,14 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         }
                       }
                     } else {
-                      current_statement__ = 75;
+                      current_statement__ = 115;
                       if (stan::math::logical_eq(prior_type, 98)) {
-                        current_statement__ = 73;
+                        current_statement__ = 113;
                         ll = Jeffreys_mu_lpdf<false>(parameter, pstream__);
                       } else {
-                        current_statement__ = 72;
+                        current_statement__ = 112;
                         if (stan::math::logical_eq(prior_type, 99)) {
-                          current_statement__ = 70;
+                          current_statement__ = 110;
                           ll = Jeffreys_sigma_lpdf<false>(parameter,
                                  pstream__);
                         }
@@ -1022,7 +1062,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
         }
       }
     }
-    current_statement__ = 175;
+    current_statement__ = 215;
     return ll;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -1033,12 +1073,18 @@ class model_t final : public model_base_crtp<model_t> {
 private:
   int N;
   Eigen::Matrix<double,-1,1> x_data__;
+  int estimate_mu;
+  int estimate_sigma;
+  int estimate_nu;
   Eigen::Matrix<double,-1,1> bounds_mu_data__;
   Eigen::Matrix<double,-1,1> bounds_sigma_data__;
   Eigen::Matrix<double,-1,1> bounds_nu_data__;
   std::vector<int> bounds_type_mu;
   std::vector<int> bounds_type_sigma;
   std::vector<int> bounds_type_nu;
+  std::vector<double> fixed_mu;
+  std::vector<double> fixed_scale;
+  std::vector<double> fixed_nu;
   Eigen::Matrix<double,-1,1> prior_parameters_mu_data__;
   Eigen::Matrix<double,-1,1> prior_parameters_sigma_data__;
   Eigen::Matrix<double,-1,1> prior_parameters_nu_data__;
@@ -1071,17 +1117,17 @@ public:
     try {
       int pos__ = std::numeric_limits<int>::min();
       pos__ = 1;
-      current_statement__ = 10;
+      current_statement__ = 29;
       context__.validate_dims("data initialization", "N", "int",
         std::vector<size_t>{});
       N = std::numeric_limits<int>::min();
-      current_statement__ = 10;
+      current_statement__ = 29;
       N = context__.vals_i("N")[(1 - 1)];
-      current_statement__ = 10;
+      current_statement__ = 29;
       stan::math::check_greater_or_equal(function__, "N", N, 0);
-      current_statement__ = 11;
+      current_statement__ = 30;
       stan::math::validate_non_negative_index("x", "N", N);
-      current_statement__ = 12;
+      current_statement__ = 31;
       context__.validate_dims("data initialization", "x", "double",
         std::vector<size_t>{static_cast<size_t>(N)});
       x_data__ = Eigen::Matrix<double,-1,1>::Constant(N,
@@ -1089,203 +1135,340 @@ public:
       new (&x) Eigen::Map<Eigen::Matrix<double,-1,1>>(x_data__.data(), N);
       {
         std::vector<local_scalar_t__> x_flat__;
-        current_statement__ = 12;
+        current_statement__ = 31;
         x_flat__ = context__.vals_r("x");
-        current_statement__ = 12;
+        current_statement__ = 31;
         pos__ = 1;
-        current_statement__ = 12;
+        current_statement__ = 31;
         for (int sym1__ = 1; sym1__ <= N; ++sym1__) {
-          current_statement__ = 12;
+          current_statement__ = 31;
           stan::model::assign(x, x_flat__[(pos__ - 1)],
             "assigning variable x", stan::model::index_uni(sym1__));
-          current_statement__ = 12;
+          current_statement__ = 31;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 13;
+      current_statement__ = 32;
+      context__.validate_dims("data initialization", "estimate_mu", "int",
+        std::vector<size_t>{});
+      estimate_mu = std::numeric_limits<int>::min();
+      current_statement__ = 32;
+      estimate_mu = context__.vals_i("estimate_mu")[(1 - 1)];
+      current_statement__ = 33;
+      context__.validate_dims("data initialization", "estimate_sigma", "int",
+        std::vector<size_t>{});
+      estimate_sigma = std::numeric_limits<int>::min();
+      current_statement__ = 33;
+      estimate_sigma = context__.vals_i("estimate_sigma")[(1 - 1)];
+      current_statement__ = 34;
+      context__.validate_dims("data initialization", "estimate_nu", "int",
+        std::vector<size_t>{});
+      estimate_nu = std::numeric_limits<int>::min();
+      current_statement__ = 34;
+      estimate_nu = context__.vals_i("estimate_nu")[(1 - 1)];
+      current_statement__ = 35;
+      stan::math::validate_non_negative_index("bounds_mu",
+        "estimate_mu == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
+      current_statement__ = 36;
       context__.validate_dims("data initialization", "bounds_mu", "double",
-        std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_mu_data__ = Eigen::Matrix<double,-1,1>::Constant(2,
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0))});
+      bounds_mu_data__ = Eigen::Matrix<double,-1,1>::Constant((stan::math::logical_eq(
+                                                                 estimate_mu,
+                                                                 1) ? 2 : 0),
                            std::numeric_limits<double>::quiet_NaN());
       new (&bounds_mu)
-        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_mu_data__.data(), 2);
+        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_mu_data__.data(),
+        (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
       {
         std::vector<local_scalar_t__> bounds_mu_flat__;
-        current_statement__ = 13;
+        current_statement__ = 36;
         bounds_mu_flat__ = context__.vals_r("bounds_mu");
-        current_statement__ = 13;
+        current_statement__ = 36;
         pos__ = 1;
-        current_statement__ = 13;
-        for (int sym1__ = 1; sym1__ <= 2; ++sym1__) {
-          current_statement__ = 13;
+        current_statement__ = 36;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0); ++sym1__) {
+          current_statement__ = 36;
           stan::model::assign(bounds_mu, bounds_mu_flat__[(pos__ - 1)],
             "assigning variable bounds_mu", stan::model::index_uni(sym1__));
-          current_statement__ = 13;
+          current_statement__ = 36;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 14;
+      current_statement__ = 37;
+      stan::math::validate_non_negative_index("bounds_sigma",
+        "estimate_sigma == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
+      current_statement__ = 38;
       context__.validate_dims("data initialization", "bounds_sigma",
-        "double", std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_sigma_data__ = Eigen::Matrix<double,-1,1>::Constant(2,
+        "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0))});
+      bounds_sigma_data__ = Eigen::Matrix<double,-1,1>::Constant((stan::math::logical_eq(
+                                                                    estimate_sigma,
+                                                                    1) ? 2 : 0),
                               std::numeric_limits<double>::quiet_NaN());
       new (&bounds_sigma)
-        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_sigma_data__.data(), 2);
+        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_sigma_data__.data(),
+        (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
       {
         std::vector<local_scalar_t__> bounds_sigma_flat__;
-        current_statement__ = 14;
+        current_statement__ = 38;
         bounds_sigma_flat__ = context__.vals_r("bounds_sigma");
-        current_statement__ = 14;
+        current_statement__ = 38;
         pos__ = 1;
-        current_statement__ = 14;
-        for (int sym1__ = 1; sym1__ <= 2; ++sym1__) {
-          current_statement__ = 14;
+        current_statement__ = 38;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0); ++sym1__) {
+          current_statement__ = 38;
           stan::model::assign(bounds_sigma, bounds_sigma_flat__[(pos__ - 1)],
             "assigning variable bounds_sigma", stan::model::index_uni(sym1__));
-          current_statement__ = 14;
+          current_statement__ = 38;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 15;
+      current_statement__ = 39;
+      stan::math::validate_non_negative_index("bounds_nu",
+        "estimate_nu == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0));
+      current_statement__ = 40;
       context__.validate_dims("data initialization", "bounds_nu", "double",
-        std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_nu_data__ = Eigen::Matrix<double,-1,1>::Constant(2,
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0))});
+      bounds_nu_data__ = Eigen::Matrix<double,-1,1>::Constant((stan::math::logical_eq(
+                                                                 estimate_nu,
+                                                                 1) ? 2 : 0),
                            std::numeric_limits<double>::quiet_NaN());
       new (&bounds_nu)
-        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_nu_data__.data(), 2);
+        Eigen::Map<Eigen::Matrix<double,-1,1>>(bounds_nu_data__.data(),
+        (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0));
       {
         std::vector<local_scalar_t__> bounds_nu_flat__;
-        current_statement__ = 15;
+        current_statement__ = 40;
         bounds_nu_flat__ = context__.vals_r("bounds_nu");
-        current_statement__ = 15;
+        current_statement__ = 40;
         pos__ = 1;
-        current_statement__ = 15;
-        for (int sym1__ = 1; sym1__ <= 2; ++sym1__) {
-          current_statement__ = 15;
+        current_statement__ = 40;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0); ++sym1__) {
+          current_statement__ = 40;
           stan::model::assign(bounds_nu, bounds_nu_flat__[(pos__ - 1)],
             "assigning variable bounds_nu", stan::model::index_uni(sym1__));
-          current_statement__ = 15;
+          current_statement__ = 40;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 16;
+      current_statement__ = 41;
+      stan::math::validate_non_negative_index("bounds_type_mu",
+        "estimate_mu == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
+      current_statement__ = 42;
       context__.validate_dims("data initialization", "bounds_type_mu", "int",
-        std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_type_mu = std::vector<int>(2, std::numeric_limits<int>::min());
-      current_statement__ = 16;
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0))});
+      bounds_type_mu = std::vector<int>((stan::math::logical_eq(estimate_mu,
+                                           1) ? 2 : 0),
+                         std::numeric_limits<int>::min());
+      current_statement__ = 42;
       bounds_type_mu = context__.vals_i("bounds_type_mu");
-      current_statement__ = 17;
+      current_statement__ = 43;
+      stan::math::validate_non_negative_index("bounds_type_sigma",
+        "estimate_sigma == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
+      current_statement__ = 44;
       context__.validate_dims("data initialization", "bounds_type_sigma",
-        "int", std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_type_sigma = std::vector<int>(2,
+        "int",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0))});
+      bounds_type_sigma = std::vector<int>((stan::math::logical_eq(
+                                              estimate_sigma, 1) ? 2 : 0),
                             std::numeric_limits<int>::min());
-      current_statement__ = 17;
+      current_statement__ = 44;
       bounds_type_sigma = context__.vals_i("bounds_type_sigma");
-      current_statement__ = 18;
+      current_statement__ = 45;
+      stan::math::validate_non_negative_index("bounds_type_nu",
+        "estimate_nu == 1 ? 2 : 0",
+        (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0));
+      current_statement__ = 46;
       context__.validate_dims("data initialization", "bounds_type_nu", "int",
-        std::vector<size_t>{static_cast<size_t>(2)});
-      bounds_type_nu = std::vector<int>(2, std::numeric_limits<int>::min());
-      current_statement__ = 18;
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_nu, 1) ? 2 : 0))});
+      bounds_type_nu = std::vector<int>((stan::math::logical_eq(estimate_nu,
+                                           1) ? 2 : 0),
+                         std::numeric_limits<int>::min());
+      current_statement__ = 46;
       bounds_type_nu = context__.vals_i("bounds_type_nu");
-      current_statement__ = 19;
+      current_statement__ = 47;
+      stan::math::validate_non_negative_index("fixed_mu",
+        "estimate_mu == 0 ? 1 : 0",
+        (stan::math::logical_eq(estimate_mu, 0) ? 1 : 0));
+      current_statement__ = 48;
+      context__.validate_dims("data initialization", "fixed_mu", "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_mu, 0) ? 1 : 0))});
+      fixed_mu = std::vector<double>((stan::math::logical_eq(estimate_mu, 0) ? 1 : 0),
+                   std::numeric_limits<double>::quiet_NaN());
+      current_statement__ = 48;
+      fixed_mu = context__.vals_r("fixed_mu");
+      current_statement__ = 49;
+      stan::math::validate_non_negative_index("fixed_scale",
+        "estimate_sigma == 0 ? 1 : 0",
+        (stan::math::logical_eq(estimate_sigma, 0) ? 1 : 0));
+      current_statement__ = 50;
+      context__.validate_dims("data initialization", "fixed_scale", "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_sigma, 0) ? 1 : 0))});
+      fixed_scale = std::vector<double>((stan::math::logical_eq(
+                                           estimate_sigma, 0) ? 1 : 0),
+                      std::numeric_limits<double>::quiet_NaN());
+      current_statement__ = 50;
+      fixed_scale = context__.vals_r("fixed_scale");
+      current_statement__ = 51;
+      stan::math::validate_non_negative_index("fixed_nu",
+        "estimate_nu == 0 ? 1 : 0",
+        (stan::math::logical_eq(estimate_nu, 0) ? 1 : 0));
+      current_statement__ = 52;
+      context__.validate_dims("data initialization", "fixed_nu", "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_nu, 0) ? 1 : 0))});
+      fixed_nu = std::vector<double>((stan::math::logical_eq(estimate_nu, 0) ? 1 : 0),
+                   std::numeric_limits<double>::quiet_NaN());
+      current_statement__ = 52;
+      fixed_nu = context__.vals_r("fixed_nu");
+      current_statement__ = 53;
+      stan::math::validate_non_negative_index("prior_parameters_mu",
+        "estimate_mu == 1 ? 3 : 0",
+        (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0));
+      current_statement__ = 54;
       context__.validate_dims("data initialization", "prior_parameters_mu",
-        "double", std::vector<size_t>{static_cast<size_t>(3)});
-      prior_parameters_mu_data__ = Eigen::Matrix<double,-1,1>::Constant(3,
+        "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0))});
+      prior_parameters_mu_data__ = Eigen::Matrix<double,-1,1>::Constant((
+                                     stan::math::logical_eq(estimate_mu, 1) ? 3 : 0),
                                      std::numeric_limits<double>::quiet_NaN());
       new (&prior_parameters_mu)
         Eigen::Map<Eigen::Matrix<double,-1,1>>(prior_parameters_mu_data__.data(),
-        3);
+        (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0));
       {
         std::vector<local_scalar_t__> prior_parameters_mu_flat__;
-        current_statement__ = 19;
+        current_statement__ = 54;
         prior_parameters_mu_flat__ = context__.vals_r("prior_parameters_mu");
-        current_statement__ = 19;
+        current_statement__ = 54;
         pos__ = 1;
-        current_statement__ = 19;
-        for (int sym1__ = 1; sym1__ <= 3; ++sym1__) {
-          current_statement__ = 19;
+        current_statement__ = 54;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0); ++sym1__) {
+          current_statement__ = 54;
           stan::model::assign(prior_parameters_mu,
             prior_parameters_mu_flat__[(pos__ - 1)],
             "assigning variable prior_parameters_mu",
             stan::model::index_uni(sym1__));
-          current_statement__ = 19;
+          current_statement__ = 54;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 20;
+      current_statement__ = 55;
+      stan::math::validate_non_negative_index("prior_parameters_sigma",
+        "estimate_sigma == 1 ? 3 : 0",
+        (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0));
+      current_statement__ = 56;
       context__.validate_dims("data initialization",
         "prior_parameters_sigma", "double",
-        std::vector<size_t>{static_cast<size_t>(3)});
-      prior_parameters_sigma_data__ = Eigen::Matrix<double,-1,1>::Constant(3,
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0))});
+      prior_parameters_sigma_data__ = Eigen::Matrix<double,-1,1>::Constant((
+                                        stan::math::logical_eq(
+                                          estimate_sigma, 1) ? 3 : 0),
                                         std::numeric_limits<double>::quiet_NaN(
                                           ));
       new (&prior_parameters_sigma)
         Eigen::Map<Eigen::Matrix<double,-1,1>>(prior_parameters_sigma_data__.data(),
-        3);
+        (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0));
       {
         std::vector<local_scalar_t__> prior_parameters_sigma_flat__;
-        current_statement__ = 20;
+        current_statement__ = 56;
         prior_parameters_sigma_flat__ = context__.vals_r("prior_parameters_sigma");
-        current_statement__ = 20;
+        current_statement__ = 56;
         pos__ = 1;
-        current_statement__ = 20;
-        for (int sym1__ = 1; sym1__ <= 3; ++sym1__) {
-          current_statement__ = 20;
+        current_statement__ = 56;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0); ++sym1__) {
+          current_statement__ = 56;
           stan::model::assign(prior_parameters_sigma,
             prior_parameters_sigma_flat__[(pos__ - 1)],
             "assigning variable prior_parameters_sigma",
             stan::model::index_uni(sym1__));
-          current_statement__ = 20;
+          current_statement__ = 56;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 21;
+      current_statement__ = 57;
+      stan::math::validate_non_negative_index("prior_parameters_nu",
+        "estimate_nu == 1 ? 3 : 0",
+        (stan::math::logical_eq(estimate_nu, 1) ? 3 : 0));
+      current_statement__ = 58;
       context__.validate_dims("data initialization", "prior_parameters_nu",
-        "double", std::vector<size_t>{static_cast<size_t>(3)});
-      prior_parameters_nu_data__ = Eigen::Matrix<double,-1,1>::Constant(3,
+        "double",
+        std::vector<size_t>{static_cast<size_t>(
+                              (stan::math::logical_eq(estimate_nu, 1) ? 3 : 0))});
+      prior_parameters_nu_data__ = Eigen::Matrix<double,-1,1>::Constant((
+                                     stan::math::logical_eq(estimate_nu, 1) ? 3 : 0),
                                      std::numeric_limits<double>::quiet_NaN());
       new (&prior_parameters_nu)
         Eigen::Map<Eigen::Matrix<double,-1,1>>(prior_parameters_nu_data__.data(),
-        3);
+        (stan::math::logical_eq(estimate_nu, 1) ? 3 : 0));
       {
         std::vector<local_scalar_t__> prior_parameters_nu_flat__;
-        current_statement__ = 21;
+        current_statement__ = 58;
         prior_parameters_nu_flat__ = context__.vals_r("prior_parameters_nu");
-        current_statement__ = 21;
+        current_statement__ = 58;
         pos__ = 1;
-        current_statement__ = 21;
-        for (int sym1__ = 1; sym1__ <= 3; ++sym1__) {
-          current_statement__ = 21;
+        current_statement__ = 58;
+        for (int sym1__ = 1; sym1__ <=
+             (stan::math::logical_eq(estimate_nu, 1) ? 3 : 0); ++sym1__) {
+          current_statement__ = 58;
           stan::model::assign(prior_parameters_nu,
             prior_parameters_nu_flat__[(pos__ - 1)],
             "assigning variable prior_parameters_nu",
             stan::model::index_uni(sym1__));
-          current_statement__ = 21;
+          current_statement__ = 58;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 22;
+      current_statement__ = 59;
       context__.validate_dims("data initialization", "prior_type_mu", "int",
         std::vector<size_t>{});
       prior_type_mu = std::numeric_limits<int>::min();
-      current_statement__ = 22;
+      current_statement__ = 59;
       prior_type_mu = context__.vals_i("prior_type_mu")[(1 - 1)];
-      current_statement__ = 23;
+      current_statement__ = 60;
       context__.validate_dims("data initialization", "prior_type_sigma",
         "int", std::vector<size_t>{});
       prior_type_sigma = std::numeric_limits<int>::min();
-      current_statement__ = 23;
+      current_statement__ = 60;
       prior_type_sigma = context__.vals_i("prior_type_sigma")[(1 - 1)];
-      current_statement__ = 24;
+      current_statement__ = 61;
       context__.validate_dims("data initialization", "prior_type_nu", "int",
         std::vector<size_t>{});
       prior_type_nu = std::numeric_limits<int>::min();
-      current_statement__ = 24;
+      current_statement__ = 61;
       prior_type_nu = context__.vals_i("prior_type_nu")[(1 - 1)];
+      current_statement__ = 62;
+      stan::math::validate_non_negative_index("mu_est", "estimate_mu",
+        estimate_mu);
+      current_statement__ = 63;
+      stan::math::validate_non_negative_index("sigma_est", "estimate_sigma",
+        estimate_sigma);
+      current_statement__ = 64;
+      stan::math::validate_non_negative_index("nu_est", "estimate_nu",
+        estimate_nu);
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
     }
-    num_params_r__ = 1 + 1 + 1;
+    num_params_r__ = estimate_mu + estimate_sigma + estimate_nu;
   }
   inline std::string model_name() const final {
     return "model_t";
@@ -1313,40 +1496,93 @@ public:
     // suppress unused var warning
     (void) function__;
     try {
-      local_scalar_t__ mu = DUMMY_VAR__;
+      std::vector<local_scalar_t__> mu_est =
+        std::vector<local_scalar_t__>(estimate_mu, DUMMY_VAR__);
       current_statement__ = 1;
-      mu = in__.template read_constrain_lub<local_scalar_t__,
-             jacobian__>(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
-             coefs_ub(bounds_type_mu, bounds_mu, pstream__), lp__);
-      local_scalar_t__ sigma = DUMMY_VAR__;
+      mu_est = in__.template read_constrain_lub<
+                 std::vector<local_scalar_t__>,
+                 jacobian__>(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
+                 coefs_ub(bounds_type_mu, bounds_mu, pstream__), lp__,
+                 estimate_mu);
+      std::vector<local_scalar_t__> sigma_est =
+        std::vector<local_scalar_t__>(estimate_sigma, DUMMY_VAR__);
       current_statement__ = 2;
-      sigma = in__.template read_constrain_lub<local_scalar_t__,
-                jacobian__>(coefs_lb(bounds_type_sigma, bounds_sigma,
-                              pstream__),
-                coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), lp__);
-      local_scalar_t__ nu_p = DUMMY_VAR__;
+      sigma_est = in__.template read_constrain_lub<
+                    std::vector<local_scalar_t__>,
+                    jacobian__>(coefs_lb(bounds_type_sigma, bounds_sigma,
+                                  pstream__),
+                    coefs_ub(bounds_type_sigma, bounds_sigma, pstream__),
+                    lp__, estimate_sigma);
+      std::vector<local_scalar_t__> nu_est =
+        std::vector<local_scalar_t__>(estimate_nu, DUMMY_VAR__);
       current_statement__ = 3;
-      nu_p = in__.template read_constrain_lub<local_scalar_t__,
-               jacobian__>(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
-               coefs_ub(bounds_type_nu, bounds_nu, pstream__), lp__);
-      local_scalar_t__ nu = DUMMY_VAR__;
-      current_statement__ = 4;
-      nu = (nu_p + 2);
+      nu_est = in__.template read_constrain_lub<
+                 std::vector<local_scalar_t__>,
+                 jacobian__>(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
+                 coefs_ub(bounds_type_nu, bounds_nu, pstream__), lp__,
+                 estimate_nu);
+      local_scalar_t__ mu = DUMMY_VAR__;
       local_scalar_t__ scale = DUMMY_VAR__;
-      current_statement__ = 5;
-      scale = (sigma / stan::math::sqrt((nu / (nu - 2.0))));
-      {
-        current_statement__ = 6;
-        lp_accum__.add(set_prior(mu, prior_type_mu, prior_parameters_mu,
-                         bounds_type_mu, bounds_mu, pstream__));
-        current_statement__ = 7;
-        lp_accum__.add(set_prior(sigma, prior_type_sigma,
-                         prior_parameters_sigma, bounds_type_sigma,
-                         bounds_sigma, pstream__));
-        current_statement__ = 8;
-        lp_accum__.add(set_prior(nu_p, prior_type_nu, prior_parameters_nu,
-                         bounds_type_nu, bounds_nu, pstream__));
+      local_scalar_t__ nu = DUMMY_VAR__;
+      current_statement__ = 11;
+      if (stan::math::logical_eq(estimate_nu, 1)) {
         current_statement__ = 9;
+        nu = (stan::model::rvalue(nu_est, "nu_est", stan::model::index_uni(1))
+          + 2);
+      } else {
+        current_statement__ = 7;
+        nu = stan::model::rvalue(fixed_nu, "fixed_nu",
+               stan::model::index_uni(1));
+      }
+      current_statement__ = 16;
+      if (stan::math::logical_eq(estimate_mu, 1)) {
+        current_statement__ = 14;
+        mu = stan::model::rvalue(mu_est, "mu_est", stan::model::index_uni(1));
+      } else {
+        current_statement__ = 12;
+        mu = stan::model::rvalue(fixed_mu, "fixed_mu",
+               stan::model::index_uni(1));
+      }
+      current_statement__ = 21;
+      if (stan::math::logical_eq(estimate_sigma, 1)) {
+        current_statement__ = 19;
+        scale = (stan::model::rvalue(sigma_est, "sigma_est",
+                   stan::model::index_uni(1))
+          / stan::math::sqrt((nu / (nu - 2.0))));
+      } else {
+        current_statement__ = 17;
+        scale = stan::model::rvalue(fixed_scale, "fixed_scale",
+                  stan::model::index_uni(1));
+      }
+      {
+        current_statement__ = 23;
+        if (stan::math::logical_eq(estimate_mu, 1)) {
+          current_statement__ = 22;
+          lp_accum__.add(set_prior(
+                           stan::model::rvalue(mu_est, "mu_est",
+                             stan::model::index_uni(1)), prior_type_mu,
+                           prior_parameters_mu, bounds_type_mu, bounds_mu,
+                           pstream__));
+        }
+        current_statement__ = 25;
+        if (stan::math::logical_eq(estimate_sigma, 1)) {
+          current_statement__ = 24;
+          lp_accum__.add(set_prior(
+                           stan::model::rvalue(sigma_est, "sigma_est",
+                             stan::model::index_uni(1)), prior_type_sigma,
+                           prior_parameters_sigma, bounds_type_sigma,
+                           bounds_sigma, pstream__));
+        }
+        current_statement__ = 27;
+        if (stan::math::logical_eq(estimate_nu, 1)) {
+          current_statement__ = 26;
+          lp_accum__.add(set_prior(
+                           stan::model::rvalue(nu_est, "nu_est",
+                             stan::model::index_uni(1)), prior_type_nu,
+                           prior_parameters_nu, bounds_type_nu, bounds_nu,
+                           pstream__));
+        }
+        current_statement__ = 28;
         lp_accum__.add(stan::math::student_t_lpdf<false>(x, nu, mu, scale));
       }
     } catch (const std::exception& e) {
@@ -1386,39 +1622,79 @@ public:
     // suppress unused var warning
     (void) function__;
     try {
-      double mu = std::numeric_limits<double>::quiet_NaN();
+      std::vector<double> mu_est =
+        std::vector<double>(estimate_mu,
+          std::numeric_limits<double>::quiet_NaN());
       current_statement__ = 1;
-      mu = in__.template read_constrain_lub<local_scalar_t__,
-             jacobian__>(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
-             coefs_ub(bounds_type_mu, bounds_mu, pstream__), lp__);
-      double sigma = std::numeric_limits<double>::quiet_NaN();
+      mu_est = in__.template read_constrain_lub<
+                 std::vector<local_scalar_t__>,
+                 jacobian__>(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
+                 coefs_ub(bounds_type_mu, bounds_mu, pstream__), lp__,
+                 estimate_mu);
+      std::vector<double> sigma_est =
+        std::vector<double>(estimate_sigma,
+          std::numeric_limits<double>::quiet_NaN());
       current_statement__ = 2;
-      sigma = in__.template read_constrain_lub<local_scalar_t__,
-                jacobian__>(coefs_lb(bounds_type_sigma, bounds_sigma,
-                              pstream__),
-                coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), lp__);
-      double nu_p = std::numeric_limits<double>::quiet_NaN();
+      sigma_est = in__.template read_constrain_lub<
+                    std::vector<local_scalar_t__>,
+                    jacobian__>(coefs_lb(bounds_type_sigma, bounds_sigma,
+                                  pstream__),
+                    coefs_ub(bounds_type_sigma, bounds_sigma, pstream__),
+                    lp__, estimate_sigma);
+      std::vector<double> nu_est =
+        std::vector<double>(estimate_nu,
+          std::numeric_limits<double>::quiet_NaN());
       current_statement__ = 3;
-      nu_p = in__.template read_constrain_lub<local_scalar_t__,
-               jacobian__>(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
-               coefs_ub(bounds_type_nu, bounds_nu, pstream__), lp__);
-      double nu = std::numeric_limits<double>::quiet_NaN();
+      nu_est = in__.template read_constrain_lub<
+                 std::vector<local_scalar_t__>,
+                 jacobian__>(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
+                 coefs_ub(bounds_type_nu, bounds_nu, pstream__), lp__,
+                 estimate_nu);
+      double mu = std::numeric_limits<double>::quiet_NaN();
       double scale = std::numeric_limits<double>::quiet_NaN();
-      out__.write(mu);
-      out__.write(sigma);
-      out__.write(nu_p);
+      double nu = std::numeric_limits<double>::quiet_NaN();
+      out__.write(mu_est);
+      out__.write(sigma_est);
+      out__.write(nu_est);
       if (stan::math::logical_negation(
             (stan::math::primitive_value(emit_transformed_parameters__) ||
             stan::math::primitive_value(emit_generated_quantities__)))) {
         return ;
       }
-      current_statement__ = 4;
-      nu = (nu_p + 2);
-      current_statement__ = 5;
-      scale = (sigma / stan::math::sqrt((nu / (nu - 2.0))));
+      current_statement__ = 11;
+      if (stan::math::logical_eq(estimate_nu, 1)) {
+        current_statement__ = 9;
+        nu = (stan::model::rvalue(nu_est, "nu_est", stan::model::index_uni(1))
+          + 2);
+      } else {
+        current_statement__ = 7;
+        nu = stan::model::rvalue(fixed_nu, "fixed_nu",
+               stan::model::index_uni(1));
+      }
+      current_statement__ = 16;
+      if (stan::math::logical_eq(estimate_mu, 1)) {
+        current_statement__ = 14;
+        mu = stan::model::rvalue(mu_est, "mu_est", stan::model::index_uni(1));
+      } else {
+        current_statement__ = 12;
+        mu = stan::model::rvalue(fixed_mu, "fixed_mu",
+               stan::model::index_uni(1));
+      }
+      current_statement__ = 21;
+      if (stan::math::logical_eq(estimate_sigma, 1)) {
+        current_statement__ = 19;
+        scale = (stan::model::rvalue(sigma_est, "sigma_est",
+                   stan::model::index_uni(1))
+          / stan::math::sqrt((nu / (nu - 2.0))));
+      } else {
+        current_statement__ = 17;
+        scale = stan::model::rvalue(fixed_scale, "fixed_scale",
+                  stan::model::index_uni(1));
+      }
       if (emit_transformed_parameters__) {
-        out__.write(nu);
+        out__.write(mu);
         out__.write(scale);
+        out__.write(nu);
       }
       if (stan::math::logical_negation(emit_generated_quantities__)) {
         return ;
@@ -1443,22 +1719,31 @@ public:
     try {
       int pos__ = std::numeric_limits<int>::min();
       pos__ = 1;
-      local_scalar_t__ mu = DUMMY_VAR__;
+      std::vector<local_scalar_t__> mu_est =
+        std::vector<local_scalar_t__>(estimate_mu, DUMMY_VAR__);
       current_statement__ = 1;
-      mu = in__.read<local_scalar_t__>();
+      stan::model::assign(mu_est,
+        in__.read<std::vector<local_scalar_t__>>(estimate_mu),
+        "assigning variable mu_est");
       out__.write_free_lub(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
-        coefs_ub(bounds_type_mu, bounds_mu, pstream__), mu);
-      local_scalar_t__ sigma = DUMMY_VAR__;
+        coefs_ub(bounds_type_mu, bounds_mu, pstream__), mu_est);
+      std::vector<local_scalar_t__> sigma_est =
+        std::vector<local_scalar_t__>(estimate_sigma, DUMMY_VAR__);
       current_statement__ = 2;
-      sigma = in__.read<local_scalar_t__>();
+      stan::model::assign(sigma_est,
+        in__.read<std::vector<local_scalar_t__>>(estimate_sigma),
+        "assigning variable sigma_est");
       out__.write_free_lub(coefs_lb(bounds_type_sigma, bounds_sigma,
                              pstream__),
-        coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), sigma);
-      local_scalar_t__ nu_p = DUMMY_VAR__;
+        coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), sigma_est);
+      std::vector<local_scalar_t__> nu_est =
+        std::vector<local_scalar_t__>(estimate_nu, DUMMY_VAR__);
       current_statement__ = 3;
-      nu_p = in__.read<local_scalar_t__>();
+      stan::model::assign(nu_est,
+        in__.read<std::vector<local_scalar_t__>>(estimate_nu),
+        "assigning variable nu_est");
       out__.write_free_lub(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
-        coefs_ub(bounds_type_nu, bounds_nu, pstream__), nu_p);
+        coefs_ub(bounds_type_nu, bounds_nu, pstream__), nu_est);
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
     }
@@ -1475,32 +1760,35 @@ public:
     (void) DUMMY_VAR__;
     try {
       current_statement__ = 1;
-      context__.validate_dims("parameter initialization", "mu", "double",
-        std::vector<size_t>{});
+      context__.validate_dims("parameter initialization", "mu_est", "double",
+        std::vector<size_t>{static_cast<size_t>(estimate_mu)});
       current_statement__ = 2;
-      context__.validate_dims("parameter initialization", "sigma", "double",
-        std::vector<size_t>{});
+      context__.validate_dims("parameter initialization", "sigma_est",
+        "double", std::vector<size_t>{static_cast<size_t>(estimate_sigma)});
       current_statement__ = 3;
-      context__.validate_dims("parameter initialization", "nu_p", "double",
-        std::vector<size_t>{});
+      context__.validate_dims("parameter initialization", "nu_est", "double",
+        std::vector<size_t>{static_cast<size_t>(estimate_nu)});
       int pos__ = std::numeric_limits<int>::min();
       pos__ = 1;
-      local_scalar_t__ mu = DUMMY_VAR__;
+      std::vector<local_scalar_t__> mu_est =
+        std::vector<local_scalar_t__>(estimate_mu, DUMMY_VAR__);
       current_statement__ = 1;
-      mu = context__.vals_r("mu")[(1 - 1)];
+      mu_est = context__.vals_r("mu_est");
       out__.write_free_lub(coefs_lb(bounds_type_mu, bounds_mu, pstream__),
-        coefs_ub(bounds_type_mu, bounds_mu, pstream__), mu);
-      local_scalar_t__ sigma = DUMMY_VAR__;
+        coefs_ub(bounds_type_mu, bounds_mu, pstream__), mu_est);
+      std::vector<local_scalar_t__> sigma_est =
+        std::vector<local_scalar_t__>(estimate_sigma, DUMMY_VAR__);
       current_statement__ = 2;
-      sigma = context__.vals_r("sigma")[(1 - 1)];
+      sigma_est = context__.vals_r("sigma_est");
       out__.write_free_lub(coefs_lb(bounds_type_sigma, bounds_sigma,
                              pstream__),
-        coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), sigma);
-      local_scalar_t__ nu_p = DUMMY_VAR__;
+        coefs_ub(bounds_type_sigma, bounds_sigma, pstream__), sigma_est);
+      std::vector<local_scalar_t__> nu_est =
+        std::vector<local_scalar_t__>(estimate_nu, DUMMY_VAR__);
       current_statement__ = 3;
-      nu_p = context__.vals_r("nu_p")[(1 - 1)];
+      nu_est = context__.vals_r("nu_est");
       out__.write_free_lub(coefs_lb(bounds_type_nu, bounds_nu, pstream__),
-        coefs_ub(bounds_type_nu, bounds_nu, pstream__), nu_p);
+        coefs_ub(bounds_type_nu, bounds_nu, pstream__), nu_est);
     } catch (const std::exception& e) {
       stan::lang::rethrow_located(e, locations_array__[current_statement__]);
     }
@@ -1509,9 +1797,9 @@ public:
   get_param_names(std::vector<std::string>& names__, const bool
                   emit_transformed_parameters__ = true, const bool
                   emit_generated_quantities__ = true) const {
-    names__ = std::vector<std::string>{"mu", "sigma", "nu_p"};
+    names__ = std::vector<std::string>{"mu_est", "sigma_est", "nu_est"};
     if (emit_transformed_parameters__) {
-      std::vector<std::string> temp{"nu", "scale"};
+      std::vector<std::string> temp{"mu", "scale", "nu"};
       names__.reserve(names__.size() + temp.size());
       names__.insert(names__.end(), temp.begin(), temp.end());
     }
@@ -1521,11 +1809,15 @@ public:
   get_dims(std::vector<std::vector<size_t>>& dimss__, const bool
            emit_transformed_parameters__ = true, const bool
            emit_generated_quantities__ = true) const {
-    dimss__ = std::vector<std::vector<size_t>>{std::vector<size_t>{},
-                std::vector<size_t>{}, std::vector<size_t>{}};
+    dimss__ = std::vector<std::vector<size_t>>{std::vector<size_t>{static_cast<
+                                                                    size_t>(
+                                                                    estimate_mu)},
+                std::vector<size_t>{static_cast<size_t>(estimate_sigma)},
+                std::vector<size_t>{static_cast<size_t>(estimate_nu)}};
     if (emit_transformed_parameters__) {
       std::vector<std::vector<size_t>>
-        temp{std::vector<size_t>{}, std::vector<size_t>{}};
+        temp{std::vector<size_t>{}, std::vector<size_t>{},
+             std::vector<size_t>{}};
       dimss__.reserve(dimss__.size() + temp.size());
       dimss__.insert(dimss__.end(), temp.begin(), temp.end());
     }
@@ -1535,12 +1827,22 @@ public:
   constrained_param_names(std::vector<std::string>& param_names__, bool
                           emit_transformed_parameters__ = true, bool
                           emit_generated_quantities__ = true) const final {
-    param_names__.emplace_back(std::string() + "mu");
-    param_names__.emplace_back(std::string() + "sigma");
-    param_names__.emplace_back(std::string() + "nu_p");
+    for (int sym1__ = 1; sym1__ <= estimate_mu; ++sym1__) {
+      param_names__.emplace_back(std::string() + "mu_est" + '.' +
+        std::to_string(sym1__));
+    }
+    for (int sym1__ = 1; sym1__ <= estimate_sigma; ++sym1__) {
+      param_names__.emplace_back(std::string() + "sigma_est" + '.' +
+        std::to_string(sym1__));
+    }
+    for (int sym1__ = 1; sym1__ <= estimate_nu; ++sym1__) {
+      param_names__.emplace_back(std::string() + "nu_est" + '.' +
+        std::to_string(sym1__));
+    }
     if (emit_transformed_parameters__) {
-      param_names__.emplace_back(std::string() + "nu");
+      param_names__.emplace_back(std::string() + "mu");
       param_names__.emplace_back(std::string() + "scale");
+      param_names__.emplace_back(std::string() + "nu");
     }
     if (emit_generated_quantities__) {}
   }
@@ -1548,20 +1850,30 @@ public:
   unconstrained_param_names(std::vector<std::string>& param_names__, bool
                             emit_transformed_parameters__ = true, bool
                             emit_generated_quantities__ = true) const final {
-    param_names__.emplace_back(std::string() + "mu");
-    param_names__.emplace_back(std::string() + "sigma");
-    param_names__.emplace_back(std::string() + "nu_p");
+    for (int sym1__ = 1; sym1__ <= estimate_mu; ++sym1__) {
+      param_names__.emplace_back(std::string() + "mu_est" + '.' +
+        std::to_string(sym1__));
+    }
+    for (int sym1__ = 1; sym1__ <= estimate_sigma; ++sym1__) {
+      param_names__.emplace_back(std::string() + "sigma_est" + '.' +
+        std::to_string(sym1__));
+    }
+    for (int sym1__ = 1; sym1__ <= estimate_nu; ++sym1__) {
+      param_names__.emplace_back(std::string() + "nu_est" + '.' +
+        std::to_string(sym1__));
+    }
     if (emit_transformed_parameters__) {
-      param_names__.emplace_back(std::string() + "nu");
+      param_names__.emplace_back(std::string() + "mu");
       param_names__.emplace_back(std::string() + "scale");
+      param_names__.emplace_back(std::string() + "nu");
     }
     if (emit_generated_quantities__) {}
   }
   inline std::string get_constrained_sizedtypes() const {
-    return std::string("[{\"name\":\"mu\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"nu_p\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"nu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"scale\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"}]");
+    return std::string("[{\"name\":\"mu_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_mu) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"sigma_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_sigma) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"nu_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_nu) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"mu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"scale\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"nu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"}]");
   }
   inline std::string get_unconstrained_sizedtypes() const {
-    return std::string("[{\"name\":\"mu\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"sigma\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"nu_p\",\"type\":{\"name\":\"real\"},\"block\":\"parameters\"},{\"name\":\"nu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"scale\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"}]");
+    return std::string("[{\"name\":\"mu_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_mu) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"sigma_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_sigma) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"nu_est\",\"type\":{\"name\":\"array\",\"length\":" + std::to_string(estimate_nu) + ",\"element_type\":{\"name\":\"real\"}},\"block\":\"parameters\"},{\"name\":\"mu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"scale\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"},{\"name\":\"nu\",\"type\":{\"name\":\"real\"},\"block\":\"transformed_parameters\"}]");
   }
   // Begin method overload boilerplate
   template <typename RNG> inline void
@@ -1570,8 +1882,10 @@ public:
               emit_transformed_parameters = true, const bool
               emit_generated_quantities = true, std::ostream*
               pstream = nullptr) const {
-    const size_t num_params__ = ((1 + 1) + 1);
-    const size_t num_transformed = emit_transformed_parameters * ((1 + 1));
+    const size_t num_params__ = ((estimate_mu + estimate_sigma) +
+      estimate_nu);
+    const size_t num_transformed = emit_transformed_parameters * (((1 + 1) +
+      1));
     const size_t num_gen_quantities = emit_generated_quantities * (0);
     const size_t num_to_write = num_params__ + num_transformed +
       num_gen_quantities;
@@ -1587,8 +1901,10 @@ public:
               emit_transformed_parameters = true, bool
               emit_generated_quantities = true, std::ostream*
               pstream = nullptr) const {
-    const size_t num_params__ = ((1 + 1) + 1);
-    const size_t num_transformed = emit_transformed_parameters * ((1 + 1));
+    const size_t num_params__ = ((estimate_mu + estimate_sigma) +
+      estimate_nu);
+    const size_t num_transformed = emit_transformed_parameters * (((1 + 1) +
+      1));
     const size_t num_gen_quantities = emit_generated_quantities * (0);
     const size_t num_to_write = num_params__ + num_transformed +
       num_gen_quantities;
