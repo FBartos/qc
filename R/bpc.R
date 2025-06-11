@@ -2,6 +2,7 @@
 #' @export
 bpc <- function(
     x,
+    LSL, target, USL,
 
     # prior settings
     prior_mu    = "Jeffreys_mu",
@@ -12,11 +13,19 @@ bpc <- function(
     chains  = 4, iter = 10000, warmup = 5000, thin = 1, parallel = FALSE,
     control = set_control(), convergence_checks = set_convergence_checks(),
     seed = NULL, silent = TRUE,
+
+    # capability metrics settings
+    sigma = 3, force_normal = FALSE,
     ...) {
 
   dots         <- list(...)
   object       <- list()
   object$call  <- match.call()
+
+  # check input for capability metrics calculation to fail fast before estimation
+  .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
+  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
+  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
   # prepare data
   object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
@@ -31,12 +40,21 @@ bpc <- function(
   )
 
   # fit stan model
-  object$stanfit   <- .bpc_fit(data = object$stan_data, priors = object$stan_priors, control = object$control)
+  object$stanfit <- .bpc_fit(data = object$stan_data, priors = object$stan_priors, control = object$control)
 
-  class(object) <- c("bpc", if (.bpc_stan_priors.is_t(object$stan_priors)) "bpc_t" else "bpc_normal")
+  # add class to the object because it's required for dispatching in compute_capability_metrics
+  class(object) <- c("bpc", paste0("bpc_", .bpc_distribution(object$stan_priors)))
+
+  # compute capability metrics
+  object$metrics <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+
+  # add coefficients
+  object$coefficients <- sapply(object$metrics, mean)
+
   return(object)
 }
 
+### internal functions ----
 .bpc_data   <- function(x = NULL, mean = NULL, sd = NULL, N = NULL) {
 
   # use raw data if supplied, otherwise use summary statistics
@@ -90,9 +108,9 @@ bpc <- function(
 .bpc_fit    <- function(data, priors, control) {
 
   model_call <- list(
-    object    = stanmodels[[if (.bpc_stan_priors.is_t(priors)) "t" else "normal"]],
+    object    = stanmodels[[.bpc_distribution(priors)]],
     data      = c(data, priors),
-    pars      = c("mu", if (.bpc_stan_priors.is_t(priors)) c("scale", "nu") else "sigma"),
+    pars      = c("mu", if (.bpc_distribution(priors) == "t") c("scale", "nu") else "sigma"),
     chains    = control[["chains"]],
     warmup    = control[["warmup"]],
     iter      = control[["iter"]],
@@ -116,21 +134,71 @@ bpc <- function(
   }
 
   fit <- tryCatch(suppressWarnings(do.call(rstan::sampling, model_call)), error = function(e)e)
+  attr(fit, "distribution") <- .bpc_distribution(priors)
 
   return(fit)
 }
 
 # helpers
-.bpc_stan_priors.is_t <- function(priors) {
-  return(!is.null(priors[["prior_type_nu"]]))
+.bpc_distribution <- function(priors) {
+  if (!is.null(priors[["prior_type_nu"]])) {
+    return("t")
+  } else {
+    return("normal")
+  }
 }
 
-
+### print and summary functions ----
 #' @export
 print.bpc <- function(x, ...) {
 
-  cat("Bayesian Process Capability\n")
+  cat("\nCall:\n")
   print(x$call)
+  cat("\nBayesian Process Capability:\n")
+  print(round(coef(x), 4))
 
   invisible(x)
+}
+
+#' @export
+summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, ...) {
+
+  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
+  BayesTools::check_real(ci.level, name = "ci.level", check_length = 1, allow_NA = FALSE, lower = 0, upper = 1)
+  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
+
+  # recompute capability metrics if specification limits are set
+  if (!missing(LSL) && !missing(target) && !missing(USL)) {
+    metrics <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+  } else {
+    metrics <- object$metrics
+  }
+
+  # compute mean, median, and credible intervals for the metrics
+  h     <- (1 - ci.level) / 2
+  probs <- c(h, .5, 1 - h)
+
+  summary <- t(vapply(metrics, function(x) {
+    quantiles <- unname(stats::quantile(x, probs = probs, na.rm = TRUE))
+    c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
+  }, numeric(5L)))
+  summary <- tibble::as_tibble(summary, rownames = "metric")
+
+  out <- list(
+    call = object$call,
+    summary = summary
+  )
+  class(out) <- "bpc_summary"
+
+  return(out)
+}
+
+#' @export
+print.bpc_summary <- function(x, ...) {
+  cat("\nCall:\n")
+  print(x$call)
+  cat("\nBayesian Process Capability:\n")
+  print(as.data.frame(round(x$summary[,-1], 4)), quote = FALSE, right = TRUE, row.names = unlist(x$summary[,1]))
+
+  invisible(x$summary)
 }

@@ -1,21 +1,18 @@
-validate_LSL_USL_target <- function(LSL, USL, target) {
+.validate_LSL_USL_target <- function(LSL, USL, target) {
   BayesTools::check_real(LSL,    name = "LSL",    check_length = 1, allow_NA = FALSE, upper = USL)
   BayesTools::check_real(USL,    name = "USL",    check_length = 1, allow_NA = FALSE, lower = LSL)
   BayesTools::check_real(target, name = "target", check_length = 1, allow_NA = FALSE)
+
+  return(list(LSL = LSL, USL = USL, target = target))
 }
 
-#'@export
-extract_mu_and_sigma <- function(fit) {
+extract_mu_and_sigma            <- function(fit) {
   UseMethod("extract_mu_and_sigma")
 }
-
-#'@export
 extract_mu_and_sigma.bpc_normal <- function(fit) {
   rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
 }
-
-#'@export
-extract_mu_and_sigma.bpc_t <- function(fit) {
+extract_mu_and_sigma.bpc_t      <- function(fit) {
 
   all <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
   return(with(all, {
@@ -24,38 +21,80 @@ extract_mu_and_sigma.bpc_t <- function(fit) {
   }))
 }
 
-#' Title
-#'
-#' @param fit
-#' @param LSL
-#' @param USL
-#' @param target
-#'
-#' @returns
-#' @export
-#'
-#' @examples
-compute_capability_metrics <- function(fit, LSL = -1, USL = 1, target = 0) {
+extract_percentiles            <- function(fit, sigma) {
+  UseMethod("extract_percentiles")
+}
+extract_percentiles.bpc_normal <- function(fit, sigma) {
 
-  validate_LSL_USL_target(LSL, USL, target)
-  samples <- extract_mu_and_sigma(fit)
+  samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
 
-  range <- USL - LSL
+  # for normal we can compute the percentiles directly
+  return(list(
+    LP = samples$mu - sigma * samples$sigma,
+    MP = samples$mu,
+    UP = samples$mu + sigma * samples$sigma
+  ))
+}
+extract_percentiles.bpc_t      <- function(fit, sigma) {
 
-  three_sigma <- 3 * samples$sigma
-  six_sigma   <- 6 * samples$sigma
+  samples <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
 
-  Cp  <- range / six_sigma
-  CpU <- (USL - samples$mu) / three_sigma
-  CpL <- (samples$mu - LSL) / three_sigma
-  Cpk <- pmin(CpU, CpL)
+  return(list(
+    LP = samples$mu + stats::qt(stats::pnorm(-sigma), df = samples$nu) * samples$scale,
+    MP = samples$mu,
+    UP = samples$mu - stats::qt(stats::pnorm(-sigma), df = samples$nu) * samples$scale
+  ))
+}
 
-  Cpc <- range / (6 * sqrt(pi /  2) * samples$mu - target)
+.bpc_compute_capability_metrics <- function(fit, LSL, USL, target, sigma = 3, force_normal = FALSE) {
 
-  # Eq. 8.14 of Montgomery, 8th edition
-  xi <- (samples$mu - target) / (samples$sigma)
-  # Eq. 8.13 of Montgomery, 8th edition
-  Cpm <- Cp / sqrt(1 + xi^2)
+  # validate input
+  .validate_LSL_USL_target(LSL, USL, target)
+
+  # compute mean and standard deviation if normal distributions calculation is required
+  if (force_normal) {
+
+    # computes standard capability metrics assuming normal distribution
+    samples <- extract_mu_and_sigma(fit)
+
+    range <- USL - LSL
+
+    three_sigma <- sigma * samples$sigma
+    six_sigma   <- (2*sigma) * samples$sigma
+
+    Cp  <- range / six_sigma
+    CpU <- (USL - samples$mu) / three_sigma
+    CpL <- (samples$mu - LSL) / three_sigma
+    Cpk <- pmin(CpU, CpL)
+
+    # TODO: I replaced 6 with '(2*sigma)' here to generalize to different sigmas, check it's correct
+    Cpc <- range / ((2*sigma) * sqrt(pi /  2) * samples$mu - target)
+
+    # Eq. 8.14 of Montgomery, 8th edition
+    xi <- (samples$mu - target) / (samples$sigma)
+    # Eq. 8.13 of Montgomery, 8th edition
+    Cpm <- Cp / sqrt(1 + xi^2)
+
+    # TODO: add Cpmk? (that also adjusts for the wrong location of the target?)
+
+  } else {
+
+    # computes capability metrics using percentiles
+    # (i.e., (q) version of the metric = generalization to non-normal distributions)
+    samples <- extract_percentiles(fit, sigma = sigma)
+
+    range <- USL - LSL
+
+    Cp  <- range / (samples$UP - samples$LP)
+    CpU <- (USL - samples$MP) / (samples$UP - samples$MP)
+    CpL <- (samples$MP - LSL) / (samples$MP - samples$LP)
+    Cpk <- pmin(CpU, CpL)
+
+    # TODO: I didn't find this one in the manuscript
+    Cpc <- rep(NA, length(samples$LP))
+
+    Cpm <- min(USL - target, target - LSL) / (sigma * sqrt( ( (samples$UP - samples$LP) / (2 * sigma) )^2  + (samples$MP - target)^2) )
+  }
 
   lst <- list(
     Cp  = Cp,
@@ -67,44 +106,8 @@ compute_capability_metrics <- function(fit, LSL = -1, USL = 1, target = 0) {
   )
 
   class(lst) <- "capability_metrics"
+  attr(lst, "LSL")    <- LSL
+  attr(lst, "USL")    <- USL
+  attr(lst, "target") <- target
   return(lst)
-
-}
-
-
-
-#' Title
-#'
-#' @param fit
-#' @param ...
-#'
-#' @returns
-#' @export
-#'
-#' @examples
-summarize_capability_metrics <- function(fit, cri_width = 0.95,...) {
-  UseMethod("summarize_capability_metrics")
-}
-
-#' @export
-summarize_capability_metrics.bpc <- function(fit, cri_width = 0.95, LSL = -1, USL = 1, target = 0, ...) {
-
-  metrics <- compute_capability_metrics(fit, LSL, USL, target)
-  return(summarize_capability_metrics(metrics))
-
-}
-
-#' @export
-summarize_capability_metrics.capability_metrics <- function(fit, cri_width = 0.95, ...) {
-
-  h <- (1 - cri_width) / 2
-  probs <- c(h, .5, 1 - h)
-
-  out <- t(vapply(fit, function(x) {
-    quantiles <- unname(stats::quantile(x, probs = probs))
-    c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
-  }, numeric(5L)))
-
-  return(tibble::as_tibble(out, rownames = "metric"))
-
 }
