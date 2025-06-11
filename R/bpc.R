@@ -106,3 +106,13 @@ bpc <- function(
 
   return(fit)
 }
+
+
+#' @export
+print.bpc <- function(x, ...) {
+
+  cat("Bayesian Process Capability\n")
+  print(x$call)
+
+  invisible(x)
+}
