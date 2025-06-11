@@ -33,7 +33,7 @@ bpc <- function(
   # fit stan model
   object$stanfit   <- .bpc_fit(data = object$stan_data, priors = object$stan_priors, control = object$control)
 
-  class(object) <- "bpc"
+  class(object) <- c("bpc", if (.bpc_stan_priors.is_t(object$stan_priors)) "bpc_t" else "bpc_normal")
   return(object)
 }
 

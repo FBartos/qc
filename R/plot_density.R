@@ -12,10 +12,12 @@ plot_density <- function(obj, ...) {
   UseMethod("plot_density")
 }
 
-plot_density.bpc <- function(obj, ...) {
-  plot_density(compute_capability_metrics(fit = obj), ...)
+#' @export
+plot_density.bpc <- function(obj, LSL = -1, USL = 1, target = 0, ...) {
+  plot_density(compute_capability_metrics(fit = obj, LSL = LSL, USL = USL, target = target), ...)
 }
 
+#' @export
 plot_density.capability_metrics <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
 
   what <- match.arg(what, several.ok = TRUE)
