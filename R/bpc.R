@@ -161,10 +161,11 @@ print.bpc <- function(x, ...) {
 }
 
 #' @export
-summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, ...) {
+summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
 
   BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
   BayesTools::check_real(ci.level, name = "ci.level", check_length = 1, allow_NA = FALSE, lower = 0, upper = 1)
+  BayesTools::check_real(interval_probability, name = "interval_probability", check_length = 0, allow_NA = FALSE)
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
   # recompute capability metrics if specification limits are set
@@ -174,7 +175,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     metrics <- object$metrics
   }
 
-  # compute mean, median, and credible intervals for the metrics
+  ### compute mean, median, and credible intervals for the metrics
   h     <- (1 - ci.level) / 2
   probs <- c(h, .5, 1 - h)
 
@@ -184,9 +185,18 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
   }, numeric(5L)))
   summary <- tibble::as_tibble(summary, rownames = "metric")
 
+  ### compute interval summaries
+  interval_summary <- do.call(rbind, lapply(metrics, function(x) {
+    # TODO: remove once Cpc calculation is implemented
+    if (all(is.na(x)))
+      return()
+    table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE))/length(x)
+  }))
+
   out <- list(
-    call = object$call,
-    summary = summary
+    call             = object$call,
+    summary          = summary,
+    interval_summary = interval_summary
   )
   class(out) <- "bpc_summary"
 
@@ -197,8 +207,12 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 print.bpc_summary <- function(x, ...) {
   cat("\nCall:\n")
   print(x$call)
+
   cat("\nBayesian Process Capability:\n")
   print(as.data.frame(round(x$summary[,-1], 4)), quote = FALSE, right = TRUE, row.names = unlist(x$summary[,1]))
+
+  cat("\nInterval Probability:\n")
+  print(as.data.frame(round(x$interval_summary, 4)), quote = FALSE, right = TRUE, row.names = rownames(x$interval_summary))
 
   invisible(x$summary)
 }
