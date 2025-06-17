@@ -196,7 +196,8 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
   out <- list(
     call             = object$call,
     summary          = summary,
-    interval_summary = interval_summary
+    interval_summary = interval_summary,
+    metrics          = metrics
   )
   class(out) <- "bpc_summary"
 
