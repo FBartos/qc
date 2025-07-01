@@ -30,7 +30,8 @@ plot_density.bpc_capability_metrics <- function(obj, what = c("Cp", "CpU", "CpL"
 
   plt <- capability_metrics |>
     ggplot2::ggplot(ggplot2::aes(x = value, y = ggplot2::after_stat(density))) +
-    ggplot2::geom_density()
+    ggplot2::geom_density() +
+    ggplot2::labs(y = "Density")
 
   if (length(what) > 1L)
     plt <- plt + ggplot2::facet_grid(cols = ggplot2::vars(parameter), scales = "free")
