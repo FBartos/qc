@@ -1,4 +1,26 @@
 
+#' Bayesian Process Capability
+#'
+#' @param x the data
+#' @param LSL Lower Specification Limit
+#' @param target Target value
+#' @param USL Upper Specification Limit
+#' @param prior_mu prior for the process mean, can be a string or a prior object
+#' @param prior_sigma prior for the process standard deviation, can be a string or a prior object
+#' @param prior_nu prior for the degrees of freedom, can be a string or a prior object, only used if the t-distribution is selected
+#' @param chains number of chains to run, defaults to 4
+#' @param iter number of iterations per chain, defaults to 10000
+#' @param warmup number of warmup iterations per chain, defaults to 5000
+#' @param thin thinning factor, defaults to 1
+#' @param parallel whether to run chains in parallel, defaults to FALSE
+#' @param control a list of control settings for the Stan model, see \code{\link[rstan]{sampling}} for details, defaults to \code{set_control()}
+#' @param convergence_checks a list of convergence checks for the Stan model, see \code{\link[rstan]{check_convergence}} for details, defaults to \code{set_convergence_checks()}
+#' @param seed a random seed for reproducibility, defaults to NULL
+#' @param silent whether to suppress output during fitting, defaults to TRUE
+#' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
+#' @param force_normal whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE
+#' @param ...
+#'
 #' @export
 bpc <- function(
     x,
@@ -186,12 +208,10 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
   summary <- tibble::as_tibble(summary, rownames = "metric")
 
   ### compute interval summaries
-  interval_summary <- do.call(rbind, lapply(metrics, function(x) {
-    # TODO: remove once Cpc calculation is implemented
-    if (all(is.na(x)))
-      return()
-    table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE))/length(x)
-  }))
+  interval_summary <- t(vapply(metrics, FUN = function(x) {
+    table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE)) / length(x)
+  }, FUN.VALUE = numeric(length(interval_probability) + 1L)))
+  interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
 
   out <- list(
     call             = object$call,

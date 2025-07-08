@@ -108,10 +108,42 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
     samples,
     {
       # Equation 17 of https://arxiv.org/abs/1209.4340
-      z <- -(mu - target)^2 / (2 * sigma^2)
-      sigma * sqrt(2) / sqrt(pi) * gsl::hyperg_1F1(-1 / 2, 1 / 2, z)
+      # z <- -(mu - target)^2 / (2 * sigma^2)
+      # sigma * sqrt(2 / pi) * gsl::hyperg_1F1(-1 / 2, 1 / 2, z)
+      # simplification of hyperg_1F1
+      z      <- (mu - target) / sigma
+      abs_mu_minus_T <- abs(mu - target)
+      sigma * sqrt(2 / pi) * exp(-0.5 * z^2) + abs_mu_minus_T * (1 - 2 * pnorm(-abs(z)))
     }
   ))
+
+  # TODO: I'm confused about which of these we want, average across rows or columns?
+  # E_abs_dev2 <- try(with(samples, {
+  #   z      <- (mu - target) / sigma
+  #   abs_mu_minus_T <- abs(mu - target)
+  #
+  #   sigma * sqrt(2 / pi) * exp(-0.5 * z^2) + abs_mu_minus_T * (1 - 2 * pnorm(-abs(z)))
+  #   # z <- (mu - T) / sigma
+  #   # a <- sigma * sqrt(2/pi) * exp(-0.5 * z^2) + abs(mu - T) * (1 - 2 * pnorm(-abs(z)))
+  # }))
+  #
+  # E_abs_dev_ref  <- .bpc_compute_E_abs_dev.default(fit, target)
+  # E_abs_dev_ref2 <- .bpc_compute_E_abs_dev.default(fit, target)
+  #
+  # par(mfrow = c(1, 3))
+  # plot(density(E_abs_dev), main = "what we have")
+  # lines(density(E_abs_dev_ref), col = "red")
+  # plot(density(E_abs_dev2), col = "blue", main = "what we want")
+  # lines(density(E_abs_dev_ref2), col = "green")
+  # plot(density(E_abs_dev), main = "what we have")
+  # lines(density(E_abs_dev2), col = "red")
+  #
+  # hh <- seq(.01, .99, .01)
+  # plot(quantile(E_abs_dev, probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
+  # plot(quantile(E_abs_dev2, probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
+  # lm(E_abs_dev ~ E_abs_dev_ref)
+  # plot(quantile((E_abs_dev - mean(E_abs_dev)) / (sd(E_abs_dev) * sqrt(length(E_abs_dev))) + mean(E_abs_dev), probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
+
 
   # E_abs_dev_mat <- matrix(nrow = with(fit$control, chains * (iter - warmup)), ncol = length(E_abs_dev))
   # for (i in seq_along(E_abs_dev)) {

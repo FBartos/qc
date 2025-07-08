@@ -7,7 +7,15 @@
 plot_density(obj, ...)
 }
 \arguments{
+\item{obj}{An object of class \code{bpc}, \code{bpc_capability_metrics}, or \code{bpc_summary}.}
+
 \item{...}{}
+
+\item{LSL}{Lower Specification Limit}
+
+\item{target}{Target value}
+
+\item{USL}{Upper Specification Limit}
 }
 \description{
 Plot density for the posterior distribution of one or more capability metrics
