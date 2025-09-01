@@ -205,13 +205,13 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     quantiles <- unname(stats::quantile(x, probs = probs, na.rm = TRUE))
     c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
   }, numeric(5L)))
-  summary <- tibble::as_tibble(summary, rownames = "metric")
+  #summary <- tibble::as_tibble(summary, rownames = "metric")
 
   ### compute interval summaries
   interval_summary <- t(vapply(metrics, FUN = function(x) {
     table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE)) / length(x)
   }, FUN.VALUE = numeric(length(interval_probability) + 1L)))
-  interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
+  #interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
 
   out <- list(
     call             = object$call,
