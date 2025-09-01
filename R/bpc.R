@@ -205,13 +205,13 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     quantiles <- unname(stats::quantile(x, probs = probs, na.rm = TRUE))
     c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
   }, numeric(5L)))
-  #summary <- tibble::as_tibble(summary, rownames = "metric")
+  summary <- tibble::as_tibble(summary, rownames = "metric")
 
   ### compute interval summaries
   interval_summary <- t(vapply(metrics, FUN = function(x) {
     table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE)) / length(x)
   }, FUN.VALUE = numeric(length(interval_probability) + 1L)))
-  #interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
+  interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
 
   out <- list(
     call             = object$call,
@@ -233,7 +233,7 @@ print.bpc_summary <- function(x, ...) {
   print(as.data.frame(round(x$summary[,-1], 4)), quote = FALSE, right = TRUE, row.names = unlist(x$summary[,1]))
 
   cat("\nInterval Probability:\n")
-  print(as.data.frame(round(x$interval_summary, 4)), quote = FALSE, right = TRUE, row.names = rownames(x$interval_summary))
+  print(as.data.frame(round(x$interval_summary[,-1], 4)), quote = FALSE, right = TRUE, row.names = unlist(x$interval_summary[,1]))
 
   invisible(x$summary)
 }
