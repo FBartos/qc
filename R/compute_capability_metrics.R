@@ -6,13 +6,18 @@
   return(list(LSL = LSL, USL = USL, target = target))
 }
 
-extract_mu_and_sigma            <- function(fit) {
+extract_mu_and_sigma            <- function(fit, ...) {
   UseMethod("extract_mu_and_sigma")
 }
 
 #' @export
 extract_mu_and_sigma.bpc_normal <- function(fit) {
   rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
+}
+
+#' @export
+extract_mu_and_sigma.pc_normal  <- function(fit, bootstrap = FALSE) {
+  if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
 }
 
 #' @export
@@ -25,7 +30,17 @@ extract_mu_and_sigma.bpc_t      <- function(fit) {
   }))
 }
 
-extract_percentiles            <- function(fit, sigma) {
+#' @export
+extract_mu_and_sigma.pc_t       <- function(fit, bootstrap = FALSE) {
+
+  all <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
+  return(with(all, {
+    sigma <- scale * sqrt(nu / (nu - 2.0))
+    return(list(mu = mu, sigma = sigma))
+  }))
+}
+
+extract_percentiles            <- function(fit, sigma, ...) {
   UseMethod("extract_percentiles")
 }
 
@@ -33,6 +48,19 @@ extract_percentiles            <- function(fit, sigma) {
 extract_percentiles.bpc_normal <- function(fit, sigma) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
+
+  # for normal we can compute the percentiles directly
+  return(list(
+    LP = samples$mu - sigma * samples$sigma,
+    MP = samples$mu,
+    UP = samples$mu + sigma * samples$sigma
+  ))
+}
+
+#' @export
+extract_percentiles.pc_normal  <- function(fit, sigma, bootstrap = FALSE) {
+
+  samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
 
   # for normal we can compute the percentiles directly
   return(list(
@@ -54,6 +82,19 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
   ))
 }
 
+#' @export
+extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
+
+  samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
+
+  return(list(
+    LP = samples$mu + stats::qt(stats::pnorm(-sigma), df = samples$nu) * samples$scale,
+    MP = samples$mu,
+    UP = samples$mu - stats::qt(stats::pnorm(-sigma), df = samples$nu) * samples$scale
+  ))
+}
+
+
 .bpc_posterior_predictive <- function(fit) {
   UseMethod(".bpc_posterior_predictive")
 }
@@ -86,12 +127,23 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
   return(samples$mu + stats::rt(length(samples$mu), df = samples$nu) * samples$scale)
 }
 
-.bpc_compute_E_abs_dev <- function(fit, target) {
+.bpc_compute_E_abs_dev <- function(fit, target, ...) {
   UseMethod(".bpc_compute_E_abs_dev")
 }
 
 #' @export
 .bpc_compute_E_abs_dev.default <- function(fit, target) {
+
+  if (inherits(fit, "bpc")) {
+    return(.bpc_compute_E_abs_dev.default_bayes(fit, target))
+  } else if (inherits(fit, "pc")) {
+    # TODO: implement
+    return(NA)
+  }
+
+}
+
+.bpc_compute_E_abs_dev.default_bayes <- function(fit, target) {
   # a slow but accurate way to compute E_abs_dev
   E_abs_dev <- numeric(with(fit$control, chains * (iter - warmup)))
   for (i in seq_along(E_abs_dev)) {
@@ -101,6 +153,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
   return(E_abs_dev)
 }
 
+#' @export
 .bpc_compute_E_abs_dev.bpc_normal <- function(fit, target) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
@@ -181,7 +234,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.bpc_t <- function(fit, target) {
+.bpc_compute_E_abs_dev.bpc_t      <- function(fit, target) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
   E_abs_dev <- try(with(
@@ -207,8 +260,61 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
   return(E_abs_dev)
 }
 
+#' @export
+.bpc_compute_E_abs_dev.pc_normal  <- function(fit, target, bootstrap) {
 
-.bpc_compute_capability_metrics <- function(fit, LSL, USL, target, sigma = 3, force_normal = FALSE) {
+  samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
+  E_abs_dev <- try(with(
+    samples,
+    {
+      # Equation 17 of https://arxiv.org/abs/1209.4340
+      # z <- -(mu - target)^2 / (2 * sigma^2)
+      # sigma * sqrt(2 / pi) * gsl::hyperg_1F1(-1 / 2, 1 / 2, z)
+      # simplification of hyperg_1F1
+      z      <- (mu - target) / sigma
+      abs_mu_minus_T <- abs(mu - target)
+      sigma * sqrt(2 / pi) * exp(-0.5 * z^2) + abs_mu_minus_T * (1 - 2 * pnorm(-abs(z)))
+    }
+  ))
+
+  if (inherits(E_abs_dev, "try-error")) {
+    # if the hypergeometric function fails, we fall back to the slow method
+    warning("Failed to compute E_abs_dev using hypergeometric function, using the slow sampling based method as a fallback.")
+    return(.bpc_compute_E_abs_dev.default(fit, target))
+  }
+
+  return(E_abs_dev)
+}
+
+#' @export
+.bpc_compute_E_abs_dev.pc_t       <- function(fit, target, bootstrap) {
+
+  samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
+  E_abs_dev <- try(with(
+    samples,
+    {
+      # Equation 2.7 of https://arxiv.org/abs/1912.01607v3
+      # note that in their notation (e.g., Equation 2.2) they specify \sigma / \nu * (t - \mu)^2
+      # hence inv_scale_sq.
+      inv_scale_sq <- 1 / (scale * scale)
+      z <- -(mu - target)^2 * inv_scale_sq / nu
+      gauss2F1 <- gsl::hyperg_2F1(-1 / 2, nu / 2 - 1 / 2, 1 / 2, z)
+      # gamma((1 + 1) / 2) == 1, so dropped
+      sqrt(nu / inv_scale_sq) * gamma(nu / 2 - 1 / 2) / (sqrt(pi) * gamma(nu / 2)) * gauss2F1
+    }
+  ))
+
+  if (inherits(E_abs_dev, "try-error")) {
+    # if the hypergeometric function fails, we fall back to the slow method
+    warning("Failed to compute E_abs_dev using hypergeometric function, using the slow sampling based method as a fallback.")
+    return(.bpc_compute_E_abs_dev.default(fit, target))
+  }
+
+  return(E_abs_dev)
+}
+
+
+.bpc_compute_capability_metrics <- function(fit, LSL, USL, target, sigma = 3, force_normal = FALSE, bootstrap = FALSE) {
 
   # validate input
   .validate_LSL_USL_target(LSL, USL, target)
@@ -222,7 +328,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
   if (force_normal) {
 
     # computes standard capability metrics assuming normal distribution
-    samples <- extract_mu_and_sigma(fit)
+    samples <- extract_mu_and_sigma(fit, bootstrap = bootstrap)
 
     three_sigma <- one_sigma * samples$sigma
     six_sigma   <- two_sigma * samples$sigma
@@ -245,7 +351,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
 
     # computes capability metrics using percentiles
     # (i.e., (q) version of the metric = generalization to non-normal distributions)
-    samples <- extract_percentiles(fit, sigma = one_sigma)
+    samples <- extract_percentiles(fit, sigma = one_sigma, bootstrap = bootstrap)
 
     Cp  <- range / (samples$UP - samples$LP)
     CpU <- (USL - samples$MP) / (samples$UP - samples$MP)
@@ -254,7 +360,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
 
     Cpm <- min(USL - target, target - LSL) / (one_sigma * sqrt( ( (samples$UP - samples$LP) / two_sigma)^2  + (samples$MP - target)^2) )
 
-    E_abs_dev <- .bpc_compute_E_abs_dev(fit, target)
+    E_abs_dev <- .bpc_compute_E_abs_dev(fit, target, bootstrap = bootstrap)
 
   }
 
