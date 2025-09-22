@@ -71,8 +71,6 @@ plot_density.bpc_capability_metrics <- function(
     stats::approxfun(density_estimate$x, density_estimate$y, rule = 2, yleft = 0, yright = 0)
   }), what)
 
-  listOfFuns
-
   if (point_estimate == "none") {
     layer_points <- layer_point_text <- NULL
   } else {
@@ -202,10 +200,16 @@ plot_density.bpc_capability_metrics <- function(
 
     if (show_ci_text) {
 
+      if (ci == "custom") {
+        ci_custom_mass <- listOfDensities <- lapply(what, function(name) {
+          mean(obj[[name]] <= ci_custom_right & obj[[name]] >= ci_custom_left)
+        })
+      }
+
       ci_txt <- switch(ci,
                        "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
                        "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                       "custom"  = sprintf("P(%.3f &le; &theta; &le; %.3f) =  Custom CI", ci_custom_left, ci_custom_right),
+                       "custom"  = sprintf("P(%.3f &le; &theta; &le; %.3f) =  %.3f", ci_custom_left, ci_custom_right, ci_custom_mass),
                        "support" = sprintf("Support<sub>BF = %.1f</sub>", bf_support),
                        stop("Unknown ci.")
       )
