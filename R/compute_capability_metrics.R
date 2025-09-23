@@ -11,17 +11,17 @@ extract_mu_and_sigma            <- function(fit, ...) {
 }
 
 #' @export
-extract_mu_and_sigma.bpc_normal <- function(fit) {
+extract_mu_and_sigma.bpc_normal <- function(fit, ...) {
   rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
 }
 
 #' @export
-extract_mu_and_sigma.pc_normal  <- function(fit, bootstrap = FALSE) {
+extract_mu_and_sigma.pc_normal  <- function(fit, bootstrap = FALSE, ...) {
   if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
 }
 
 #' @export
-extract_mu_and_sigma.bpc_t      <- function(fit) {
+extract_mu_and_sigma.bpc_t      <- function(fit, ...) {
 
   all <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
   return(with(all, {
@@ -31,7 +31,7 @@ extract_mu_and_sigma.bpc_t      <- function(fit) {
 }
 
 #' @export
-extract_mu_and_sigma.pc_t       <- function(fit, bootstrap = FALSE) {
+extract_mu_and_sigma.pc_t       <- function(fit, bootstrap = FALSE, ...) {
 
   all <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
   return(with(all, {
@@ -45,7 +45,7 @@ extract_percentiles            <- function(fit, sigma, ...) {
 }
 
 #' @export
-extract_percentiles.bpc_normal <- function(fit, sigma) {
+extract_percentiles.bpc_normal <- function(fit, sigma, ...) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
 
@@ -58,7 +58,7 @@ extract_percentiles.bpc_normal <- function(fit, sigma) {
 }
 
 #' @export
-extract_percentiles.pc_normal  <- function(fit, sigma, bootstrap = FALSE) {
+extract_percentiles.pc_normal  <- function(fit, sigma, bootstrap = FALSE, ...) {
 
   samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
 
@@ -71,7 +71,7 @@ extract_percentiles.pc_normal  <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-extract_percentiles.bpc_t      <- function(fit, sigma) {
+extract_percentiles.bpc_t      <- function(fit, sigma, ...) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
 
@@ -83,7 +83,7 @@ extract_percentiles.bpc_t      <- function(fit, sigma) {
 }
 
 #' @export
-extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
+extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE, ...) {
 
   samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
 
@@ -132,7 +132,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.default <- function(fit, target) {
+.bpc_compute_E_abs_dev.default <- function(fit, target, ...) {
 
   if (inherits(fit, "bpc")) {
     return(.bpc_compute_E_abs_dev.default_bayes(fit, target))
@@ -143,7 +143,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 
 }
 
-.bpc_compute_E_abs_dev.default_bayes <- function(fit, target) {
+.bpc_compute_E_abs_dev.default_bayes <- function(fit, target, ...) {
   # a slow but accurate way to compute E_abs_dev
   E_abs_dev <- numeric(with(fit$control, chains * (iter - warmup)))
   for (i in seq_along(E_abs_dev)) {
@@ -154,7 +154,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.bpc_normal <- function(fit, target) {
+.bpc_compute_E_abs_dev.bpc_normal <- function(fit, target, ...) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
   E_abs_dev <- try(with(
@@ -234,7 +234,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.bpc_t      <- function(fit, target) {
+.bpc_compute_E_abs_dev.bpc_t      <- function(fit, target, ...) {
 
   samples <- rstan::extract(fit$stanfit, pars = c("mu", "scale", "nu"))
   E_abs_dev <- try(with(
@@ -261,7 +261,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.pc_normal  <- function(fit, target, bootstrap) {
+.bpc_compute_E_abs_dev.pc_normal  <- function(fit, target, bootstrap, ...) {
 
   samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
   E_abs_dev <- try(with(
@@ -287,7 +287,7 @@ extract_percentiles.pc_t       <- function(fit, sigma, bootstrap = FALSE) {
 }
 
 #' @export
-.bpc_compute_E_abs_dev.pc_t       <- function(fit, target, bootstrap) {
+.bpc_compute_E_abs_dev.pc_t       <- function(fit, target, bootstrap, ...) {
 
   samples <- if (bootstrap) fit$fit[["boot_fit"]] else fit$fit[["fit"]]
   E_abs_dev <- try(with(
