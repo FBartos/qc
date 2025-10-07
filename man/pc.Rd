@@ -12,8 +12,8 @@ pc(
   distribution = "normal",
   bootstrap = TRUE,
   samples = 1000,
-  parallel = FALSE,
   cores = NULL,
+  parallel = FALSE,
   control = NULL,
   seed = NULL,
   silent = TRUE,
@@ -25,17 +25,19 @@ pc(
 \arguments{
 \item{x}{the data}
 
-\item{LSL}{Lower Specification Limit}
+\item{LSL}{lower specification limit}
 
-\item{target}{Target value}
+\item{target}{target value}
 
-\item{USL}{Upper Specification Limit}
+\item{USL}{upper specification limit}
 
 \item{distribution}{distribution for fitting the data}
 
 \item{bootstrap}{whether to run the bootstrap to compute CI}
 
 \item{samples}{number of bootstrap samples for calculating CI}
+
+\item{cores}{number of cores for parallel processing}
 
 \item{parallel}{whether to run the bootstrap in parallel}
 
@@ -49,7 +51,7 @@ pc(
 
 \item{force_normal}{whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE}
 
-\item{...}{}
+\item{...}{additional arguments}
 }
 \description{
 Process Capability

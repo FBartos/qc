@@ -1,17 +1,18 @@
-
 #' Bayesian Process Capability
 #'
 #' @param x the data
-#' @param LSL Lower Specification Limit
-#' @param target Target value
-#' @param USL Upper Specification Limit
+#' @param LSL lower specification limit
+#' @param target target value
+#' @param USL upper specification limit
+#' @param distribution distribution for fitting the data
 #' @param prior_mu prior for the process mean, can be a string or a prior object
 #' @param prior_sigma prior for the process standard deviation, can be a string or a prior object
-#' @param prior_nu prior for the degrees of freedom, can be a string or a prior object, only used if the t-distribution is selected
+#' @param prior_nu prior for the degrees of freedom, can be a string or a prior object
 #' @param chains number of chains to run, defaults to 4
 #' @param iter number of iterations per chain, defaults to 10000
 #' @param warmup number of warmup iterations per chain, defaults to 5000
 #' @param thin thinning factor, defaults to 1
+#' @param cores number of cores for parallel processing
 #' @param parallel whether to run chains in parallel, defaults to FALSE
 #' @param control a list of control settings for the Stan model, see \code{\link[rstan]{sampling}} for details, defaults to \code{set_control()}
 #' @param convergence_checks a list of convergence checks for the Stan model, see \code{\link[rstan]{check_convergence}} for details, defaults to \code{set_convergence_checks()}
@@ -25,14 +26,15 @@
 bpc <- function(
     x,
     LSL, target, USL,
+    distribution = "normal",
 
     # prior settings
     prior_mu    = "Jeffreys_mu",
     prior_sigma = "Jeffreys_sigma",
-    prior_nu    = NULL,
+    prior_nu    = NULL, # TODO: set up default prior distribution?
 
     # stan control settings
-    chains  = 4, iter = 10000, warmup = 5000, thin = 1, parallel = FALSE,
+    chains  = 4, iter = 10000, warmup = 5000, thin = 1, cores = chains, parallel = FALSE,
     control = set_control(), convergence_checks = set_convergence_checks(),
     seed = NULL, silent = TRUE,
 
@@ -40,12 +42,24 @@ bpc <- function(
     sigma = 3, force_normal = FALSE,
     ...) {
 
+  ### Instructions for adding a new distribution
+  # the following functions need to be created:
+  # samples_to_mu_and_sigma.<distribution> (S3 Class)
+  # samples_to_percentiles.<distribution> (S3 Class)
+  # samples_to_posterior_predictives.<distribution> (S3 Class)
+  # samples_to_E_abs_dev.<distribution> (S3 Class)
+  # stanfit model definition that are compiled to stanmodels (stored in inst/stan/<distribution>.stan)
+  # the following functions need to be extended:
+  # .bpc_parameters (Dispatch)
+  # .bpc_priors (possibly including definition of new priors in the function calls)
+
   dots         <- list(...)
   object       <- list()
   object$call  <- match.call()
 
   # check input for capability metrics calculation to fail fast before estimation
   .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
+  BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
   BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
@@ -53,22 +67,23 @@ bpc <- function(
   object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
 
   # prepare priors
-  object$stan_priors <- .bpc_priors(prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu)
+  object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu)
 
   # collect control settings
   object$control <- .stan_check_and_list_fit_settings(
     chains = chains, warmup = warmup, iter = iter, thin = thin,
-    parallel = parallel, cores = chains, silent = silent, seed = seed, control = control
+    parallel = parallel, cores = cores, silent = silent, seed = seed, control = control
   )
 
   # fit stan model
-  object$stanfit <- .bpc_fit(data = object$stan_data, priors = object$stan_priors, control = object$control)
+  object$distribution <- distribution
+  object$stanfit      <- .bpc_fit(distribution = distribution, data = object$stan_data, priors = object$stan_priors, control = object$control)
 
   # add class to the object because it's required for dispatching in compute_capability_metrics
-  class(object) <- c("bpc", paste0("bpc_", .bpc_distribution(object$stan_priors)))
+  class(object) <- "bpc"
 
   # compute capability metrics
-  object$metrics <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+  object$metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
 
   # add coefficients
   object$coefficients <- sapply(object$metrics, mean)
@@ -116,23 +131,23 @@ bpc <- function(
     ))
   }
 }
-.bpc_priors <- function(prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL) {
+.bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL) {
 
   # transform priors into stan format
   out <- c(
-    .stan_distribution("mu",    prior_mu),
-    .stan_distribution("sigma", prior_sigma),
-    if (!is.null(prior_nu)) .stan_distribution("nu",    prior_nu)
+    if (distribution %in% c("normal", "t")) .stan_distribution("mu",    prior_mu),
+    if (distribution %in% c("normal", "t")) .stan_distribution("sigma", prior_sigma),
+    if (distribution %in% c("t"))           .stan_distribution("nu",    prior_nu)
   )
 
   return(out)
 }
-.bpc_fit    <- function(data, priors, control) {
+.bpc_fit    <- function(distribution, data, priors, control) {
 
   model_call <- list(
-    object    = stanmodels[[.bpc_distribution(priors)]],
+    object    = stanmodels[[distribution]],
     data      = c(data, priors),
-    pars      = c("mu", if (.bpc_distribution(priors) == "t") c("scale", "nu") else "sigma"),
+    pars      = .bpc_parameters(distribution),
     chains    = control[["chains"]],
     warmup    = control[["warmup"]],
     iter      = control[["iter"]],
@@ -156,18 +171,18 @@ bpc <- function(
   }
 
   fit <- tryCatch(suppressWarnings(do.call(rstan::sampling, model_call)), error = function(e)e)
-  attr(fit, "distribution") <- .bpc_distribution(priors)
+  attr(fit, "distribution") <- distribution
 
   return(fit)
 }
 
 # helpers
-.bpc_distribution <- function(priors) {
-  if (!is.null(priors[["prior_type_nu"]])) {
-    return("t")
-  } else {
-    return("normal")
-  }
+.bpc_parameters <- function(distribution) {
+
+  if (distribution == c("normal"))
+    return(c("mu", "sigma"))
+  if (distribution == c("t"))
+    return(c("mu", "scale", "nu"))
 }
 
 ### print and summary functions ----
@@ -192,7 +207,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
   # recompute capability metrics if specification limits are set
   if (!missing(LSL) && !missing(target) && !missing(USL)) {
-    metrics <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+    metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
   } else {
     metrics <- object$metrics
   }

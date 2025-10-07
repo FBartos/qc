@@ -1,20 +1,14 @@
 
 #' Process Capability
 #'
-#' @param x the data
-#' @param LSL Lower Specification Limit
-#' @param target Target value
-#' @param USL Upper Specification Limit
-#' @param distribution distribution for fitting the data
 #' @param bootstrap whether to run the bootstrap to compute CI
 #' @param samples number of bootstrap samples for calculating CI
 #' @param parallel whether to run the bootstrap in parallel
 #' @param control a list of control settings
 #' @param seed a random seed for reproducibility, defaults to NULL
 #' @param silent whether to suppress output during fitting, defaults to TRUE
-#' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
-#' @param force_normal whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE
-#' @param ...
+#' @param ... additional arguments
+#' @inherit bpc
 #'
 #' @export
 pc <- function(
@@ -25,13 +19,23 @@ pc <- function(
     distribution = "normal",
 
     # bootstrap control settings
-    bootstrap = TRUE, samples = 1000, parallel = FALSE, cores = NULL, #TODO: implement
-    control = NULL, #TODO: implement
+    bootstrap = TRUE, samples = 1000, cores = NULL, parallel = FALSE,
+    control = NULL,
     seed = NULL, silent = TRUE,
 
     # capability metrics settings
     sigma = 3, force_normal = FALSE,
     ...) {
+
+  ### Instructions for adding a new distribution
+  # the following functions need to be created:
+  # samples_to_mu_and_sigma.<distribution> (S3 Class)
+  # samples_to_percentiles.<distribution> (S3 Class)
+  # samples_to_posterior_predictives.<distribution> (S3 Class)
+  # samples_to_E_abs_dev.<distribution> (S3 Class)
+  # pc_fit_distribution.<distribution> (S3 Class)
+  # the following functions need to be extended:
+
 
   dots         <- list(...)
   object       <- list()
@@ -44,7 +48,7 @@ pc <- function(
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
   # prepare data
-  object$data <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
+  object$data <- .bpc_data(x = x)
 
   # collect control settings
   object$control <- .optim_check_and_list_fit_settings(
@@ -52,14 +56,15 @@ pc <- function(
   )
 
   # fit stan model
-  object$fit <- .pc_fit(data = object$data, distribution = distribution, control = object$control)
+  object$distribution <- distribution
+  object$fit          <- .pc_fit(distribution = distribution, data = object$data, control = object$control)
 
   # add class to the object because it's required for dispatching in compute_capability_metrics
-  class(object) <- c("pc", paste0("pc_", distribution))
+  class(object) <- "pc"
 
   # compute capability metrics
-  object$metrics      <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
-  object$metrics_boot <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
+  object$metrics      <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
+  object$metrics_boot <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
 
   # add coefficients
   object$coefficients <- unlist(object$metrics)
@@ -68,16 +73,16 @@ pc <- function(
 }
 
 
-.pc_fit           <- function(data, distribution, control) {
+.pc_fit           <- function(distribution, data, control) {
 
   if(!is.null(control[["seed"]]))
     set.seed(control[["seed"]])
 
-  fit <- .pc_single_fit(data = data, distribution = distribution, control = control)
+  fit <- .pc_single_fit(distribution = distribution, data = data, control = control)
   attr(fit, "distribution") <- distribution
 
   if (control[["bootstrap"]]) {
-    boot_fit <- .pc_bootstrap_fit(data = data, distribution = distribution, control = control)
+    boot_fit <- .pc_bootstrap_fit(distribution = distribution, data = data, control = control)
     attr(boot_fit, "distribution") <- distribution
   }
 
@@ -88,15 +93,34 @@ pc <- function(
 }
 .pc_single_fit    <- function(distribution, data, control) {
   distribution <- structure(distribution, class = distribution)
-  .pc_fit_distribution(distribution, data, control)
+  pc_fit_distribution(distribution, data, control)
 }
-.pc_bootstrap_fit <- function(data, distribution, control) {
+.pc_bootstrap_fit <- function(distribution, data, control) {
 
-  out <- vector("list", control[["samples"]])
+  if (!is.null(control[["seed"]]))
+    set.seed(control[["seed"]])
 
-  for (i in 1:control[["samples"]]) {
-    boot_data <- sample(data$x, size = length(data$x), replace = TRUE)
-    out[[i]]  <- .pc_single_fit(data = list(x = boot_data), distribution = distribution, control = control)
+  # bootstrap the data
+  data <- lapply(seq_len(control[["samples"]]), function(i) {
+    list(x = sample(data$x, size = length(data$x), replace = TRUE))
+  })
+
+  if (control[["parallel"]]) {
+
+    cl <- parallel::makeCluster(control[["cores"]])
+    parallel::clusterEvalQ(cl, {library("qc")})
+    parallel::clusterExport(cl, c("distribution", "data", "control"), envir = environment())
+    out <- parallel::parLapplyLB(cl, seq_len(control[["samples"]]), function(i) {
+      .pc_single_fit(distribution = distribution, data = data[[i]], control = control)
+    })
+
+  } else {
+
+    out  <- vector("list", control[["samples"]])
+    for (i in seq_len(control[["samples"]])) {
+      out[[i]]  <- .pc_single_fit(distribution = distribution, data = data[[i]], control = control)
+    }
+
   }
 
   out <- do.call(rbind.data.frame, out)
@@ -104,22 +128,24 @@ pc <- function(
   return(out)
 }
 
-.pc_fit_distribution        <- function(distribution, data, control) {
-  UseMethod(".pc_fit_distribution", distribution)
+pc_fit_distribution        <- function(distribution, data, control) {
+  UseMethod("pc_fit_distribution", distribution)
 }
-.pc_fit_distribution.normal <- function(distribution, data, control) {
+#' @export
+pc_fit_distribution.normal <- function(distribution, data, control) {
   return(list(
-    mu    = mean(data$x),
-    sigma = stats::sd(data$x)
+    mu    = mean(data[["x"]]),
+    sigma = stats::sd(data[["x"]])
   ))
 }
-.pc_fit_distribution.t      <- function(distribution, data, control) {
+#' @export
+pc_fit_distribution.t      <- function(distribution, data, control) {
 
   fit <- try(stats::optim(
-    par     = c(df = 30, mu = mean(data$x), sigma = stats::sd(data$x)),
+    par     = c(df = 30, mu = mean(data[["x"]]), sigma = stats::sd(data[["x"]])),
     fn      = function(par, x) -sum(extraDistr::dlst(x, df = par["df"], mu = par["mu"], sigma = par["sigma"], log = TRUE)),
-    x       = data$x,
-    lower   = c(2, -Inf, stats::sd(data$x) / 1e3),
+    x       = data[["x"]],
+    lower   = c(2, -Inf, stats::sd(x) / 1e3),
     method  = "L-BFGS-B"
   ))
 
@@ -139,9 +165,7 @@ pc <- function(
 
 .optim_check_and_list_fit_settings  <- function(bootstrap, samples, parallel, cores, seed, control, call = ""){
 
-  BayesTools::check_int(samples, "samples",  lower = 10,  call = call)
-  # BayesTools::check_list(control, "control", check_names = c("adapt_delta", "max_treedepth", "bridge_max_iter"))
-
+  BayesTools::check_int(samples,      "samples",   lower = 10,        call = call)
   BayesTools::check_bool(parallel,    "parallel",                     call = call)
   BayesTools::check_int(cores,        "cores",     allow_NULL = TRUE, lower = 1,  call = call)
   BayesTools::check_bool(bootstrap,   "bootstrap",                    call = call)
@@ -150,32 +174,16 @@ pc <- function(
   if(!parallel){
     cores <- 1
   }else if(is.null(cores)){
-    cores <- RoBTT.get_option("max_cores")
+    cores <- qc.get_option("max_cores")
   }
-
-
-  # if(is.null(control[["adapt_delta"]])){
-  #   control[["adapt_delta"]] <- 0.80
-  # }else{
-  #   BayesTools::check_real(control[["adapt_delta"]], "adapt_delta", lower = 0, upper = 1)
-  # }
-  # if(is.null(control[["max_treedepth"]])){
-  #   control[["max_treedepth"]] <- 15
-  # }else{
-  #   BayesTools::check_int(control[["max_treedepth"]], "max_treedepth", lower = 1)
-  # }
-  # if(is.null(control[["bridge_max_iter"]])){
-  #   control[["bridge_max_iter"]] <- 1000
-  # }else{
-  #   BayesTools::check_int(control[["bridge_max_iter"]], "bridge_max_iter", lower = 1)
-  # }
 
   return(invisible(list(
     bootstrap  = bootstrap,
     samples    = samples,
     parallel   = parallel,
     cores      = cores,
-    seed       = seed
+    seed       = seed,
+    control    = control
   )))
 }
 
@@ -201,8 +209,8 @@ summary.pc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE
 
   # recompute capability metrics if specification limits are set
   if (!missing(LSL) && !missing(target) && !missing(USL)) {
-    metrics      <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
-    metrics_boot <- .bpc_compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
+    metrics      <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
+    metrics_boot <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
   } else {
     metrics      <- object$metrics
     metrics_boot <- object$metrics_boot

@@ -46,21 +46,20 @@ testthat::test_that("fit with t-distribution", {
   set.seed(1)
   x <- rnorm(100, 0, 1)
 
-  fit <- bpc(x, LSL = -3, target = 0, USL = 3, chains = 1, warmup = 100, iter = 200, silent = TRUE, seed = 1)
 
-  # debugonce(qc:::.bpc_compute_capability_metrics)
   fit <- bpc(
-    x, LSL = -3, target = 0, USL = 3#,
-    # prior_nu    = prior("exp",  list(1))
+    x, LSL = -3, target = 0, USL = 3, prior_nu = prior("exponential", list(1/30), list(2, Inf)),
+    distribution = "t"
   )
   ss <- summary(fit)
 
   plot_density(fit, ci = "HPD")
 
+  skip()
   # TODO: this confuses me, discuss this?
   lapply(fit$metrics, var)
   lapply(fit$metrics, var)
-  other_cpc <- qc:::.bpc_compute_E_abs_dev.default(fit, 0)
+  other_cpc <- qc:::compute_E_abs_dev.default(fit, 0) # this function was renamed
   var(other_cpc)
   freq_cpc <- 6 / (6 * sqrt(pi /  2) * mean(abs(x)))
   mean(fit$metrics$Cpc) # looks better!

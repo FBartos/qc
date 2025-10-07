@@ -9,6 +9,7 @@ bpc(
   LSL,
   target,
   USL,
+  distribution = "normal",
   prior_mu = "Jeffreys_mu",
   prior_sigma = "Jeffreys_sigma",
   prior_nu = NULL,
@@ -16,6 +17,7 @@ bpc(
   iter = 10000,
   warmup = 5000,
   thin = 1,
+  cores = chains,
   parallel = FALSE,
   control = set_control(),
   convergence_checks = set_convergence_checks(),
@@ -29,17 +31,19 @@ bpc(
 \arguments{
 \item{x}{the data}
 
-\item{LSL}{Lower Specification Limit}
+\item{LSL}{lower specification limit}
 
-\item{target}{Target value}
+\item{target}{target value}
 
-\item{USL}{Upper Specification Limit}
+\item{USL}{upper specification limit}
+
+\item{distribution}{distribution for fitting the data}
 
 \item{prior_mu}{prior for the process mean, can be a string or a prior object}
 
 \item{prior_sigma}{prior for the process standard deviation, can be a string or a prior object}
 
-\item{prior_nu}{prior for the degrees of freedom, can be a string or a prior object, only used if the t-distribution is selected}
+\item{prior_nu}{prior for the degrees of freedom, can be a string or a prior object}
 
 \item{chains}{number of chains to run, defaults to 4}
 
@@ -48,6 +52,8 @@ bpc(
 \item{warmup}{number of warmup iterations per chain, defaults to 5000}
 
 \item{thin}{thinning factor, defaults to 1}
+
+\item{cores}{number of cores for parallel processing}
 
 \item{parallel}{whether to run chains in parallel, defaults to FALSE}
 

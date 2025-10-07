@@ -71,8 +71,8 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15, brid
 
   if(!parallel){
     cores <- 1
-  }else if(cores > RoBTT.get_option("max_cores")){
-    cores <- RoBTT.get_option("max_cores")
+  }else if(cores > qc.get_option("max_cores")){
+    cores <- qc.get_option("max_cores")
   }
 
   if(is.null(control[["adapt_delta"]])){
