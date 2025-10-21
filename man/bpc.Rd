@@ -23,6 +23,7 @@ bpc(
   convergence_checks = set_convergence_checks(),
   seed = NULL,
   silent = TRUE,
+  sample_priors = FALSE,
   sigma = 3,
   force_normal = FALSE,
   ...
@@ -64,6 +65,8 @@ bpc(
 \item{seed}{a random seed for reproducibility, defaults to NULL}
 
 \item{silent}{whether to suppress output during fitting, defaults to TRUE}
+
+\item{sample_priors}{whether samples should be obtained from the prior distribution only (cannot be combined with improper prior distributions)}
 
 \item{sigma}{the number of standard deviations to use for the capability metrics, defaults to 3}
 

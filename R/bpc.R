@@ -20,6 +20,7 @@
 #' @param silent whether to suppress output during fitting, defaults to TRUE
 #' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
 #' @param force_normal whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE
+#' @param sample_priors whether samples should be obtained from the prior distribution only (cannot be combined with improper prior distributions)
 #' @param ...
 #'
 #' @export
@@ -37,6 +38,8 @@ bpc <- function(
     chains  = 4, iter = 10000, warmup = 5000, thin = 1, cores = chains, parallel = FALSE,
     control = set_control(), convergence_checks = set_convergence_checks(),
     seed = NULL, silent = TRUE,
+
+    sample_priors = FALSE,
 
     # capability metrics settings
     sigma = 3, force_normal = FALSE,
@@ -62,12 +65,13 @@ bpc <- function(
   BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
   BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
+  BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
   # prepare data
   object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
 
   # prepare priors
-  object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu)
+  object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu, sample_priors = sample_priors)
 
   # collect control settings
   object$control <- .stan_check_and_list_fit_settings(
@@ -131,14 +135,16 @@ bpc <- function(
     ))
   }
 }
-.bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL) {
+.bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL, sample_priors = FALSE) {
 
   # transform priors into stan format
   out <- c(
-    if (distribution %in% c("normal", "t")) .stan_distribution("mu",    prior_mu),
-    if (distribution %in% c("normal", "t")) .stan_distribution("sigma", prior_sigma),
-    if (distribution %in% c("t"))           .stan_distribution("nu",    prior_nu)
+    if (distribution %in% c("normal", "t")) .stan_distribution("mu",    prior_mu,    sample_priors),
+    if (distribution %in% c("normal", "t")) .stan_distribution("sigma", prior_sigma, sample_priors),
+    if (distribution %in% c("t"))           .stan_distribution("nu",    prior_nu,    sample_priors)
   )
+
+  out[["sample_priors"]] <- ifelse(sample_priors, 1, 0)
 
   return(out)
 }

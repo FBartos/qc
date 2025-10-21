@@ -108,12 +108,15 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15, brid
 
 ### stan prior functions ----
 # transforms BayesTools priors into pre-compiled stan code
-.stan_distribution            <- function(parameter, prior){
+.stan_distribution            <- function(parameter, prior, sample_priors){
 
   out <- list()
 
   # special handling of the Jeffreys priors pseudo-distributions
   if(parameter %in% c("mu", "sigma", "nu") && is.character(prior) && prior %in% c("Jeffreys_mu", "Jeffreys_sigma", "uniform_nu")){
+
+    if (sample_priors)
+      stop("Improper prior distributions cannot be sampled from with `sample_priors = TRUE`")
 
     out[[paste0("estimate_", parameter)]]  <- 1
     out[[paste0("fixed_",    parameter)]]  <- numeric()

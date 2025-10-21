@@ -27,31 +27,33 @@ namespace model_normal_namespace {
 using stan::model::model_base_crtp;
 using namespace stan::math;
 stan::math::profile_map profiles__;
-static constexpr std::array<const char*, 206> locations_array__ =
+static constexpr std::array<const char*, 209> locations_array__ =
   {" (found before start of program)",
-  " (in 'string', line 215, column 2 to column 138)",
-  " (in 'string', line 216, column 2 to column 141)",
-  " (in 'string', line 219, column 2 to column 10)",
-  " (in 'string', line 220, column 2 to column 13)",
-  " (in 'string', line 224, column 4 to column 21)",
-  " (in 'string', line 223, column 7 to line 225, column 3)",
-  " (in 'string', line 222, column 4 to column 19)",
-  " (in 'string', line 221, column 22 to line 223, column 3)",
-  " (in 'string', line 221, column 2 to line 225, column 3)",
-  " (in 'string', line 229, column 4 to column 27)",
-  " (in 'string', line 228, column 7 to line 230, column 3)",
-  " (in 'string', line 227, column 4 to column 25)",
-  " (in 'string', line 226, column 25 to line 228, column 3)",
-  " (in 'string', line 226, column 2 to line 230, column 3)",
-  " (in 'string', line 234, column 26 to column 136)",
-  " (in 'string', line 234, column 2 to column 136)",
-  " (in 'string', line 235, column 26 to column 139)",
-  " (in 'string', line 235, column 2 to column 139)",
-  " (in 'string', line 240, column 4 to column 132)",
-  " (in 'string', line 239, column 7 to line 241, column 3)",
-  " (in 'string', line 238, column 4 to column 41)",
-  " (in 'string', line 237, column 16 to line 239, column 3)",
-  " (in 'string', line 237, column 2 to line 241, column 3)",
+  " (in 'string', line 216, column 2 to column 138)",
+  " (in 'string', line 217, column 2 to column 141)",
+  " (in 'string', line 220, column 2 to column 10)",
+  " (in 'string', line 221, column 2 to column 13)",
+  " (in 'string', line 225, column 4 to column 21)",
+  " (in 'string', line 224, column 7 to line 226, column 3)",
+  " (in 'string', line 223, column 4 to column 19)",
+  " (in 'string', line 222, column 22 to line 224, column 3)",
+  " (in 'string', line 222, column 2 to line 226, column 3)",
+  " (in 'string', line 230, column 4 to column 27)",
+  " (in 'string', line 229, column 7 to line 231, column 3)",
+  " (in 'string', line 228, column 4 to column 25)",
+  " (in 'string', line 227, column 25 to line 229, column 3)",
+  " (in 'string', line 227, column 2 to line 231, column 3)",
+  " (in 'string', line 235, column 26 to column 136)",
+  " (in 'string', line 235, column 2 to column 136)",
+  " (in 'string', line 236, column 26 to column 139)",
+  " (in 'string', line 236, column 2 to column 139)",
+  " (in 'string', line 242, column 6 to column 134)",
+  " (in 'string', line 241, column 9 to line 243, column 5)",
+  " (in 'string', line 240, column 6 to column 43)",
+  " (in 'string', line 239, column 18 to line 241, column 5)",
+  " (in 'string', line 239, column 4 to line 243, column 5)",
+  " (in 'string', line 238, column 26 to line 244, column 3)",
+  " (in 'string', line 238, column 2 to line 244, column 3)",
   " (in 'string', line 190, column 2 to column 12)",
   " (in 'string', line 192, column 2 to column 17)",
   " (in 'string', line 194, column 9 to column 27)",
@@ -80,8 +82,9 @@ static constexpr std::array<const char*, 206> locations_array__ =
   " (in 'string', line 210, column 2 to column 61)",
   " (in 'string', line 211, column 2 to column 20)",
   " (in 'string', line 212, column 2 to column 23)",
-  " (in 'string', line 215, column 8 to column 19)",
-  " (in 'string', line 216, column 8 to column 22)",
+  " (in 'string', line 213, column 2 to column 20)",
+  " (in 'string', line 216, column 8 to column 19)",
+  " (in 'string', line 217, column 8 to column 22)",
   " (in 'string', line 6, column 4 to column 13)",
   " (in 'string', line 5, column 32 to line 7, column 3)",
   " (in 'string', line 9, column 4 to column 24)",
@@ -286,7 +289,7 @@ Jeffreys_mu_lpdf(const T0__& mu, std::ostream* pstream__) {
   // suppress unused var warning
   (void) DUMMY_VAR__;
   try {
-    current_statement__ = 54;
+    current_statement__ = 57;
     return 0;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -302,7 +305,7 @@ Jeffreys_sigma_lpdf(const T0__& sigma, std::ostream* pstream__) {
   // suppress unused var warning
   (void) DUMMY_VAR__;
   try {
-    current_statement__ = 56;
+    current_statement__ = 59;
     return stan::math::log((1 / sigma));
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -327,27 +330,27 @@ coefs_lb(const std::vector<int>& type_in, const T1__& bound_in_arg__,
     int type = std::numeric_limits<int>::min();
     local_scalar_t__ bound = DUMMY_VAR__;
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 66;
+    current_statement__ = 69;
     if (stan::math::logical_eq(stan::math::num_elements(type_in), 0)) {
-      current_statement__ = 64;
+      current_statement__ = 67;
       return stan::math::negative_infinity();
     } else {
-      current_statement__ = 61;
+      current_statement__ = 64;
       type = stan::model::rvalue(type_in, "type_in",
                stan::model::index_uni(1));
-      current_statement__ = 62;
+      current_statement__ = 65;
       bound = stan::model::rvalue(bound_in, "bound_in",
                 stan::model::index_uni(1));
     }
-    current_statement__ = 69;
+    current_statement__ = 72;
     if (stan::math::logical_eq(type, 0)) {
-      current_statement__ = 68;
+      current_statement__ = 71;
       lb = stan::math::negative_infinity();
     } else {
-      current_statement__ = 67;
+      current_statement__ = 70;
       lb = bound;
     }
-    current_statement__ = 70;
+    current_statement__ = 73;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -372,27 +375,27 @@ coefs_ub(const std::vector<int>& type_in, const T1__& bound_in_arg__,
     int type = std::numeric_limits<int>::min();
     local_scalar_t__ bound = DUMMY_VAR__;
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 80;
+    current_statement__ = 83;
     if (stan::math::logical_eq(stan::math::num_elements(type_in), 0)) {
-      current_statement__ = 78;
+      current_statement__ = 81;
       return stan::math::positive_infinity();
     } else {
-      current_statement__ = 75;
+      current_statement__ = 78;
       type = stan::model::rvalue(type_in, "type_in",
                stan::model::index_uni(2));
-      current_statement__ = 76;
+      current_statement__ = 79;
       bound = stan::model::rvalue(bound_in, "bound_in",
                 stan::model::index_uni(2));
     }
-    current_statement__ = 83;
+    current_statement__ = 86;
     if (stan::math::logical_eq(type, 0)) {
-      current_statement__ = 82;
+      current_statement__ = 85;
       lb = stan::math::positive_infinity();
     } else {
-      current_statement__ = 81;
+      current_statement__ = 84;
       lb = bound;
     }
-    current_statement__ = 84;
+    current_statement__ = 87;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -415,16 +418,16 @@ data_lb(const int& is_trunc, const T1__& trunc_in_arg__, std::ostream*
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ lb = DUMMY_VAR__;
-    current_statement__ = 89;
+    current_statement__ = 92;
     if (stan::math::logical_eq(is_trunc, 0)) {
-      current_statement__ = 88;
+      current_statement__ = 91;
       lb = stan::math::negative_infinity();
     } else {
-      current_statement__ = 87;
+      current_statement__ = 90;
       lb = stan::model::rvalue(trunc_in, "trunc_in",
              stan::model::index_uni(1));
     }
-    current_statement__ = 90;
+    current_statement__ = 93;
     return lb;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -447,16 +450,16 @@ data_ub(const int& is_trunc, const T1__& trunc_in_arg__, std::ostream*
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ ub = DUMMY_VAR__;
-    current_statement__ = 95;
+    current_statement__ = 98;
     if (stan::math::logical_eq(is_trunc, 0)) {
-      current_statement__ = 94;
+      current_statement__ = 97;
       ub = stan::math::positive_infinity();
     } else {
-      current_statement__ = 93;
+      current_statement__ = 96;
       ub = stan::model::rvalue(trunc_in, "trunc_in",
              stan::model::index_uni(2));
     }
-    current_statement__ = 96;
+    current_statement__ = 99;
     return ub;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -486,15 +489,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
   (void) DUMMY_VAR__;
   try {
     local_scalar_t__ ll = DUMMY_VAR__;
-    current_statement__ = 203;
+    current_statement__ = 206;
     if (stan::math::logical_eq(prior_type, 1)) {
-      current_statement__ = 192;
+      current_statement__ = 195;
       ll = stan::math::normal_lpdf<false>(parameter,
              stan::model::rvalue(prior_parameters, "prior_parameters",
                stan::model::index_uni(1)),
              stan::model::rvalue(prior_parameters, "prior_parameters",
                stan::model::index_uni(2)));
-      current_statement__ = 201;
+      current_statement__ = 204;
       if ((stan::math::primitive_value(
              stan::math::logical_neq(
                stan::model::rvalue(bounds_type, "bounds_type",
@@ -504,7 +507,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
             stan::math::logical_neq(
               stan::model::rvalue(bounds_type, "bounds_type",
                 stan::model::index_uni(2)), 0)))) {
-        current_statement__ = 199;
+        current_statement__ = 202;
         ll = (ll -
           stan::math::log_diff_exp(
             stan::math::normal_lcdf(
@@ -520,11 +523,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::model::rvalue(prior_parameters, "prior_parameters",
                 stan::model::index_uni(2)))));
       } else {
-        current_statement__ = 198;
+        current_statement__ = 201;
         if (stan::math::logical_neq(
               stan::model::rvalue(bounds_type, "bounds_type",
                 stan::model::index_uni(1)), 0)) {
-          current_statement__ = 196;
+          current_statement__ = 199;
           ll = (ll -
             stan::math::normal_lccdf(
               stan::model::rvalue(bounds, "bounds", stan::model::index_uni(1)),
@@ -533,11 +536,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::model::rvalue(prior_parameters, "prior_parameters",
                 stan::model::index_uni(2))));
         } else {
-          current_statement__ = 195;
+          current_statement__ = 198;
           if (stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(2)), 0)) {
-            current_statement__ = 193;
+            current_statement__ = 196;
             ll = (ll -
               stan::math::normal_lcdf(
                 stan::model::rvalue(bounds, "bounds",
@@ -550,15 +553,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
         }
       }
     } else {
-      current_statement__ = 191;
+      current_statement__ = 194;
       if (stan::math::logical_eq(prior_type, 2)) {
-        current_statement__ = 180;
+        current_statement__ = 183;
         ll = stan::math::lognormal_lpdf<false>(parameter,
                stan::model::rvalue(prior_parameters, "prior_parameters",
                  stan::model::index_uni(1)),
                stan::model::rvalue(prior_parameters, "prior_parameters",
                  stan::model::index_uni(2)));
-        current_statement__ = 189;
+        current_statement__ = 192;
         if ((stan::math::primitive_value(
                stan::math::logical_neq(
                  stan::model::rvalue(bounds_type, "bounds_type",
@@ -568,7 +571,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(2)), 0)))) {
-          current_statement__ = 187;
+          current_statement__ = 190;
           ll = (ll -
             stan::math::log_diff_exp(
               stan::math::lognormal_lcdf(
@@ -586,11 +589,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::model::rvalue(prior_parameters, "prior_parameters",
                   stan::model::index_uni(2)))));
         } else {
-          current_statement__ = 186;
+          current_statement__ = 189;
           if (stan::math::logical_neq(
                 stan::model::rvalue(bounds_type, "bounds_type",
                   stan::model::index_uni(1)), 0)) {
-            current_statement__ = 184;
+            current_statement__ = 187;
             ll = (ll -
               stan::math::lognormal_lccdf(
                 stan::model::rvalue(bounds, "bounds",
@@ -600,11 +603,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::model::rvalue(prior_parameters, "prior_parameters",
                   stan::model::index_uni(2))));
           } else {
-            current_statement__ = 183;
+            current_statement__ = 186;
             if (stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(2)), 0)) {
-              current_statement__ = 181;
+              current_statement__ = 184;
               ll = (ll -
                 stan::math::lognormal_lcdf(
                   stan::model::rvalue(bounds, "bounds",
@@ -617,15 +620,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
           }
         }
       } else {
-        current_statement__ = 179;
+        current_statement__ = 182;
         if (stan::math::logical_eq(prior_type, 3)) {
-          current_statement__ = 168;
+          current_statement__ = 171;
           ll = stan::math::cauchy_lpdf<false>(parameter,
                  stan::model::rvalue(prior_parameters, "prior_parameters",
                    stan::model::index_uni(1)),
                  stan::model::rvalue(prior_parameters, "prior_parameters",
                    stan::model::index_uni(2)));
-          current_statement__ = 177;
+          current_statement__ = 180;
           if ((stan::math::primitive_value(
                  stan::math::logical_neq(
                    stan::model::rvalue(bounds_type, "bounds_type",
@@ -635,7 +638,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(2)), 0)))) {
-            current_statement__ = 175;
+            current_statement__ = 178;
             ll = (ll -
               stan::math::log_diff_exp(
                 stan::math::cauchy_lcdf(
@@ -653,11 +656,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::model::rvalue(prior_parameters, "prior_parameters",
                     stan::model::index_uni(2)))));
           } else {
-            current_statement__ = 174;
+            current_statement__ = 177;
             if (stan::math::logical_neq(
                   stan::model::rvalue(bounds_type, "bounds_type",
                     stan::model::index_uni(1)), 0)) {
-              current_statement__ = 172;
+              current_statement__ = 175;
               ll = (ll -
                 stan::math::cauchy_lccdf(
                   stan::model::rvalue(bounds, "bounds",
@@ -667,11 +670,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::model::rvalue(prior_parameters, "prior_parameters",
                     stan::model::index_uni(2))));
             } else {
-              current_statement__ = 171;
+              current_statement__ = 174;
               if (stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(2)), 0)) {
-                current_statement__ = 169;
+                current_statement__ = 172;
                 ll = (ll -
                   stan::math::cauchy_lcdf(
                     stan::model::rvalue(bounds, "bounds",
@@ -684,9 +687,9 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
             }
           }
         } else {
-          current_statement__ = 167;
+          current_statement__ = 170;
           if (stan::math::logical_eq(prior_type, 4)) {
-            current_statement__ = 156;
+            current_statement__ = 159;
             ll = stan::math::student_t_lpdf<false>(parameter,
                    stan::model::rvalue(prior_parameters, "prior_parameters",
                      stan::model::index_uni(1)),
@@ -694,7 +697,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                      stan::model::index_uni(2)),
                    stan::model::rvalue(prior_parameters, "prior_parameters",
                      stan::model::index_uni(3)));
-            current_statement__ = 165;
+            current_statement__ = 168;
             if ((stan::math::primitive_value(
                    stan::math::logical_neq(
                      stan::model::rvalue(bounds_type, "bounds_type",
@@ -704,7 +707,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(2)), 0)))) {
-              current_statement__ = 163;
+              current_statement__ = 166;
               ll = (ll -
                 stan::math::log_diff_exp(
                   stan::math::student_t_lcdf(
@@ -726,11 +729,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::model::rvalue(prior_parameters, "prior_parameters",
                       stan::model::index_uni(3)))));
             } else {
-              current_statement__ = 162;
+              current_statement__ = 165;
               if (stan::math::logical_neq(
                     stan::model::rvalue(bounds_type, "bounds_type",
                       stan::model::index_uni(1)), 0)) {
-                current_statement__ = 160;
+                current_statement__ = 163;
                 ll = (ll -
                   stan::math::student_t_lccdf(
                     stan::model::rvalue(bounds, "bounds",
@@ -742,11 +745,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::model::rvalue(prior_parameters, "prior_parameters",
                       stan::model::index_uni(3))));
               } else {
-                current_statement__ = 159;
+                current_statement__ = 162;
                 if (stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(2)), 0)) {
-                  current_statement__ = 157;
+                  current_statement__ = 160;
                   ll = (ll -
                     stan::math::student_t_lcdf(
                       stan::model::rvalue(bounds, "bounds",
@@ -761,15 +764,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
               }
             }
           } else {
-            current_statement__ = 155;
+            current_statement__ = 158;
             if (stan::math::logical_eq(prior_type, 5)) {
-              current_statement__ = 144;
+              current_statement__ = 147;
               ll = stan::math::gamma_lpdf<false>(parameter,
                      stan::model::rvalue(prior_parameters,
                        "prior_parameters", stan::model::index_uni(1)),
                      stan::model::rvalue(prior_parameters,
                        "prior_parameters", stan::model::index_uni(2)));
-              current_statement__ = 153;
+              current_statement__ = 156;
               if ((stan::math::primitive_value(
                      stan::math::logical_neq(
                        stan::model::rvalue(bounds_type, "bounds_type",
@@ -779,7 +782,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                     stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(2)), 0)))) {
-                current_statement__ = 151;
+                current_statement__ = 154;
                 ll = (ll -
                   stan::math::log_diff_exp(
                     stan::math::gamma_lcdf(
@@ -797,11 +800,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::model::rvalue(prior_parameters,
                         "prior_parameters", stan::model::index_uni(2)))));
               } else {
-                current_statement__ = 150;
+                current_statement__ = 153;
                 if (stan::math::logical_neq(
                       stan::model::rvalue(bounds_type, "bounds_type",
                         stan::model::index_uni(1)), 0)) {
-                  current_statement__ = 148;
+                  current_statement__ = 151;
                   ll = (ll -
                     stan::math::gamma_lccdf(
                       stan::model::rvalue(bounds, "bounds",
@@ -811,11 +814,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::model::rvalue(prior_parameters,
                         "prior_parameters", stan::model::index_uni(2))));
                 } else {
-                  current_statement__ = 147;
+                  current_statement__ = 150;
                   if (stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(2)), 0)) {
-                    current_statement__ = 145;
+                    current_statement__ = 148;
                     ll = (ll -
                       stan::math::gamma_lcdf(
                         stan::model::rvalue(bounds, "bounds",
@@ -828,15 +831,15 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                 }
               }
             } else {
-              current_statement__ = 143;
+              current_statement__ = 146;
               if (stan::math::logical_eq(prior_type, 6)) {
-                current_statement__ = 132;
+                current_statement__ = 135;
                 ll = stan::math::inv_gamma_lpdf<false>(parameter,
                        stan::model::rvalue(prior_parameters,
                          "prior_parameters", stan::model::index_uni(1)),
                        stan::model::rvalue(prior_parameters,
                          "prior_parameters", stan::model::index_uni(2)));
-                current_statement__ = 141;
+                current_statement__ = 144;
                 if ((stan::math::primitive_value(
                        stan::math::logical_neq(
                          stan::model::rvalue(bounds_type, "bounds_type",
@@ -846,7 +849,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(2)), 0)))) {
-                  current_statement__ = 139;
+                  current_statement__ = 142;
                   ll = (ll -
                     stan::math::log_diff_exp(
                       stan::math::inv_gamma_lcdf(
@@ -864,11 +867,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         stan::model::rvalue(prior_parameters,
                           "prior_parameters", stan::model::index_uni(2)))));
                 } else {
-                  current_statement__ = 138;
+                  current_statement__ = 141;
                   if (stan::math::logical_neq(
                         stan::model::rvalue(bounds_type, "bounds_type",
                           stan::model::index_uni(1)), 0)) {
-                    current_statement__ = 136;
+                    current_statement__ = 139;
                     ll = (ll -
                       stan::math::inv_gamma_lccdf(
                         stan::model::rvalue(bounds, "bounds",
@@ -878,11 +881,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         stan::model::rvalue(prior_parameters,
                           "prior_parameters", stan::model::index_uni(2))));
                   } else {
-                    current_statement__ = 135;
+                    current_statement__ = 138;
                     if (stan::math::logical_neq(
                           stan::model::rvalue(bounds_type, "bounds_type",
                             stan::model::index_uni(2)), 0)) {
-                      current_statement__ = 133;
+                      current_statement__ = 136;
                       ll = (ll -
                         stan::math::inv_gamma_lcdf(
                           stan::model::rvalue(bounds, "bounds",
@@ -895,24 +898,24 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                   }
                 }
               } else {
-                current_statement__ = 131;
+                current_statement__ = 134;
                 if (stan::math::logical_eq(prior_type, 7)) {
-                  current_statement__ = 129;
+                  current_statement__ = 132;
                   ll = stan::math::uniform_lpdf<false>(parameter,
                          stan::model::rvalue(prior_parameters,
                            "prior_parameters", stan::model::index_uni(1)),
                          stan::model::rvalue(prior_parameters,
                            "prior_parameters", stan::model::index_uni(2)));
                 } else {
-                  current_statement__ = 128;
+                  current_statement__ = 131;
                   if (stan::math::logical_eq(prior_type, 8)) {
-                    current_statement__ = 117;
+                    current_statement__ = 120;
                     ll = stan::math::beta_lpdf<false>(parameter,
                            stan::model::rvalue(prior_parameters,
                              "prior_parameters", stan::model::index_uni(1)),
                            stan::model::rvalue(prior_parameters,
                              "prior_parameters", stan::model::index_uni(2)));
-                    current_statement__ = 126;
+                    current_statement__ = 129;
                     if ((stan::math::primitive_value(
                            stan::math::logical_neq(
                              stan::model::rvalue(bounds_type, "bounds_type",
@@ -922,7 +925,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                           stan::math::logical_neq(
                             stan::model::rvalue(bounds_type, "bounds_type",
                               stan::model::index_uni(2)), 0)))) {
-                      current_statement__ = 124;
+                      current_statement__ = 127;
                       ll = (ll -
                         stan::math::log_diff_exp(
                           stan::math::beta_lcdf(
@@ -940,11 +943,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::model::rvalue(prior_parameters,
                               "prior_parameters", stan::model::index_uni(2)))));
                     } else {
-                      current_statement__ = 123;
+                      current_statement__ = 126;
                       if (stan::math::logical_neq(
                             stan::model::rvalue(bounds_type, "bounds_type",
                               stan::model::index_uni(1)), 0)) {
-                        current_statement__ = 121;
+                        current_statement__ = 124;
                         ll = (ll -
                           stan::math::beta_lccdf(
                             stan::model::rvalue(bounds, "bounds",
@@ -954,11 +957,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::model::rvalue(prior_parameters,
                               "prior_parameters", stan::model::index_uni(2))));
                       } else {
-                        current_statement__ = 120;
+                        current_statement__ = 123;
                         if (stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(2)), 0)) {
-                          current_statement__ = 118;
+                          current_statement__ = 121;
                           ll = (ll -
                             stan::math::beta_lcdf(
                               stan::model::rvalue(bounds, "bounds",
@@ -971,13 +974,13 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                       }
                     }
                   } else {
-                    current_statement__ = 116;
+                    current_statement__ = 119;
                     if (stan::math::logical_eq(prior_type, 9)) {
-                      current_statement__ = 105;
+                      current_statement__ = 108;
                       ll = stan::math::exponential_lpdf<false>(parameter,
                              stan::model::rvalue(prior_parameters,
                                "prior_parameters", stan::model::index_uni(1)));
-                      current_statement__ = 114;
+                      current_statement__ = 117;
                       if ((stan::math::primitive_value(
                              stan::math::logical_neq(
                                stan::model::rvalue(bounds_type,
@@ -987,7 +990,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                             stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(2)), 0)))) {
-                        current_statement__ = 112;
+                        current_statement__ = 115;
                         ll = (ll -
                           stan::math::log_diff_exp(
                             stan::math::exponential_lcdf(
@@ -1001,11 +1004,11 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                               stan::model::rvalue(prior_parameters,
                                 "prior_parameters", stan::model::index_uni(1)))));
                       } else {
-                        current_statement__ = 111;
+                        current_statement__ = 114;
                         if (stan::math::logical_neq(
                               stan::model::rvalue(bounds_type, "bounds_type",
                                 stan::model::index_uni(1)), 0)) {
-                          current_statement__ = 109;
+                          current_statement__ = 112;
                           ll = (ll -
                             stan::math::exponential_lccdf(
                               stan::model::rvalue(bounds, "bounds",
@@ -1013,12 +1016,12 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                               stan::model::rvalue(prior_parameters,
                                 "prior_parameters", stan::model::index_uni(1))));
                         } else {
-                          current_statement__ = 108;
+                          current_statement__ = 111;
                           if (stan::math::logical_neq(
                                 stan::model::rvalue(bounds_type,
                                   "bounds_type", stan::model::index_uni(2)),
                                 0)) {
-                            current_statement__ = 106;
+                            current_statement__ = 109;
                             ll = (ll -
                               stan::math::exponential_lcdf(
                                 stan::model::rvalue(bounds, "bounds",
@@ -1030,14 +1033,14 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
                         }
                       }
                     } else {
-                      current_statement__ = 104;
+                      current_statement__ = 107;
                       if (stan::math::logical_eq(prior_type, 98)) {
-                        current_statement__ = 102;
+                        current_statement__ = 105;
                         ll = Jeffreys_mu_lpdf<false>(parameter, pstream__);
                       } else {
-                        current_statement__ = 101;
+                        current_statement__ = 104;
                         if (stan::math::logical_eq(prior_type, 99)) {
-                          current_statement__ = 99;
+                          current_statement__ = 102;
                           ll = Jeffreys_sigma_lpdf<false>(parameter,
                                  pstream__);
                         }
@@ -1051,7 +1054,7 @@ set_prior(const T0__& parameter, const int& prior_type, const T2__&
         }
       }
     }
-    current_statement__ = 204;
+    current_statement__ = 207;
     return ll;
   } catch (const std::exception& e) {
     stan::lang::rethrow_located(e, locations_array__[current_statement__]);
@@ -1077,6 +1080,7 @@ private:
   Eigen::Matrix<double,-1,1> prior_parameters_sigma_data__;
   int prior_type_mu;
   int prior_type_sigma;
+  int sample_priors;
   Eigen::Map<Eigen::Matrix<double,-1,1>> x{nullptr, 0};
   Eigen::Map<Eigen::Matrix<double,-1,1>> ss_mean{nullptr, 0};
   Eigen::Map<Eigen::Matrix<double,-1,1>> ss_sd{nullptr, 0};
@@ -1105,24 +1109,24 @@ public:
     try {
       int pos__ = std::numeric_limits<int>::min();
       pos__ = 1;
-      current_statement__ = 24;
+      current_statement__ = 26;
       context__.validate_dims("data initialization", "is_ss", "int",
         std::vector<size_t>{});
       is_ss = std::numeric_limits<int>::min();
-      current_statement__ = 24;
+      current_statement__ = 26;
       is_ss = context__.vals_i("is_ss")[(1 - 1)];
-      current_statement__ = 25;
+      current_statement__ = 27;
       context__.validate_dims("data initialization", "N", "int",
         std::vector<size_t>{});
       N = std::numeric_limits<int>::min();
-      current_statement__ = 25;
+      current_statement__ = 27;
       N = context__.vals_i("N")[(1 - 1)];
-      current_statement__ = 25;
+      current_statement__ = 27;
       stan::math::check_greater_or_equal(function__, "N", N, 0);
-      current_statement__ = 26;
+      current_statement__ = 28;
       stan::math::validate_non_negative_index("x", "is_ss == 0 ? N : 0",
         (stan::math::logical_eq(is_ss, 0) ? N : 0));
-      current_statement__ = 27;
+      current_statement__ = 29;
       context__.validate_dims("data initialization", "x", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(is_ss, 0) ? N : 0))});
@@ -1133,24 +1137,24 @@ public:
         (stan::math::logical_eq(is_ss, 0) ? N : 0));
       {
         std::vector<local_scalar_t__> x_flat__;
-        current_statement__ = 27;
+        current_statement__ = 29;
         x_flat__ = context__.vals_r("x");
-        current_statement__ = 27;
+        current_statement__ = 29;
         pos__ = 1;
-        current_statement__ = 27;
+        current_statement__ = 29;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(is_ss, 0) ? N : 0); ++sym1__) {
-          current_statement__ = 27;
+          current_statement__ = 29;
           stan::model::assign(x, x_flat__[(pos__ - 1)],
             "assigning variable x", stan::model::index_uni(sym1__));
-          current_statement__ = 27;
+          current_statement__ = 29;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 28;
+      current_statement__ = 30;
       stan::math::validate_non_negative_index("ss_mean",
         "is_ss == 1 ? 1 : 0", (stan::math::logical_eq(is_ss, 1) ? 1 : 0));
-      current_statement__ = 29;
+      current_statement__ = 31;
       context__.validate_dims("data initialization", "ss_mean", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(is_ss, 1) ? 1 : 0))});
@@ -1162,24 +1166,24 @@ public:
         (stan::math::logical_eq(is_ss, 1) ? 1 : 0));
       {
         std::vector<local_scalar_t__> ss_mean_flat__;
-        current_statement__ = 29;
+        current_statement__ = 31;
         ss_mean_flat__ = context__.vals_r("ss_mean");
-        current_statement__ = 29;
+        current_statement__ = 31;
         pos__ = 1;
-        current_statement__ = 29;
+        current_statement__ = 31;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(is_ss, 1) ? 1 : 0); ++sym1__) {
-          current_statement__ = 29;
+          current_statement__ = 31;
           stan::model::assign(ss_mean, ss_mean_flat__[(pos__ - 1)],
             "assigning variable ss_mean", stan::model::index_uni(sym1__));
-          current_statement__ = 29;
+          current_statement__ = 31;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 30;
+      current_statement__ = 32;
       stan::math::validate_non_negative_index("ss_sd", "is_ss == 1 ? 1 : 0",
         (stan::math::logical_eq(is_ss, 1) ? 1 : 0));
-      current_statement__ = 31;
+      current_statement__ = 33;
       context__.validate_dims("data initialization", "ss_sd", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(is_ss, 1) ? 1 : 0))});
@@ -1191,37 +1195,37 @@ public:
         (stan::math::logical_eq(is_ss, 1) ? 1 : 0));
       {
         std::vector<local_scalar_t__> ss_sd_flat__;
-        current_statement__ = 31;
+        current_statement__ = 33;
         ss_sd_flat__ = context__.vals_r("ss_sd");
-        current_statement__ = 31;
+        current_statement__ = 33;
         pos__ = 1;
-        current_statement__ = 31;
+        current_statement__ = 33;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(is_ss, 1) ? 1 : 0); ++sym1__) {
-          current_statement__ = 31;
+          current_statement__ = 33;
           stan::model::assign(ss_sd, ss_sd_flat__[(pos__ - 1)],
             "assigning variable ss_sd", stan::model::index_uni(sym1__));
-          current_statement__ = 31;
+          current_statement__ = 33;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 32;
+      current_statement__ = 34;
       context__.validate_dims("data initialization", "estimate_mu", "int",
         std::vector<size_t>{});
       estimate_mu = std::numeric_limits<int>::min();
-      current_statement__ = 32;
+      current_statement__ = 34;
       estimate_mu = context__.vals_i("estimate_mu")[(1 - 1)];
-      current_statement__ = 33;
+      current_statement__ = 35;
       context__.validate_dims("data initialization", "estimate_sigma", "int",
         std::vector<size_t>{});
       estimate_sigma = std::numeric_limits<int>::min();
-      current_statement__ = 33;
+      current_statement__ = 35;
       estimate_sigma = context__.vals_i("estimate_sigma")[(1 - 1)];
-      current_statement__ = 34;
+      current_statement__ = 36;
       stan::math::validate_non_negative_index("bounds_mu",
         "estimate_mu == 1 ? 2 : 0",
         (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
-      current_statement__ = 35;
+      current_statement__ = 37;
       context__.validate_dims("data initialization", "bounds_mu", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0))});
@@ -1234,25 +1238,25 @@ public:
         (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
       {
         std::vector<local_scalar_t__> bounds_mu_flat__;
-        current_statement__ = 35;
+        current_statement__ = 37;
         bounds_mu_flat__ = context__.vals_r("bounds_mu");
-        current_statement__ = 35;
+        current_statement__ = 37;
         pos__ = 1;
-        current_statement__ = 35;
+        current_statement__ = 37;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0); ++sym1__) {
-          current_statement__ = 35;
+          current_statement__ = 37;
           stan::model::assign(bounds_mu, bounds_mu_flat__[(pos__ - 1)],
             "assigning variable bounds_mu", stan::model::index_uni(sym1__));
-          current_statement__ = 35;
+          current_statement__ = 37;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 36;
+      current_statement__ = 38;
       stan::math::validate_non_negative_index("bounds_sigma",
         "estimate_sigma == 1 ? 2 : 0",
         (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
-      current_statement__ = 37;
+      current_statement__ = 39;
       context__.validate_dims("data initialization", "bounds_sigma",
         "double",
         std::vector<size_t>{static_cast<size_t>(
@@ -1266,38 +1270,38 @@ public:
         (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
       {
         std::vector<local_scalar_t__> bounds_sigma_flat__;
-        current_statement__ = 37;
+        current_statement__ = 39;
         bounds_sigma_flat__ = context__.vals_r("bounds_sigma");
-        current_statement__ = 37;
+        current_statement__ = 39;
         pos__ = 1;
-        current_statement__ = 37;
+        current_statement__ = 39;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0); ++sym1__) {
-          current_statement__ = 37;
+          current_statement__ = 39;
           stan::model::assign(bounds_sigma, bounds_sigma_flat__[(pos__ - 1)],
             "assigning variable bounds_sigma", stan::model::index_uni(sym1__));
-          current_statement__ = 37;
+          current_statement__ = 39;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 38;
+      current_statement__ = 40;
       stan::math::validate_non_negative_index("bounds_type_mu",
         "estimate_mu == 1 ? 2 : 0",
         (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0));
-      current_statement__ = 39;
+      current_statement__ = 41;
       context__.validate_dims("data initialization", "bounds_type_mu", "int",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(estimate_mu, 1) ? 2 : 0))});
       bounds_type_mu = std::vector<int>((stan::math::logical_eq(estimate_mu,
                                            1) ? 2 : 0),
                          std::numeric_limits<int>::min());
-      current_statement__ = 39;
+      current_statement__ = 41;
       bounds_type_mu = context__.vals_i("bounds_type_mu");
-      current_statement__ = 40;
+      current_statement__ = 42;
       stan::math::validate_non_negative_index("bounds_type_sigma",
         "estimate_sigma == 1 ? 2 : 0",
         (stan::math::logical_eq(estimate_sigma, 1) ? 2 : 0));
-      current_statement__ = 41;
+      current_statement__ = 43;
       context__.validate_dims("data initialization", "bounds_type_sigma",
         "int",
         std::vector<size_t>{static_cast<size_t>(
@@ -1305,38 +1309,38 @@ public:
       bounds_type_sigma = std::vector<int>((stan::math::logical_eq(
                                               estimate_sigma, 1) ? 2 : 0),
                             std::numeric_limits<int>::min());
-      current_statement__ = 41;
+      current_statement__ = 43;
       bounds_type_sigma = context__.vals_i("bounds_type_sigma");
-      current_statement__ = 42;
+      current_statement__ = 44;
       stan::math::validate_non_negative_index("fixed_mu",
         "estimate_mu == 0 ? 1 : 0",
         (stan::math::logical_eq(estimate_mu, 0) ? 1 : 0));
-      current_statement__ = 43;
+      current_statement__ = 45;
       context__.validate_dims("data initialization", "fixed_mu", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(estimate_mu, 0) ? 1 : 0))});
       fixed_mu = std::vector<double>((stan::math::logical_eq(estimate_mu, 0) ? 1 : 0),
                    std::numeric_limits<double>::quiet_NaN());
-      current_statement__ = 43;
+      current_statement__ = 45;
       fixed_mu = context__.vals_r("fixed_mu");
-      current_statement__ = 44;
+      current_statement__ = 46;
       stan::math::validate_non_negative_index("fixed_sigma",
         "estimate_sigma == 0 ? 1 : 0",
         (stan::math::logical_eq(estimate_sigma, 0) ? 1 : 0));
-      current_statement__ = 45;
+      current_statement__ = 47;
       context__.validate_dims("data initialization", "fixed_sigma", "double",
         std::vector<size_t>{static_cast<size_t>(
                               (stan::math::logical_eq(estimate_sigma, 0) ? 1 : 0))});
       fixed_sigma = std::vector<double>((stan::math::logical_eq(
                                            estimate_sigma, 0) ? 1 : 0),
                       std::numeric_limits<double>::quiet_NaN());
-      current_statement__ = 45;
+      current_statement__ = 47;
       fixed_sigma = context__.vals_r("fixed_sigma");
-      current_statement__ = 46;
+      current_statement__ = 48;
       stan::math::validate_non_negative_index("prior_parameters_mu",
         "estimate_mu == 1 ? 3 : 0",
         (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0));
-      current_statement__ = 47;
+      current_statement__ = 49;
       context__.validate_dims("data initialization", "prior_parameters_mu",
         "double",
         std::vector<size_t>{static_cast<size_t>(
@@ -1349,27 +1353,27 @@ public:
         (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0));
       {
         std::vector<local_scalar_t__> prior_parameters_mu_flat__;
-        current_statement__ = 47;
+        current_statement__ = 49;
         prior_parameters_mu_flat__ = context__.vals_r("prior_parameters_mu");
-        current_statement__ = 47;
+        current_statement__ = 49;
         pos__ = 1;
-        current_statement__ = 47;
+        current_statement__ = 49;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(estimate_mu, 1) ? 3 : 0); ++sym1__) {
-          current_statement__ = 47;
+          current_statement__ = 49;
           stan::model::assign(prior_parameters_mu,
             prior_parameters_mu_flat__[(pos__ - 1)],
             "assigning variable prior_parameters_mu",
             stan::model::index_uni(sym1__));
-          current_statement__ = 47;
+          current_statement__ = 49;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 48;
+      current_statement__ = 50;
       stan::math::validate_non_negative_index("prior_parameters_sigma",
         "estimate_sigma == 1 ? 3 : 0",
         (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0));
-      current_statement__ = 49;
+      current_statement__ = 51;
       context__.validate_dims("data initialization",
         "prior_parameters_sigma", "double",
         std::vector<size_t>{static_cast<size_t>(
@@ -1384,38 +1388,44 @@ public:
         (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0));
       {
         std::vector<local_scalar_t__> prior_parameters_sigma_flat__;
-        current_statement__ = 49;
+        current_statement__ = 51;
         prior_parameters_sigma_flat__ = context__.vals_r("prior_parameters_sigma");
-        current_statement__ = 49;
+        current_statement__ = 51;
         pos__ = 1;
-        current_statement__ = 49;
+        current_statement__ = 51;
         for (int sym1__ = 1; sym1__ <=
              (stan::math::logical_eq(estimate_sigma, 1) ? 3 : 0); ++sym1__) {
-          current_statement__ = 49;
+          current_statement__ = 51;
           stan::model::assign(prior_parameters_sigma,
             prior_parameters_sigma_flat__[(pos__ - 1)],
             "assigning variable prior_parameters_sigma",
             stan::model::index_uni(sym1__));
-          current_statement__ = 49;
+          current_statement__ = 51;
           pos__ = (pos__ + 1);
         }
       }
-      current_statement__ = 50;
+      current_statement__ = 52;
       context__.validate_dims("data initialization", "prior_type_mu", "int",
         std::vector<size_t>{});
       prior_type_mu = std::numeric_limits<int>::min();
-      current_statement__ = 50;
+      current_statement__ = 52;
       prior_type_mu = context__.vals_i("prior_type_mu")[(1 - 1)];
-      current_statement__ = 51;
+      current_statement__ = 53;
       context__.validate_dims("data initialization", "prior_type_sigma",
         "int", std::vector<size_t>{});
       prior_type_sigma = std::numeric_limits<int>::min();
-      current_statement__ = 51;
+      current_statement__ = 53;
       prior_type_sigma = context__.vals_i("prior_type_sigma")[(1 - 1)];
-      current_statement__ = 52;
+      current_statement__ = 54;
+      context__.validate_dims("data initialization", "sample_priors", "int",
+        std::vector<size_t>{});
+      sample_priors = std::numeric_limits<int>::min();
+      current_statement__ = 54;
+      sample_priors = context__.vals_i("sample_priors")[(1 - 1)];
+      current_statement__ = 55;
       stan::math::validate_non_negative_index("mu_est", "estimate_mu",
         estimate_mu);
-      current_statement__ = 53;
+      current_statement__ = 56;
       stan::math::validate_non_negative_index("sigma_est", "estimate_sigma",
         estimate_sigma);
     } catch (const std::exception& e) {
@@ -1507,23 +1517,26 @@ public:
                            prior_parameters_sigma, bounds_type_sigma,
                            bounds_sigma, pstream__));
         }
-        current_statement__ = 23;
-        if (stan::math::logical_eq(is_ss, 0)) {
-          current_statement__ = 21;
-          lp_accum__.add(stan::math::normal_lpdf<false>(x, mu, sigma));
-        } else {
-          current_statement__ = 19;
-          lp_accum__.add(stan::math::subtract(((-N / 2.0) *
-                           stan::math::log(((2 * stan::math::pi()) *
-                             stan::math::pow(sigma, 2)))),
-                           stan::math::multiply((1 / (2 *
-                             stan::math::pow(sigma, 2))),
-                             stan::math::add(
-                               stan::math::multiply((N - 1),
-                                 stan::math::pow(ss_sd, 2)),
-                               stan::math::multiply(N,
-                                 stan::math::pow(
-                                   stan::math::subtract(ss_mean, mu), 2))))));
+        current_statement__ = 25;
+        if (stan::math::logical_eq(sample_priors, 0)) {
+          current_statement__ = 23;
+          if (stan::math::logical_eq(is_ss, 0)) {
+            current_statement__ = 21;
+            lp_accum__.add(stan::math::normal_lpdf<false>(x, mu, sigma));
+          } else {
+            current_statement__ = 19;
+            lp_accum__.add(stan::math::subtract(((-N / 2.0) *
+                             stan::math::log(((2 * stan::math::pi()) *
+                               stan::math::pow(sigma, 2)))),
+                             stan::math::multiply((1 / (2 *
+                               stan::math::pow(sigma, 2))),
+                               stan::math::add(
+                                 stan::math::multiply((N - 1),
+                                   stan::math::pow(ss_sd, 2)),
+                                 stan::math::multiply(N,
+                                   stan::math::pow(
+                                     stan::math::subtract(ss_mean, mu), 2))))));
+          }
         }
       }
     } catch (const std::exception& e) {

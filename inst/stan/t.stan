@@ -31,6 +31,8 @@ data {
   int prior_type_mu;
   int prior_type_sigma;
   int prior_type_nu;
+
+  int sample_priors;
 }
 parameters{
   array[estimate_mu]    real<lower = coefs_lb(bounds_type_mu, bounds_mu),       upper = coefs_ub(bounds_type_mu, bounds_mu)>       mu_est;
@@ -65,5 +67,5 @@ model {
   if (estimate_nu    == 1) target += set_prior(nu_est[1],     prior_type_nu,     prior_parameters_nu,     bounds_type_nu,     bounds_nu);
 
   // likelihood of the data
-  target += student_t_lpdf(x | nu, mu, scale);
+  if (sample_priors == 0) target += student_t_lpdf(x | nu, mu, scale);
 }
