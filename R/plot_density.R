@@ -31,6 +31,11 @@ plot_density.capability_metrics <- function(
     show_ci_text    = ci != "none",
     show_ci_bar     = ci != "none",
     show_point_text = point_estimate != "none",
+    # note sure if these two make sense, we should overwrite them when we do not do
+    # facetting, but they could also be vectors I guess
+    ci_fill         = "grey60",
+    ci_fill_alpha   = 0.8,
+    linewidth       = 1,
     ...
   ) {
 
@@ -63,7 +68,11 @@ plot_density.capability_metrics <- function(
     )
   }))
 
-  layer_line <- ggplot2::geom_line(data = dfLines, mapping = ggplot2::aes(x = x, y = y, group = g, color = g))
+  layer_line <- ggplot2::geom_line(
+    data = dfLines,
+    mapping = ggplot2::aes(x = x, y = y, group = g, color = g),
+    linewidth = linewidth,
+  )
 
   # this is not stricly necessary, but it is pretty convenient.
   listOfFuns <- setNames(lapply(what, function(name) {
@@ -151,8 +160,8 @@ plot_density.capability_metrics <- function(
       data = dfArea,
       mapping = aesArea,
       color = NA,
-      fill = "grey80",
-      alpha = 0.5,
+      fill = ci_fill,
+      alpha = ci_fill_alpha,
       inherit.aes = FALSE,
       stat = "identity",
       position = "identity"
@@ -165,11 +174,11 @@ plot_density.capability_metrics <- function(
         xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
         g    = dfCi0$g[seq(1, nrow(dfCi0), by = 2)]
       )
-      dfCi$y <- 1.15 * max(dfLines$y)
+      dfCi$y <- 1.15 * c(tapply(dfLines$y, dfLines$g, max))
       layer_cibar <- ggplot2::geom_errorbar(
         data = dfCi,
         mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = g, color = g),
-        # width = 0.01,
+        linewidth = linewidth,
         inherit.aes = FALSE
       )
     }
@@ -179,12 +188,16 @@ plot_density.capability_metrics <- function(
   layer_text <- NULL
   if (show_ci_text || show_point_text) {
 
-    df_text <- tibble::tibble(
-      y = max(dfLines$y) * if (ci != "none" && show_ci_bar) 1.3 else 1.15,
-      x = median(dfLines$x),
-      g = factor(what)
-    )
+    ci_mult <- if (ci != "none" && show_ci_bar) 1.3 else 1.15
+    df_text <- dfLines |>
+      dplyr::group_by(g) |>
+      dplyr::summarize(
+        y = max(y) * ci_mult,
+        x = median(x),
+        .groups = "drop"
+      )
 
+    # could be done inside the dplyr::summarize above
     labels <- character(length(df_text$g))
     if (show_point_text) {
       point_estimate_name <- switch(point_estimate,
@@ -232,13 +245,15 @@ plot_density.capability_metrics <- function(
   }
 
   # cannot set xbreaks with free scales!
+  # A: yes we can, use
+  # ggh4x::facetted_pos_scales
   scale_x <- facet <- NULL
   if (length(what) == 1L) {
     xBreaks <- jaspGraphs::getPrettyAxisBreaks(dfLines$x)
     xLimits <- range(dfLines$x)
     scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
   } else {
-    facet <- ggplot2::facet_grid(cols = ggplot2::vars(g), scales = "free")
+    facet <- ggplot2::facet_wrap(~g, scales = "free")
   }
 
   # TODO: maybe we shouldn't use color?
