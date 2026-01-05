@@ -36,10 +36,15 @@ plot_density.capability_metrics <- function(
     ci_fill         = "grey60",
     ci_fill_alpha   = 0.8,
     linewidth       = 1,
+    single_panel    = FALSE,
+    axes            = c("automatic", "fixed", "free", "custom"),
+    axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
+    priorSummaryObject = NULL, #TODO: implement this!
     ...
   ) {
 
   what <- match.arg(what, several.ok = TRUE)
+  axes <- match.arg(axes)
   point_estimate <- match.arg(point_estimate)
   ci <- match.arg(ci)
 
@@ -247,13 +252,30 @@ plot_density.capability_metrics <- function(
   # cannot set xbreaks with free scales!
   # A: yes we can, use
   # ggh4x::facetted_pos_scales
-  scale_x <- facet <- NULL
-  if (length(what) == 1L) {
+  scale_x <- scale_y <- facet <- NULL
+  if (length(what) == 1L || single_panel) {
     xBreaks <- jaspGraphs::getPrettyAxisBreaks(dfLines$x)
     xLimits <- range(dfLines$x)
     scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
   } else {
-    facet <- ggplot2::facet_wrap(~g, scales = "free")
+    scales <- switch(axes,
+                     "automatic" = "free",
+                     "fixed"     = "fixed",
+                     "free"      = "free",
+                     "custom"    = "fixed",
+                     stop("Unknown axes option.")
+    )
+    if (axes == "custom") {
+      if (!is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
+        xbreaks <- jaspGraphs::getPrettyAxisBreaks(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
+        scale_x <- ggplot2::scale_x_continuous(limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
+      }
+      if (!is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
+        ybreaks <- jaspGraphs::getPrettyAxisBreaks(c(axes_custom[["ymin"]], axes_custom[["ymax"]]))
+        scale_y <- ggplot2::scale_y_continuous(breaks = ybreaks, limits = sort(c(axes_custom[["ymin"]], axes_custom[["ymax"]])))
+      }
+    }
+    facet <- ggplot2::facet_wrap(~g, scales = scales)
   }
 
   # TODO: maybe we shouldn't use color?
@@ -265,6 +287,7 @@ plot_density.capability_metrics <- function(
     layer_text +
     ggplot2::labs(group = "Capability Metric", color = "Capability Metric", fill = "Capability Metric", x = "Value", y = "Density") +
     scale_x +
+    scale_y +
     facet
 
   return(plt)
