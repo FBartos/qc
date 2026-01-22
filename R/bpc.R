@@ -5,6 +5,7 @@
 #' @param target target value
 #' @param USL upper specification limit
 #' @param distribution distribution for fitting the data
+#' @param method computation method: "mcmc" for Stan-based MCMC sampling, or "integration" for numerical integration
 #' @param prior_mu prior for the process mean, can be a string or a prior object
 #' @param prior_sigma prior for the process standard deviation, can be a string or a prior object
 #' @param prior_nu prior for the degrees of freedom, can be a string or a prior object
@@ -28,6 +29,7 @@ bpc <- function(
     x,
     LSL, target, USL,
     distribution = "normal",
+    method = "mcmc",
 
     # prior settings
     prior_mu    = "Jeffreys_mu",
@@ -63,36 +65,70 @@ bpc <- function(
   # check input for capability metrics calculation to fail fast before estimation
   .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
   BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
+  BayesTools::check_char(method, name = "method", check_length = 1, allow_values = c("mcmc", "integration"))
   BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
-  # prepare data
-  object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
+  # Check method-distribution compatibility
 
-  # prepare priors
-  object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu, sample_priors = sample_priors)
+  if (method == "integration" && distribution != "normal") {
+    stop("The integration method currently only supports distribution = 'normal'. ",
+         "Use method = 'mcmc' for t-distribution.")
+  }
 
-  # collect control settings
-  object$control <- .stan_check_and_list_fit_settings(
-    chains = chains, warmup = warmup, iter = iter, thin = thin,
-    parallel = parallel, cores = cores, silent = silent, seed = seed, control = control
-  )
-
-  # fit stan model
+  object$method <- method
   object$distribution <- distribution
-  object$stanfit      <- .bpc_fit(distribution = distribution, data = object$stan_data, priors = object$stan_priors, control = object$control)
 
-  # add class to the object because it's required for dispatching in compute_capability_metrics
-  class(object) <- "bpc"
+  # Dispatch based on method
+  if (method == "integration") {
 
-  # compute capability metrics
-  object$metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+    # Integration method: bypass Stan, use numerical integration
+    # Remove NAs from data
+    x <- na.omit(x)
 
-  # add coefficients
-  object$coefficients <- sapply(object$metrics, mean)
+    # Fit using integration
+    int_result <- .bpc_fit_integration(
+      data = x, LSL = LSL, USL = USL, target = target,
+      prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma
+    )
 
-  return(object)
+    object$integration_result <- int_result
+    object$metrics <- int_result$metrics
+    object$coefficients <- int_result$coefficients
+
+    class(object) <- "bpc"
+    return(object)
+
+  } else {
+    # MCMC method: use Stan
+
+    # prepare data
+    object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
+
+    # prepare priors
+    object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu, sample_priors = sample_priors)
+
+    # collect control settings
+    object$control <- .stan_check_and_list_fit_settings(
+      chains = chains, warmup = warmup, iter = iter, thin = thin,
+      parallel = parallel, cores = cores, silent = silent, seed = seed, control = control
+    )
+
+    # fit stan model
+    object$stanfit      <- .bpc_fit(distribution = distribution, data = object$stan_data, priors = object$stan_priors, control = object$control)
+
+    # add class to the object because it's required for dispatching in compute_capability_metrics
+    class(object) <- "bpc"
+
+    # compute capability metrics
+    object$metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+
+    # add coefficients
+    object$coefficients <- sapply(object$metrics, mean)
+
+    return(object)
+  }
 }
 
 ### internal functions ----
@@ -211,6 +247,80 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
   BayesTools::check_real(interval_probability, name = "interval_probability", check_length = 0, allow_NA = FALSE)
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
+  # Handle integration method separately
+  if (!is.null(object$method) && object$method == "integration") {
+
+    # For integration, recompute if new limits provided
+    if (!missing(LSL) && !missing(target) && !missing(USL)) {
+      # Need to refit with new spec limits
+      warning("Recomputing with new specification limits is not yet supported for integration method. Using original limits.")
+    }
+
+    int_result <- object$integration_result
+
+    # Build summary from pre-computed stats
+    metric_names <- names(int_result$results)
+    h <- (1 - ci.level) / 2
+
+    summary <- do.call(rbind, lapply(metric_names, function(m) {
+      stats <- int_result$results[[m]]$stats
+      data.frame(
+        metric = m,
+        mean = stats["Mean"],
+        median = stats["Median"],
+        sd = stats["SD"],
+        lower = stats["Q2.5"],
+        upper = stats["Q97.5"],
+        row.names = NULL
+      )
+    }))
+    summary <- tibble::as_tibble(summary)
+
+    # Compute interval probabilities analytically
+    prior_info <- .bayestools_to_integration_prior(
+      attr(object$call, "prior_mu") %||% "Jeffreys_mu",
+      attr(object$call, "prior_sigma") %||% "Jeffreys_sigma"
+    )
+    prior <- prior_info$prior
+    cached_state <- int_result$cached_state
+
+    # Get data from the original call
+    data <- eval(object$call$x, envir = parent.frame())
+    orig_LSL <- eval(object$call$LSL)
+    orig_USL <- eval(object$call$USL)
+    orig_target <- eval(object$call$target)
+
+    # Compute interval probabilities for each metric
+    interval_breaks <- c(-Inf, interval_probability, Inf)
+    n_intervals <- length(interval_probability) + 1
+
+    interval_summary <- do.call(rbind, lapply(metric_names, function(m) {
+      probs <- numeric(n_intervals)
+      for (i in seq_len(n_intervals)) {
+        bounds <- c(interval_breaks[i], interval_breaks[i + 1])
+        probs[i] <- compute_cpk_prob_integration(
+          data, orig_LSL, orig_USL, bounds, prior, metric = m,
+          target = orig_target, cached_state = cached_state
+        )
+      }
+      df <- as.data.frame(t(probs))
+      names(df) <- levels(cut(0, breaks = interval_breaks, include.lowest = TRUE))
+      df$metric <- m
+      df[, c("metric", names(df)[names(df) != "metric"])]
+    }))
+    interval_summary <- tibble::as_tibble(interval_summary)
+
+    out <- list(
+      call             = object$call,
+      summary          = summary,
+      interval_summary = interval_summary,
+      metrics          = object$metrics
+    )
+    class(out) <- "bpc_summary"
+    return(out)
+  }
+
+  # MCMC method: original behavior
   # recompute capability metrics if specification limits are set
   if (!missing(LSL) && !missing(target) && !missing(USL)) {
     metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)

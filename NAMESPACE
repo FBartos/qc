@@ -2,6 +2,8 @@
 
 S3method(extract_samples,bpc)
 S3method(extract_samples,pc)
+S3method(make_solver,PriorConjugate)
+S3method(make_solver,PriorGeneric)
 S3method(pc_fit_distribution,normal)
 S3method(pc_fit_distribution,t)
 S3method(plot_density,bpc)

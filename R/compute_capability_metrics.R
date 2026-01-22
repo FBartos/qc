@@ -12,6 +12,13 @@ extract_samples     <- function(fit, bootstrap) {
 #' @export
 extract_samples.bpc <- function(fit, bootstrap) {
 
+  # Check if this is an integration-based fit
+
+  if (!is.null(fit$method) && fit$method == "integration") {
+    stop("extract_samples() is not supported for integration method. ",
+         "Use summary() to obtain posterior statistics, or refit with method = 'mcmc'.")
+  }
+
   samples <- rstan::extract(fit[["stanfit"]], pars = .bpc_parameters(fit[["distribution"]]))
   class(samples) <- fit[["distribution"]]
   return(samples)

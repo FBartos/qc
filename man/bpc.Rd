@@ -10,6 +10,7 @@ bpc(
   target,
   USL,
   distribution = "normal",
+  method = "mcmc",
   prior_mu = "Jeffreys_mu",
   prior_sigma = "Jeffreys_sigma",
   prior_nu = NULL,
@@ -39,6 +40,8 @@ bpc(
 \item{USL}{upper specification limit}
 
 \item{distribution}{distribution for fitting the data}
+
+\item{method}{computation method: "mcmc" for Stan-based MCMC sampling, or "integration" for numerical integration}
 
 \item{prior_mu}{prior for the process mean, can be a string or a prior object}
 
