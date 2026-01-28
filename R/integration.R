@@ -348,7 +348,7 @@ precompute_generic_state <- function(data, prior) {
 #' @param metric Capability index name
 #' @param target Target value for Cpm
 #' @param cached_state Pre-computed state from precompute_generic_state
-#' @return Probability that metric is in (bounds[1], bounds[2])
+#' @return Probability that metric is in (\code{bounds[1]}, \code{bounds[2]})
 #' @keywords internal
 compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                           metric = "Cpk", target = NULL,

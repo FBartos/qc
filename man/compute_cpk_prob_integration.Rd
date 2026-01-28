@@ -33,7 +33,7 @@ compute_cpk_prob_integration(
 \item{cached_state}{Pre-computed state from precompute_generic_state}
 }
 \value{
-Probability that metric is in (bounds\link{1}, bounds\link{2})
+Probability that metric is in (\code{bounds[1]}, \code{bounds[2]})
 }
 \description{
 Compute Posterior Probability that a Capability Index is in a Region

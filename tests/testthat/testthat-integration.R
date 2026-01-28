@@ -86,6 +86,8 @@ testthat::test_that("integration vs MCMC agreement with Jeffreys prior", {
   coef_int <- fit_int$coefficients
   coef_mcmc <- fit_mcmc$coefficients
 
+  (coef_int - coef_mcmc)
+
   # Check agreement within tolerance (allow 10% relative error or 0.05 absolute error)
   for (metric in names(coef_int)) {
     rel_diff <- abs(coef_int[metric] - coef_mcmc[metric]) / max(abs(coef_mcmc[metric]), 0.01)
