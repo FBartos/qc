@@ -270,5 +270,6 @@ samples_to_posterior_predictives.t      <- function(samples) {
   attr(lst, "LSL")    <- LSL
   attr(lst, "USL")    <- USL
   attr(lst, "target") <- target
+  attr(lst, "method") <- "mcmc"
   return(lst)
 }

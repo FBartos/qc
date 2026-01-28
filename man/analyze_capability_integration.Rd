@@ -12,8 +12,8 @@ analyze_capability_integration(
   metric = "Cpk",
   target = NULL,
   n_grid = 128,
-  alpha_tail = 1e-04,
-  cached_state = NULL
+  cached_state = NULL,
+  use_density_solver = TRUE
 )
 }
 \arguments{
@@ -31,9 +31,9 @@ analyze_capability_integration(
 
 \item{n_grid}{Number of grid points for density evaluation}
 
-\item{alpha_tail}{Probability mass to leave in tails for grid detection}
-
 \item{cached_state}{Pre-computed state from precompute_generic_state}
+
+\item{use_density_solver}{Logical, whether to use direct density solver (default TRUE for conjugate priors)}
 }
 \value{
 List with metric name, grid data.frame, and stats vector

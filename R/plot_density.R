@@ -1,4 +1,384 @@
 
+#' Extract density data for capability metrics
+#'
+#' Extracts density data as a tibble for visualization or testing purposes.
+#' Returns a standardized format regardless of whether the object was fitted
+#' with MCMC or integration method.
+#'
+#' @param obj An object of class `bpc`, `bpc_summary`, or `capability_metrics`
+#' @param what Character vector of metrics to extract (default: all six metrics)
+#' @param ... Additional arguments (currently unused)
+#' @return A tibble with columns:
+#'   \describe{
+#'     \item{x}{Numeric vector of evaluation points}
+#'     \item{density}{Numeric vector of density values}
+#'     \item{metric}{Factor indicating the metric name}
+#'   }
+#' @export
+extract_density_data <- function(obj, ...) {
+  UseMethod("extract_density_data")
+}
+
+#' @rdname extract_density_data
+#' @export
+extract_density_data.bpc <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+
+  if (!is.null(obj$method) && obj$method == "integration") {
+    # Integration method: extract from pre-computed grids
+    .extract_density_integration(obj$integration_result, what = what)
+  } else {
+    # MCMC method: compute density from samples
+    extract_density_data(obj$metrics, what = what, ...)
+  }
+}
+
+#' @rdname extract_density_data
+#' @export
+extract_density_data.bpc_summary <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+
+  if (!is.null(obj$integration_result)) {
+    # Integration method: use stored results
+    .extract_density_integration(obj$integration_result, what = what)
+  } else {
+    # MCMC method: compute density from samples
+    extract_density_data(obj$metrics, what = what, ...)
+  }
+}
+
+#' @rdname extract_density_data
+#' @export
+extract_density_data.capability_metrics <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+
+  # Check method attribute - for integration metrics, we can't compute density from samples
+ if (!is.null(attr(obj, "method")) && attr(obj, "method") == "integration") {
+    stop("Cannot extract density from integration capability_metrics directly. ",
+         "Use extract_density_data() on the parent bpc or bpc_summary object instead.")
+  }
+
+  # MCMC method: compute density from samples
+  vctrs::vec_rbind(!!!lapply(what, function(name) {
+    density_estimate <- stats::density(obj[[name]])
+    tibble::tibble(
+      x = density_estimate$x,
+      density = density_estimate$y,
+      metric = factor(name)
+    )
+  }))
+}
+
+#' Extract density data from integration results
+#' @param integration_result Integration result object containing results list
+#' @param what Character vector of metrics to extract
+#' @return A tibble with columns: x, density, metric
+#' @keywords internal
+.extract_density_integration <- function(integration_result, what) {
+  results <- integration_result$results
+
+  vctrs::vec_rbind(!!!lapply(what, function(name) {
+    grid <- results[[name]]$grid
+    tibble::tibble(
+      x = grid$x,
+      density = grid$density,
+      metric = factor(name)
+    )
+  }))
+}
+
+#' Extract point estimates for capability metrics
+#'
+#' @param obj A bpc or capability_metrics object (for MCMC) or NULL (for integration)
+#' @param what Character vector of metrics
+#' @param point_estimate Type of point estimate ("mean", "median", "mode", "none")
+#' @param dfDensity Density data tibble from extract_density_data
+#' @param stats_list Optional list of pre-computed stats (for integration method)
+#' @return A tibble with columns: x, y, metric, or NULL if point_estimate is "none"
+#' @export
+extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_list = NULL) {
+  if (point_estimate == "none") return(NULL)
+
+  # Build density functions for y-value lookup
+  listOfFuns <- setNames(lapply(what, function(name) {
+    subset_df <- dfDensity[dfDensity$metric == name, ]
+    stats::approxfun(subset_df$x, subset_df$density, rule = 2, yleft = 0, yright = 0)
+  }), what)
+
+  vctrs::vec_rbind(!!!lapply(what, function(name) {
+    subset_df <- dfDensity[dfDensity$metric == name, ]
+
+    xValue <- if (!is.null(stats_list)) {
+      # Integration method: use pre-computed stats
+      switch(point_estimate,
+             "mean"   = stats_list[[name]]["Mean"],
+             "median" = stats_list[[name]]["Median"],
+             "mode"   = subset_df$x[which.max(subset_df$density)],
+             stop("Unknown point_estimate."))
+    } else {
+      # MCMC method: compute from samples
+      switch(point_estimate,
+             "mean"   = mean(obj[[name]]),
+             "median" = stats::median(obj[[name]]),
+             "mode"   = subset_df$x[which.max(subset_df$density)],
+             stop("Unknown point_estimate."))
+    }
+
+    tibble::tibble(
+      x = unname(xValue),
+      y = listOfFuns[[name]](xValue),
+      metric = factor(name)
+    )
+  }))
+}
+
+#' Extract credible interval data for capability metrics
+#'
+#' @param obj A bpc or capability_metrics object (for MCMC) or NULL (for integration)
+#' @param what Character vector of metrics
+#' @param ci Type of CI ("central", "HPD", "custom", "none")
+#' @param ci_level CI level (default 0.95)
+#' @param dfDensity Density data tibble
+#' @param stats_list Optional list of pre-computed stats (for integration method)
+#' @param ci_custom_left Custom CI left bound
+#' @param ci_custom_right Custom CI right bound
+#' @return A list with dfCi (bounds tibble) and dfArea (filled area tibble), or NULL if ci is "none"
+#' @export
+extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
+                            stats_list = NULL,
+                            ci_custom_left = NULL, ci_custom_right = NULL) {
+  if (ci == "none") return(NULL)
+
+  # Build density functions for area computation
+  listOfFuns <- setNames(lapply(what, function(name) {
+    subset_df <- dfDensity[dfDensity$metric == name, ]
+    stats::approxfun(subset_df$x, subset_df$density, rule = 2, yleft = 0, yright = 0)
+  }), what)
+
+  # Get CI bounds
+  listOfCiEstimates <- setNames(lapply(what, function(name) {
+    xValue <- if (!is.null(stats_list)) {
+      # Integration method: use pre-computed stats
+      if (ci == "central" && ci_level != 0.95) {
+        warning("For integration method, central CI uses pre-computed 95% quantiles. ",
+                "ci_level argument is ignored.")
+      }
+      switch(ci,
+             "central" = c(stats_list[[name]]["Q2.5"], stats_list[[name]]["Q97.5"]),
+             "HPD"     = c(stats_list[[name]]["HDI_Lo"], stats_list[[name]]["HDI_Hi"]),
+             stop("Unknown ci for integration method. Only 'central' and 'HPD' are supported."))
+    } else {
+      # MCMC method: compute from samples
+      h <- (1 - ci_level) / 2
+      switch(ci,
+             "central" = stats::quantile(obj[[name]], c(h, 1 - h)),
+             "HPD"     = HDInterval::hdi(obj[[name]], ci_level),
+             "custom"  = c(ci_custom_left, ci_custom_right),
+             "support" = stop("Support intervals are not implemented yet."),
+             stop("Unknown ci."))
+    }
+    tibble::tibble(x = unname(xValue), metric = factor(name))
+  }), what)
+
+  # Build dfCi (bounds for error bars)
+  dfCi0 <- vctrs::vec_rbind(!!!listOfCiEstimates)
+  dfCi <- tibble::tibble(
+    xmin = dfCi0$x[seq(1, nrow(dfCi0), by = 2)],
+    xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
+    metric = dfCi0$metric[seq(1, nrow(dfCi0), by = 2)]
+  )
+
+  # Build dfArea (filled polygon under curve)
+  dfArea <- vctrs::vec_rbind(!!!lapply(what, function(name) {
+    est <- listOfCiEstimates[[name]]
+    xValues <- seq(min(est$x), max(est$x), length.out = 256)
+    yValues <- listOfFuns[[name]](xValues)
+    tibble::tibble(x = xValues, y = yValues, metric = factor(name))
+  }))
+
+  list(dfCi = dfCi, dfArea = dfArea)
+}
+
+#' Build density plot from prepared data
+#'
+#' Single ggplot skeleton that creates the density plot from prepared dataframes.
+#'
+#' @param dfLines Density lines tibble with x, y, metric columns
+#' @param dfPoints Point estimates tibble (or NULL)
+#' @param ci_data List with dfCi and dfArea (or NULL)
+#' @param what Character vector of metrics being plotted
+#' @param point_estimate Type of point estimate used
+#' @param ci Type of CI used
+#' @param ci_level CI level
+#' @param show_ci_text Whether to show CI text
+#' @param show_ci_bar Whether to show CI bar
+#' @param show_point_text Whether to show point estimate text
+#' @param ci_fill Fill color for CI area
+#' @param ci_fill_alpha Alpha for CI fill
+#' @param linewidth Line width
+#' @param single_panel Whether to use single panel
+#' @param axes Axis scaling option
+#' @param axes_custom Custom axis limits list
+#' @return A ggplot object
+#' @keywords internal
+build_density_plot <- function(
+    dfLines,
+    dfPoints = NULL,
+    ci_data = NULL,
+    what,
+    point_estimate = "none",
+    ci = "none",
+    ci_level = 0.95,
+    show_ci_text = FALSE,
+    show_ci_bar = FALSE,
+    show_point_text = FALSE,
+    ci_fill = "grey60",
+    ci_fill_alpha = 0.8,
+    linewidth = 1,
+    single_panel = FALSE,
+    axes = "automatic",
+    axes_custom = list()
+) {
+
+  # Density line layer
+  layer_line <- ggplot2::geom_line(
+    data = dfLines,
+    mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric),
+    linewidth = linewidth
+  )
+
+  # Point estimate layer
+  layer_points <- NULL
+  if (!is.null(dfPoints)) {
+    layer_points <- ggplot2::geom_point(
+      data = dfPoints,
+      mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric, fill = metric),
+      inherit.aes = FALSE
+    )
+  }
+
+  # CI layers
+  layer_area <- layer_cibar <- NULL
+  dfCi <- NULL
+  if (!is.null(ci_data)) {
+    dfCi <- ci_data$dfCi
+    dfArea <- ci_data$dfArea
+
+    layer_area <- ggplot2::geom_area(
+      data = dfArea,
+      mapping = ggplot2::aes(x = x, y = y, group = metric),
+      color = NA,
+      fill = ci_fill,
+      alpha = ci_fill_alpha,
+      inherit.aes = FALSE,
+      stat = "identity",
+      position = "identity"
+    )
+
+    if (show_ci_bar) {
+      dfCi$y <- 1.15 * c(tapply(dfLines$y, dfLines$metric, max))
+      layer_cibar <- ggplot2::geom_errorbar(
+        data = dfCi,
+        mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = metric, color = metric),
+        linewidth = linewidth,
+        inherit.aes = FALSE
+      )
+    }
+  }
+
+  # Text layer
+  layer_text <- NULL
+  if (show_ci_text || show_point_text) {
+    ci_mult <- if (ci != "none" && show_ci_bar) 1.3 else 1.15
+    df_text <- dfLines |>
+      dplyr::group_by(metric) |>
+      dplyr::summarize(
+        y = max(y) * ci_mult,
+        x = stats::median(x),
+        .groups = "drop"
+      )
+
+    labels <- character(nrow(df_text))
+
+    if (show_point_text && !is.null(dfPoints)) {
+      point_estimate_name <- switch(point_estimate,
+                                    "mean"   = gettext("Mean"),
+                                    "median" = gettext("Median"),
+                                    "mode"   = gettext("Mode"),
+                                    "")
+      labels <- sprintf("%s = %.3f", point_estimate_name, dfPoints$x)
+    }
+
+    if (show_ci_text && !is.null(dfCi)) {
+      ci_txt <- switch(ci,
+                       "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
+                       "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
+                       "custom"  = sprintf("Custom CI [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
+                       "")
+
+      if (all(labels == ""))
+        labels <- ci_txt
+      else
+        labels <- paste0(labels, "; ", ci_txt)
+    }
+
+    df_text$labels <- labels
+
+    layer_text <- ggtext::geom_richtext(
+      data = df_text,
+      mapping = ggplot2::aes(x = x, y = y, label = labels, group = metric),
+      fill = NA, label.color = NA,
+      size = textsize,
+      nudge_y = 0.05 * max(dfLines$y)
+    )
+  }
+
+  # Scales and facets
+  scale_x <- scale_y <- facet <- NULL
+  if (length(what) == 1L || single_panel) {
+    xBreaks <- getPrettyAxisBreaks(dfLines$x)
+    xLimits <- range(dfLines$x)
+    scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
+  } else {
+    scales <- switch(axes,
+                     "automatic" = "free",
+                     "fixed"     = "fixed",
+                     "free"      = "free",
+                     "custom"    = "fixed",
+                     "free")
+    if (axes == "custom") {
+      if (!is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
+        scale_x <- ggplot2::scale_x_continuous(limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
+      }
+      if (!is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
+        ybreaks <- getPrettyAxisBreaks(c(axes_custom[["ymin"]], axes_custom[["ymax"]]))
+        scale_y <- ggplot2::scale_y_continuous(breaks = ybreaks, limits = sort(c(axes_custom[["ymin"]], axes_custom[["ymax"]])))
+      }
+    }
+    facet <- ggplot2::facet_wrap(~metric, scales = scales)
+  }
+
+  # Build final plot
+  plt <- ggplot2::ggplot() +
+    layer_area +
+    layer_line +
+    layer_points +
+    layer_cibar +
+    layer_text +
+    ggplot2::labs(
+      group = "Capability Metric",
+      color = "Capability Metric",
+      fill = "Capability Metric",
+      x = "Value",
+      y = "Density"
+    ) +
+    scale_x +
+    scale_y +
+    facet
+
+  return(plt)
+}
+
 #' Plot density for the posterior distribution of one or more capability metrics
 #'
 #' @param obj An object of class `bpc`, `bpc_capability_metrics`, or `bpc_summary`.
@@ -22,11 +402,24 @@ plot_density.bpc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
     stop("If any of LSL, USL, or target are provided, all three must be specified.")
   }
 
-  # For integration method, use pre-computed density grids directly
+  # For integration method
   if (!is.null(obj$method) && obj$method == "integration") {
-    plot_density_integration(obj, ...)
+    if (all(provided)) {
+      # Recompute integration with new spec limits
+      new_result <- .bpc_fit_integration(
+        fit = obj,
+        LSL = LSL,
+        USL = USL,
+        target = target,
+        metrics = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
+      )
+      plot_density_integration_results(new_result, ...)
+    } else {
+      # Use pre-computed density grids
+      plot_density_integration(obj, ...)
+    }
   } else {
-    # For MCMC method, use pre-computed metrics if spec limits not provided
+    # For MCMC method
     if (is.null(LSL) && is.null(USL) && is.null(target)) {
       # Use already computed metrics from the fit
       plot_density(obj$metrics, ...)
@@ -50,15 +443,14 @@ plot_density.capability_metrics <- function(
     show_ci_text    = ci != "none",
     show_ci_bar     = ci != "none",
     show_point_text = point_estimate != "none",
-    # note sure if these two make sense, we should overwrite them when we do not do
-    # facetting, but they could also be vectors I guess
     ci_fill         = "grey60",
     ci_fill_alpha   = 0.8,
     linewidth       = 1,
     single_panel    = FALSE,
     axes            = c("automatic", "fixed", "free", "custom"),
     axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
-    priorSummaryObject = NULL, #TODO: implement this!
+    textsize        = 18,
+    priorSummaryObject = NULL,
     ...
   ) {
 
@@ -67,6 +459,7 @@ plot_density.capability_metrics <- function(
   point_estimate <- match.arg(point_estimate)
   ci <- match.arg(ci)
 
+  # Input validation
   if (ci == "central" || ci == "HPD") {
     BayesTools::check_real(ci_level, name = "ci_level", check_length = 1, lower = 0, upper = 1, allow_NA = FALSE)
   } else if (ci == "custom") {
@@ -79,247 +472,85 @@ plot_density.capability_metrics <- function(
   BayesTools::check_bool(show_ci_bar,     name = "show_ci_bar",     check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(show_point_text, name = "show_point_text", check_length = 1, allow_NA = FALSE)
 
-  listOfDensities <- setNames(lapply(what, function(name) {
-    density(obj[[name]])
-  }), what)
+  # Extract density data
+  dfDensity <- extract_density_data(obj, what = what)
 
-  dfLines <- vctrs::vec_rbind(!!!lapply(what, function(name) {
-    density_estimate <- listOfDensities[[name]]
-    tibble::tibble(
-      x = density_estimate$x,
-      y = density_estimate$y,
-      g = factor(name),
-    )
-  }))
-
-  layer_line <- ggplot2::geom_line(
-    data = dfLines,
-    mapping = ggplot2::aes(x = x, y = y, group = g, color = g),
-    linewidth = linewidth,
+  # Extract point estimates (MCMC: pass obj for sample-based computation)
+  dfPoints <- extract_point_estimates(
+    obj = obj,
+    what = what,
+    point_estimate = point_estimate,
+    dfDensity = dfDensity,
+    stats_list = NULL  # MCMC uses samples
   )
 
-  # this is not stricly necessary, but it is pretty convenient.
-  listOfFuns <- setNames(lapply(what, function(name) {
-    density_estimate <- listOfDensities[[name]]
-    stats::approxfun(density_estimate$x, density_estimate$y, rule = 2, yleft = 0, yright = 0)
-  }), what)
+  # Extract CI data (MCMC: pass obj for sample-based computation)
+  ci_data <- extract_ci_data(
+    obj = obj,
+    what = what,
+    ci = ci,
+    ci_level = ci_level,
+    dfDensity = dfDensity,
+    stats_list = NULL,  # MCMC uses samples
+    ci_custom_left = ci_custom_left,
+    ci_custom_right = ci_custom_right
+  )
 
-  if (point_estimate == "none") {
-    layer_points <- layer_point_text <- NULL
-  } else {
+  # Prepare dfLines for plotting (rename columns: density -> y, metric -> g)
+  dfLines <- tibble::tibble(
+    x = dfDensity$x,
+    y = dfDensity$density,
+    metric = dfDensity$metric
+  )
 
-    aesPoints <- ggplot2::aes(x = x, y = y, group = g, color = g, fill = g)
-
-    listOfPointEstimates <- lapply(what, function(name) {
-
-      xValue <- switch(point_estimate,
-                       "mean"   = mean(obj[[name]]),
-                       "median" = median(obj[[name]]),
-                       "mode"   = listOfDensities[[name]]$x[which.max(listOfDensities[[name]]$y)],
-                       "none"   = NULL,
-                       stop("Unknown point_estimate.")
-      )
-      yValue <- listOfFuns[[name]](xValue)
-
-      tibble::tibble(
-        x = xValue,
-        y = yValue,
-        g = factor(name)
-      )
-    })
-
-    dfPoints <- vctrs::vec_rbind(!!!listOfPointEstimates)
-
-    layer_points <- ggplot2::geom_point(data = dfPoints, mapping = aesPoints, inherit.aes = FALSE)
-
-    # TODO: there should only be one geom_text for both the text about the point estimate and the CI bar.
-    if (show_point_text) {
-
-
-    }
-
-  }
-
-  if (ci == "none") {
-    layer_area <- layer_cibar <- NULL
-  } else {
-
-
-    listOfCiEstimates <- setNames(lapply(what, function(name) {
-
-      xValue <- switch(ci,
-                       "central" = {h <- (1 - ci_level); stats::quantile(obj[[name]], c(h, 1 - h))},
-                       "HPD"     = HDInterval::hdi(obj[[name]], ci_level),
-                       "custom"  = c(ci_custom_left, ci_custom_right),
-                       "support" = stop("Support intervals are not implemented yet."),
-                       stop("Unknown ci.")
-      )
-
-      xValues <- seq(min(xValue), max(xValue), length.out = 2^8)
-      yValues <- c(listOfFuns[[name]](xValues))
-
-      tibble::tibble(
-        x = xValue,
-        g = factor(name)
-      )
-    }), what)
-
-    listOfCiEstimatesForArea <- lapply(what, function(name) {
-
-      est <- listOfCiEstimates[[name]]
-      xValues <- seq(min(est$x), max(est$x), length.out = 2^8)
-      yValues <- c(listOfFuns[[name]](xValues))
-
-      tibble::tibble(
-        x = xValues,
-        y = yValues,
-        g = factor(name)
-      )
-    })
-
-    dfArea <- vctrs::vec_rbind(!!!listOfCiEstimatesForArea)
-    aesArea <- ggplot2::aes(x = x, y = y, group = g)
-
-    layer_area <- ggplot2::geom_area(
-      data = dfArea,
-      mapping = aesArea,
-      color = NA,
-      fill = ci_fill,
-      alpha = ci_fill_alpha,
-      inherit.aes = FALSE,
-      stat = "identity",
-      position = "identity"
-    )
-
-    if (show_ci_bar) {
-      dfCi0 <- vctrs::vec_rbind(!!!listOfCiEstimates)
-      dfCi  <- tibble::tibble(
-        xmin = dfCi0$x[seq(1, nrow(dfCi0), by = 2)],
-        xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
-        g    = dfCi0$g[seq(1, nrow(dfCi0), by = 2)]
-      )
-      dfCi$y <- 1.15 * c(tapply(dfLines$y, dfLines$g, max))
-      layer_cibar <- ggplot2::geom_errorbar(
-        data = dfCi,
-        mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = g, color = g),
-        linewidth = linewidth,
-        inherit.aes = FALSE
-      )
-    }
-
-  }
-
-  layer_text <- NULL
-  if (show_ci_text || show_point_text) {
-
-    ci_mult <- if (ci != "none" && show_ci_bar) 1.3 else 1.15
-    df_text <- dfLines |>
-      dplyr::group_by(g) |>
-      dplyr::summarize(
-        y = max(y) * ci_mult,
-        x = median(x),
-        .groups = "drop"
-      )
-
-    # could be done inside the dplyr::summarize above
-    labels <- character(length(df_text$g))
-    if (show_point_text) {
-      point_estimate_name <- switch(point_estimate,
-                                   "mean"   = gettext("Mean"),
-                                   "median" = gettext("Median"),
-                                   "mode"   = gettext("Mode"),
-                                   "none"   = NULL,
-                                   stop("Unknown point_estimate.")
-      )
-      point_estimate_txt <- sprintf("%s = %.3f", point_estimate_name, dfPoints$x)
-      labels <- point_estimate_txt
-    }
-
-    if (show_ci_text) {
-
-      if (ci == "custom") {
-        ci_custom_mass <- listOfDensities <- lapply(what, function(name) {
-          mean(obj[[name]] <= ci_custom_right & obj[[name]] >= ci_custom_left)
-        })
-      }
-
-      ci_txt <- switch(ci,
-                       "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                       "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                       "custom"  = sprintf("P(%.3f &le; &theta; &le; %.3f) =  %.3f", ci_custom_left, ci_custom_right, ci_custom_mass),
-                       "support" = sprintf("Support<sub>BF = %.1f</sub>", bf_support),
-                       stop("Unknown ci.")
-      )
-
-      if (all(labels == ""))
-        labels <- ci_txt
-      else
-        labels <- paste0(labels, "; ", ci_txt)
-    }
-
-    df_text$labels <- labels
-
-    layer_text <- ggtext::geom_richtext(
-      data = df_text,
-      mapping = ggplot2::aes(x = x, y = y, label = labels, group = g),
-      fill = NA, label.color = NA, # remove border/ outline
-      nudge_y = 0.05 * max(dfLines$y),
-    )
-
-  }
-
-  # cannot set xbreaks with free scales!
-  # A: yes we can, use
-  # ggh4x::facetted_pos_scales
-  scale_x <- scale_y <- facet <- NULL
-  if (length(what) == 1L || single_panel) {
-    xBreaks <- getPrettyAxisBreaks(dfLines$x)
-    xLimits <- range(dfLines$x)
-    scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
-  } else {
-    scales <- switch(axes,
-                     "automatic" = "free",
-                     "fixed"     = "fixed",
-                     "free"      = "free",
-                     "custom"    = "fixed",
-                     stop("Unknown axes option.")
-    )
-    if (axes == "custom") {
-      if (!is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
-        xbreaks <- getPrettyAxisBreaks(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
-        scale_x <- ggplot2::scale_x_continuous(limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
-      }
-      if (!is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
-        ybreaks <- getPrettyAxisBreaks(c(axes_custom[["ymin"]], axes_custom[["ymax"]]))
-        scale_y <- ggplot2::scale_y_continuous(breaks = ybreaks, limits = sort(c(axes_custom[["ymin"]], axes_custom[["ymax"]])))
-      }
-    }
-    facet <- ggplot2::facet_wrap(~g, scales = scales)
-  }
-
-  # TODO: maybe we shouldn't use color?
-  plt <- ggplot2::ggplot() +
-    layer_area +
-    layer_line +
-    layer_points +
-    layer_cibar +
-    layer_text +
-    ggplot2::labs(group = "Capability Metric", color = "Capability Metric", fill = "Capability Metric", x = "Value", y = "Density") +
-    scale_x +
-    scale_y +
-    facet
-
-  return(plt)
+  # Build plot using single skeleton
+  build_density_plot(
+    dfLines = dfLines,
+    dfPoints = dfPoints,
+    ci_data = ci_data,
+    what = what,
+    point_estimate = point_estimate,
+    ci = ci,
+    ci_level = ci_level,
+    show_ci_text = show_ci_text,
+    show_ci_bar = show_ci_bar,
+    show_point_text = show_point_text,
+    ci_fill = ci_fill,
+    ci_fill_alpha = ci_fill_alpha,
+    linewidth = linewidth,
+    single_panel = single_panel,
+    axes = axes,
+    axes_custom = axes_custom,
+    textsize = textsize
+  )
 }
 
 #' @export
 plot_density.bpc_summary <- function(obj, ...) {
-  plot_density(obj = obj$metrics, ...)
+  # Check if this is from integration method
+  if (!is.null(obj$integration_result)) {
+    # Use the stored integration results for plotting
+    plot_density_integration_results(obj$integration_result, ...)
+  } else {
+    # MCMC method: metrics contain samples
+    plot_density(obj = obj$metrics, ...)
+  }
 }
 
 #' Plot density for integration method using pre-computed density grids
 #'
 #' @param obj A bpc object fitted with method = "integration"
+#' @param ... Additional arguments passed to plot_density_integration_results
+#' @return A ggplot object
+#' @keywords internal
+plot_density_integration <- function(obj, ...) {
+  # Get pre-computed results from integration and delegate to results plotter
+  plot_density_integration_results(obj$integration_result, ...)
+}
+
+#' Plot density from integration results
+#'
+#' @param integration_result Integration result object containing results list with grid and stats
 #' @param what Character vector of metrics to plot
 #' @param point_estimate Type of point estimate to show
 #' @param ci Type of credible interval to show
@@ -336,8 +567,8 @@ plot_density.bpc_summary <- function(obj, ...) {
 #' @param ... Additional arguments (ignored)
 #' @return A ggplot object
 #' @keywords internal
-plot_density_integration <- function(
-    obj,
+plot_density_integration_results <- function(
+    integration_result,
     what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
     point_estimate  = c("none", "mean", "median", "mode"),
     ci              = c("none", "central", "HPD"),
@@ -351,6 +582,7 @@ plot_density_integration <- function(
     single_panel    = FALSE,
     axes            = c("automatic", "fixed", "free", "custom"),
     axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
+    textsize        = 18,
     ...
   ) {
 
@@ -363,228 +595,59 @@ plot_density_integration <- function(
   BayesTools::check_bool(show_ci_bar,     name = "show_ci_bar",     check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(show_point_text, name = "show_point_text", check_length = 1, allow_NA = FALSE)
 
-  # Get pre-computed results from integration
-  results <- obj$integration_result$results
+  # Extract density data using shared extractor
+  dfDensity <- .extract_density_integration(integration_result, what = what)
 
-  # Build dfLines from pre-computed density grids
-  dfLines <- vctrs::vec_rbind(!!!lapply(what, function(name) {
-    grid <- results[[name]]$grid
-    tibble::tibble(
-      x = grid$x,
-      y = grid$density,
-      g = factor(name),
-    )
-  }))
-
-  layer_line <- ggplot2::geom_line(
-    data = dfLines,
-    mapping = ggplot2::aes(x = x, y = y, group = g, color = g),
-    linewidth = linewidth,
-  )
-
-  # Create approxfun for density evaluation (for point estimates and CI areas)
-  listOfFuns <- setNames(lapply(what, function(name) {
-    grid <- results[[name]]$grid
-    stats::approxfun(grid$x, grid$density, rule = 2, yleft = 0, yright = 0)
-  }), what)
-
-  # Get pre-computed stats for each metric
-  listOfStats <- setNames(lapply(what, function(name) {
+  # Build stats list for integration method
+  results <- integration_result$results
+  stats_list <- setNames(lapply(what, function(name) {
     results[[name]]$stats
   }), what)
 
-  if (point_estimate == "none") {
-    layer_points <- layer_point_text <- NULL
-  } else {
+  # Extract point estimates (integration: pass stats_list for pre-computed values)
+  dfPoints <- extract_point_estimates(
+    obj = NULL,  # Not needed for integration
+    what = what,
+    point_estimate = point_estimate,
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
 
-    aesPoints <- ggplot2::aes(x = x, y = y, group = g, color = g, fill = g)
+  # Extract CI data (integration: pass stats_list for pre-computed values)
+  ci_data <- extract_ci_data(
+    obj = NULL,  # Not needed for integration
+    what = what,
+    ci = ci,
+    ci_level = ci_level,
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
 
-    listOfPointEstimates <- lapply(what, function(name) {
-      stats <- listOfStats[[name]]
-      grid <- results[[name]]$grid
+  # Prepare dfLines for plotting
+  dfLines <- tibble::tibble(
+    x = dfDensity$x,
+    y = dfDensity$density,
+    metric = dfDensity$metric
+  )
 
-      xValue <- switch(point_estimate,
-                       "mean"   = stats["Mean"],
-                       "median" = stats["Median"],
-                       "mode"   = grid$x[which.max(grid$density)],
-                       "none"   = NULL,
-                       stop("Unknown point_estimate.")
-      )
-      yValue <- listOfFuns[[name]](xValue)
-
-      tibble::tibble(
-        x = unname(xValue),
-        y = yValue,
-        g = factor(name)
-      )
-    })
-
-    dfPoints <- vctrs::vec_rbind(!!!listOfPointEstimates)
-
-    layer_points <- ggplot2::geom_point(data = dfPoints, mapping = aesPoints, inherit.aes = FALSE)
-  }
-
-  if (ci == "none") {
-    layer_area <- layer_cibar <- NULL
-  } else {
-
-    # Get CI bounds from pre-computed stats
-    listOfCiEstimates <- setNames(lapply(what, function(name) {
-      stats <- listOfStats[[name]]
-
-      xValue <- switch(ci,
-                       "central" = c(stats["Q2.5"], stats["Q97.5"]),
-                       "HPD"     = c(stats["HDI_Lo"], stats["HDI_Hi"]),
-                       stop("Unknown ci.")
-      )
-
-      # Note: For "central", the stored quantiles are at 2.5% and 97.5%
-      # If ci_level != 0.95, we'd need to recompute, but that requires access
-      # to the CDF which we don't have readily. For now, warn if ci_level != 0.95
-      if (ci == "central" && ci_level != 0.95) {
-        warning("For integration method, central CI uses pre-computed 95% quantiles. ",
-                "ci_level argument is ignored.")
-      }
-
-      tibble::tibble(
-        x = unname(xValue),
-        g = factor(name)
-      )
-    }), what)
-
-    listOfCiEstimatesForArea <- lapply(what, function(name) {
-
-      est <- listOfCiEstimates[[name]]
-      xValues <- seq(min(est$x), max(est$x), length.out = 2^8)
-      yValues <- c(listOfFuns[[name]](xValues))
-
-      tibble::tibble(
-        x = xValues,
-        y = yValues,
-        g = factor(name)
-      )
-    })
-
-    dfArea <- vctrs::vec_rbind(!!!listOfCiEstimatesForArea)
-    aesArea <- ggplot2::aes(x = x, y = y, group = g)
-
-    layer_area <- ggplot2::geom_area(
-      data = dfArea,
-      mapping = aesArea,
-      color = NA,
-      fill = ci_fill,
-      alpha = ci_fill_alpha,
-      inherit.aes = FALSE,
-      stat = "identity",
-      position = "identity"
-    )
-
-    if (show_ci_bar) {
-      dfCi0 <- vctrs::vec_rbind(!!!listOfCiEstimates)
-      dfCi  <- tibble::tibble(
-        xmin = dfCi0$x[seq(1, nrow(dfCi0), by = 2)],
-        xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
-        g    = dfCi0$g[seq(1, nrow(dfCi0), by = 2)]
-      )
-      dfCi$y <- 1.15 * c(tapply(dfLines$y, dfLines$g, max))
-      layer_cibar <- ggplot2::geom_errorbar(
-        data = dfCi,
-        mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = g, color = g),
-        linewidth = linewidth,
-        inherit.aes = FALSE
-      )
-    }
-
-  }
-
-  layer_text <- NULL
-  if (show_ci_text || show_point_text) {
-
-    ci_mult <- if (ci != "none" && show_ci_bar) 1.3 else 1.15
-    df_text <- dfLines |>
-      dplyr::group_by(g) |>
-      dplyr::summarize(
-        y = max(y) * ci_mult,
-        x = median(x),
-        .groups = "drop"
-      )
-
-    labels <- character(length(df_text$g))
-    if (show_point_text) {
-      point_estimate_name <- switch(point_estimate,
-                                   "mean"   = gettext("Mean"),
-                                   "median" = gettext("Median"),
-                                   "mode"   = gettext("Mode"),
-                                   "none"   = NULL,
-                                   stop("Unknown point_estimate.")
-      )
-      point_estimate_txt <- sprintf("%s = %.3f", point_estimate_name, dfPoints$x)
-      labels <- point_estimate_txt
-    }
-
-    if (show_ci_text) {
-      # Note: For integration, we use ci_level = 0.95 (the pre-computed level)
-      display_level <- if (ci == "central") 95 else 95
-
-      ci_txt <- switch(ci,
-                       "central" = sprintf("%.1f%% CI [%.3f, %.3f]", display_level, dfCi$xmin, dfCi$xmax),
-                       "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", display_level, dfCi$xmin, dfCi$xmax),
-                       stop("Unknown ci.")
-      )
-
-      if (all(labels == ""))
-        labels <- ci_txt
-      else
-        labels <- paste0(labels, "; ", ci_txt)
-    }
-
-    df_text$labels <- labels
-
-    layer_text <- ggtext::geom_richtext(
-      data = df_text,
-      mapping = ggplot2::aes(x = x, y = y, label = labels, group = g),
-      fill = NA, label.color = NA,
-      nudge_y = 0.05 * max(dfLines$y),
-    )
-
-  }
-
-  scale_x <- scale_y <- facet <- NULL
-  if (length(what) == 1L || single_panel) {
-    xBreaks <- getPrettyAxisBreaks(dfLines$x)
-    xLimits <- range(dfLines$x)
-    scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
-  } else {
-    scales <- switch(axes,
-                     "automatic" = "free",
-                     "fixed"     = "fixed",
-                     "free"      = "free",
-                     "custom"    = "fixed",
-                     stop("Unknown axes option.")
-    )
-    if (axes == "custom") {
-      if (!is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
-        xbreaks <- getPrettyAxisBreaks(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
-        scale_x <- ggplot2::scale_x_continuous(breaks = xbreaks, limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
-      }
-      if (!is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
-        ybreaks <- getPrettyAxisBreaks(c(axes_custom[["ymin"]], axes_custom[["ymax"]]))
-        scale_y <- ggplot2::scale_y_continuous(breaks = ybreaks, limits = sort(c(axes_custom[["ymin"]], axes_custom[["ymax"]])))
-      }
-    }
-    facet <- ggplot2::facet_wrap(~g, scales = scales)
-  }
-
-  plt <- ggplot2::ggplot() +
-    layer_area +
-    layer_line +
-    layer_points +
-    layer_cibar +
-    layer_text +
-    ggplot2::labs(group = "Capability Metric", color = "Capability Metric", fill = "Capability Metric", x = "Value", y = "Density") +
-    scale_x +
-    scale_y +
-    facet
-
-  return(plt)
+  # Build plot using single skeleton
+  build_density_plot(
+    dfLines = dfLines,
+    dfPoints = dfPoints,
+    ci_data = ci_data,
+    what = what,
+    point_estimate = point_estimate,
+    ci = ci,
+    ci_level = ci_level,
+    show_ci_text = show_ci_text,
+    show_ci_bar = show_ci_bar,
+    show_point_text = show_point_text,
+    ci_fill = ci_fill,
+    ci_fill_alpha = ci_fill_alpha,
+    linewidth = linewidth,
+    single_panel = single_panel,
+    axes = axes,
+    axes_custom = axes_custom,
+    textsize = textsize
+  )
 }

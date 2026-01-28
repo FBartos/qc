@@ -252,11 +252,25 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
     # For integration, recompute if new limits provided
     if (!missing(LSL) && !missing(target) && !missing(USL)) {
-      # Need to refit with new spec limits
-      warning("Recomputing with new specification limits is not yet supported for integration method. Using original limits.")
-    }
 
-    int_result <- object$integration_result
+      # Validate new specification limits
+      .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
+
+      # Get original data and priors from the call
+      data <- eval(object$call$x, envir = parent.frame())
+      prior_mu <- eval(object$call$prior_mu, envir = parent.frame()) %||% "Jeffreys_mu"
+      prior_sigma <- eval(object$call$prior_sigma, envir = parent.frame()) %||% "Jeffreys_sigma"
+
+      # Re-fit with new specification limits
+      int_result <- .bpc_fit_integration(
+        data = data, LSL = LSL, USL = USL, target = target,
+        prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma
+      )
+
+    } else {
+
+      int_result <- object$integration_result
+    }
 
     # Build summary from pre-computed stats
     metric_names <- names(int_result$results)
@@ -286,9 +300,9 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
     # Get data from the original call
     data <- eval(object$call$x, envir = parent.frame())
-    orig_LSL <- eval(object$call$LSL)
-    orig_USL <- eval(object$call$USL)
-    orig_target <- eval(object$call$target)
+    orig_LSL <- eval(object$call$LSL, envir = parent.frame())
+    orig_USL <- eval(object$call$USL, envir = parent.frame())
+    orig_target <- eval(object$call$target, envir = parent.frame())
 
     # Compute interval probabilities for each metric
     interval_breaks <- c(-Inf, interval_probability, Inf)
@@ -311,10 +325,11 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     interval_summary <- tibble::as_tibble(interval_summary)
 
     out <- list(
-      call             = object$call,
-      summary          = summary,
-      interval_summary = interval_summary,
-      metrics          = object$metrics
+      call               = object$call,
+      summary            = summary,
+      interval_summary   = interval_summary,
+      metrics            = object$metrics,
+      integration_result = int_result
     )
     class(out) <- "bpc_summary"
     return(out)

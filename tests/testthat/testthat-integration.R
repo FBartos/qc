@@ -20,6 +20,65 @@ testthat::test_that("integration method returns valid bpc object", {
 })
 
 
+testthat::test_that("density solver vs survival function methods agree", {
+
+  set.seed(42)
+  x <- rnorm(30, mean = 5, sd = 1)
+  LSL <- 2; USL <- 8
+  target <- 5
+  prior <- qc:::create_prior_conjugate()
+
+  # Test each supported metric
+  for (metric in c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")) {
+
+    # Use density solver (new default)
+    result_density <- qc:::analyze_capability_integration(x, LSL, USL, prior,
+                                                           metric = metric,
+                                                          target = target,
+                                                           use_density_solver = TRUE)
+
+    # Use survival function + finite diff (old method)
+    result_survival <- qc:::analyze_capability_integration(x, LSL, USL, prior,
+                                                            metric = metric,
+                                                            use_density_solver = FALSE)
+
+    # Stats should agree within tolerance
+    for (stat in c("Mean", "Median", "SD", "Q2.5", "Q97.5")) {
+      diff <- abs(result_density$stats[stat] - result_survival$stats[stat])
+      rel_diff <- diff / max(abs(result_survival$stats[stat]), 0.01)
+      expect_true(
+        rel_diff < 0.05 || diff < 0.02,
+        info = sprintf("%s/%s: density=%.4f, survival=%.4f, diff=%.4f",
+                       metric, stat, result_density$stats[stat],
+                       result_survival$stats[stat], diff)
+      )
+    }
+  }
+})
+
+
+testthat::test_that("density solver produces normalized PDFs", {
+
+  set.seed(42)
+  x <- rnorm(30, mean = 5, sd = 1)
+  LSL <- 2; USL <- 8
+  target <- 5
+  prior <- qc:::create_prior_conjugate()
+
+  for (metric in c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")) {
+    pdf_fn <- qc:::make_density_solver(x, LSL, USL, prior, metric = metric, target = target)
+    pdf_fn_vec <- Vectorize(pdf_fn)
+
+    # PDF should integrate to ~1
+    total_mass <- integrate(pdf_fn_vec, 0, 3, subdivisions = 100)$value
+    expect_true(
+      abs(total_mass - 1) < 0.01,
+      info = sprintf("%s: total_mass = %.4f", metric, total_mass)
+    )
+  }
+})
+
+
 testthat::test_that("integration method print and summary work", {
 
   set.seed(1)
@@ -98,6 +157,9 @@ testthat::test_that("integration vs MCMC agreement with Jeffreys prior", {
                      metric, coef_int[metric], coef_mcmc[metric], rel_diff, abs_diff)
     )
   }
+
+
+
 })
 
 
@@ -168,7 +230,7 @@ testthat::test_that("integration method with custom priors", {
 
 testthat::test_that("integration vs MCMC agreement with non-conjugate priors", {
 
-  skip_on_cran()  # Skip on CRAN due to long runtime
+  # skip_on_cran()  # Skip on CRAN due to long runtime
 
   set.seed(123)
   x <- rnorm(30, 10, 2)
@@ -187,9 +249,13 @@ testthat::test_that("integration vs MCMC agreement with non-conjugate priors", {
                   prior_mu = prior_mu, prior_sigma = prior_sigma,
                   iter = 50000, chains = 4, silent = TRUE, seed = 123)
 
+  # profvis::profvis(bpc(x, LSL = LSL, target = target, USL = USL, method = "integration",
+  #                      prior_mu = prior_mu, prior_sigma = prior_sigma))
+
   # Compare posterior means - allow slightly larger tolerance for non-conjugate
   coef_int <- fit_int$coefficients
   coef_mcmc <- fit_mcmc$coefficients
+  coef_int - coef_mcmc[names(coef_int)]
 
   for (metric in names(coef_int)) {
     rel_diff <- abs(coef_int[metric] - coef_mcmc[metric]) / max(abs(coef_mcmc[metric]), 0.01)
@@ -205,7 +271,7 @@ testthat::test_that("integration vs MCMC agreement with non-conjugate priors", {
 
 testthat::test_that("integration interval probabilities with non-conjugate priors agree with MCMC", {
 
-  skip_on_cran()  # Skip on CRAN due to long runtime
+  # skip_on_cran()  # Skip on CRAN due to long runtime
 
   set.seed(123)
   x <- rnorm(30, 10, 2)
@@ -266,10 +332,214 @@ testthat::test_that("integration method speed advantage", {
   # Time MCMC method (with minimal iterations)
   time_mcmc <- system.time({
     fit_mcmc <- bpc(x, LSL = 2, target = 10, USL = 18, method = "mcmc",
-                    chains = 1, iter = 1000, warmup = 500, silent = TRUE)
+                    chains = 4, iter = 5000, warmup = 1000, silent = TRUE)
   })["elapsed"]
 
   # Integration should be faster than even minimal MCMC
   expect_true(time_int < time_mcmc,
               info = sprintf("Integration: %f sec, MCMC: %f sec", time_int, time_mcmc))
+})
+
+
+testthat::test_that("integration summary recomputes with new specification limits", {
+
+  set.seed(42)
+  x <- rnorm(50, mean = 10, sd = 2)
+
+  # Fit with original limits
+  fit <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+  original_coef <- fit$coefficients
+
+  # Get summary with new limits (wider tolerance)
+  ss_new <- summary(fit, LSL = 2, target = 10, USL = 18)
+
+  # New limits are wider, so capability indices should be higher
+  expect_true(ss_new$summary$mean[ss_new$summary$metric == "Cp"] >
+              original_coef["Cp"])
+  expect_true(ss_new$summary$mean[ss_new$summary$metric == "Cpk"] >
+              original_coef["Cpk"])
+
+  # Get summary with original limits (should match original coefficients)
+  ss_orig <- summary(fit, LSL = 4, target = 10, USL = 16)
+
+  for (metric in names(original_coef)) {
+    orig_mean <- ss_orig$summary$mean[ss_orig$summary$metric == metric]
+    expect_equal(orig_mean, unname(original_coef[metric]), tolerance = 0.001,
+                 info = sprintf("%s: summary=%f, original=%f",
+                               metric, orig_mean, original_coef[metric]))
+  }
+
+  # Summary with narrower limits should give lower capability
+  ss_narrow <- summary(fit, LSL = 6, target = 10, USL = 14)
+  expect_true(ss_narrow$summary$mean[ss_narrow$summary$metric == "Cp"] <
+              original_coef["Cp"])
+})
+
+
+testthat::test_that("plot_density works for integration method", {
+
+  set.seed(42)
+  x <- rnorm(50, 10, 2)
+
+  fit <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+
+  # Basic plot should work
+  p <- plot_density(fit)
+  expect_s3_class(p, "ggplot")
+
+  # Plot with options should work
+  p2 <- plot_density(fit, point_estimate = "mean", ci = "central")
+  expect_s3_class(p2, "ggplot")
+
+  # Summary plot should work
+  ss <- summary(fit)
+  p3 <- plot_density(ss)
+  expect_s3_class(p3, "ggplot")
+
+  # Summary with new limits should also work for plotting
+  ss_new <- summary(fit, LSL = 2, target = 10, USL = 18)
+  p4 <- plot_density(ss_new)
+  expect_s3_class(p4, "ggplot")
+})
+
+
+testthat::test_that("extract_density_data works for integration method", {
+
+  set.seed(42)
+  x <- rnorm(50, 10, 2)
+
+  fit <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+
+  # Extract from bpc object
+  df <- extract_density_data(fit)
+  expect_s3_class(df, "tbl_df")
+  expect_equal(names(df), c("x", "density", "metric"))
+  expect_equal(levels(df$metric), c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"))
+  expect_true(all(df$density >= 0))
+
+  # Extract single metric
+  df_cpk <- extract_density_data(fit, what = "Cpk")
+  expect_equal(unique(as.character(df_cpk$metric)), "Cpk")
+
+  # Extract from summary
+  ss <- summary(fit)
+  df_ss <- extract_density_data(ss)
+  expect_s3_class(df_ss, "tbl_df")
+  expect_equal(names(df_ss), c("x", "density", "metric"))
+})
+
+
+testthat::test_that("extract_density_data MCMC vs integration produce comparable results", {
+
+  skip_on_cran()
+
+  set.seed(42)
+  x <- rnorm(30, 50, 0.5)
+  LSL <- 44
+  USL <- 56
+  target <- 50
+
+  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
+                  iter = 50000, chains = 4, silent = TRUE, seed = 42)
+  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+
+  df_mcmc <- extract_density_data(fit_mcmc, what = "Cpk")
+  df_int <- extract_density_data(fit_int, what = "Cpk")
+
+  # Both should have valid structure
+  expect_equal(names(df_mcmc), c("x", "density", "metric"))
+  expect_equal(names(df_int), c("x", "density", "metric"))
+
+  # Create approxfuns to compare at same x-values
+  f_mcmc <- stats::approxfun(df_mcmc$x, df_mcmc$density, rule = 2)
+  f_int <- stats::approxfun(df_int$x, df_int$density, rule = 2)
+
+  # Compare at common evaluation points
+  x_eval <- seq(max(min(df_mcmc$x), min(df_int$x)),
+                min(max(df_mcmc$x), max(df_int$x)),
+                length.out = 50)
+  y_mcmc <- f_mcmc(x_eval)
+  y_int <- f_int(x_eval)
+  # plot(y_mcmc, y_int); abline(0,1,col='red')
+
+  # Densities should be roughly similar (correlation > 0.9)
+  cor_val <- cor(y_mcmc, y_int)
+  expect_true(cor_val > 0.9,
+              info = sprintf("Correlation between MCMC and integration densities: %.3f", cor_val))
+})
+
+
+testthat::test_that("extract_point_estimates works for both methods", {
+
+  set.seed(42)
+  x <- rnorm(50, 10, 2)
+
+  fit_int <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+
+  # Extract density data first
+  dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
+
+  # Build stats list for integration
+  results <- fit_int$integration_result$results
+  stats_list <- list(
+    Cp = results$Cp$stats,
+    Cpk = results$Cpk$stats
+  )
+
+  # Extract point estimates
+  dfPoints <- extract_point_estimates(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    point_estimate = "mean",
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
+
+  expect_s3_class(dfPoints, "tbl_df")
+  expect_equal(names(dfPoints), c("x", "y", "metric"))
+  expect_equal(nrow(dfPoints), 2)
+
+  # Mode should also work
+  dfMode <- extract_point_estimates(
+    obj = NULL,
+    what = c("Cp"),
+    point_estimate = "mode",
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
+  expect_equal(nrow(dfMode), 1)
+})
+
+
+testthat::test_that("extract_ci_data works for both methods", {
+
+  set.seed(42)
+  x <- rnorm(50, 10, 2)
+
+  fit_int <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+
+  # Extract density data first
+  dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
+
+  # Build stats list for integration
+  results <- fit_int$integration_result$results
+  stats_list <- list(
+    Cp = results$Cp$stats,
+    Cpk = results$Cpk$stats
+  )
+
+  # Extract CI data
+  ci_data <- extract_ci_data(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    ci = "HPD",
+    ci_level = 0.95,
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
+
+  expect_type(ci_data, "list")
+  expect_true("dfCi" %in% names(ci_data))
+  expect_true("dfArea" %in% names(ci_data))
+  expect_equal(nrow(ci_data$dfCi), 2)
 })

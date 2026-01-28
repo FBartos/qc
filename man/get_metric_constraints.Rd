@@ -18,7 +18,7 @@ get_metric_constraints(metric, c, LSL, USL, target)
 \item{target}{Target value}
 }
 \value{
-List with s_max_fn, mu_b_fn (scalar), and mu_b_fn_vec (vectorized)
+List with s_max_fn and mu_b_fn_vec (vectorized)
 }
 \description{
 Get constraint functions for a capability metric
