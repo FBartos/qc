@@ -14,11 +14,14 @@ plot_density_integration_results(
   show_ci_bar = ci != "none",
   show_point_text = point_estimate != "none",
   ci_fill = "grey60",
-  ci_fill_alpha = 0.8,
+  ci_fill_alpha = 0.7,
   linewidth = 1,
   single_panel = FALSE,
   axes = c("automatic", "fixed", "free", "custom"),
   axes_custom = list(xmin = -10, xmax = 10, ymin = -10, ymax = 10),
+  textsize = 18,
+  colorScheme = NULL,
+  stripTextFontsize = NULL,
   ...
 )
 }

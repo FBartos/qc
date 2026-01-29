@@ -233,11 +233,14 @@ build_density_plot <- function(
     show_ci_bar = FALSE,
     show_point_text = FALSE,
     ci_fill = "grey60",
-    ci_fill_alpha = 0.8,
+    ci_fill_alpha = 0.2,
     linewidth = 1,
     single_panel = FALSE,
     axes = "automatic",
-    axes_custom = list()
+    axes_custom = list(),
+    textsize = textsize,
+    colorScheme = NULL,
+    stripTextFontsize = NULL
 ) {
 
   # Density line layer
@@ -253,6 +256,7 @@ build_density_plot <- function(
     layer_points <- ggplot2::geom_point(
       data = dfPoints,
       mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric, fill = metric),
+      size = 4,
       inherit.aes = FALSE
     )
   }
@@ -266,9 +270,8 @@ build_density_plot <- function(
 
     layer_area <- ggplot2::geom_area(
       data = dfArea,
-      mapping = ggplot2::aes(x = x, y = y, group = metric),
+      mapping = ggplot2::aes(x = x, y = y, group = metric, fill = metric),
       color = NA,
-      fill = ci_fill,
       alpha = ci_fill_alpha,
       inherit.aes = FALSE,
       stat = "identity",
@@ -358,6 +361,26 @@ build_density_plot <- function(
     facet <- ggplot2::facet_wrap(~metric, scales = scales)
   }
 
+  # Build color palette
+  # When colorScheme is NULL or "grey", use a single grey for all metrics
+  # When colorScheme is a vector of colors, use those directly
+  nColors <- length(unique(dfLines$metric))
+  if (is.null(colorScheme) || identical(colorScheme, "grey")) {
+    plotColors <- rep("grey50", nColors)
+  } else if (is.character(colorScheme) && length(colorScheme) >= nColors) {
+    # colorScheme is a vector of colors passed from caller
+    plotColors <- colorScheme[seq_len(nColors)]
+  } else {
+    # Fallback: single grey
+    plotColors <- rep("grey50", nColors)
+  }
+
+  # Strip text theme
+  stripTheme <- NULL
+  if (!is.null(stripTextFontsize)) {
+    stripTheme <- ggplot2::theme(strip.text = ggplot2::element_text(size = stripTextFontsize))
+  }
+
   # Build final plot
   plt <- ggplot2::ggplot() +
     layer_area +
@@ -365,6 +388,8 @@ build_density_plot <- function(
     layer_points +
     layer_cibar +
     layer_text +
+    ggplot2::scale_color_manual(values = plotColors) +
+    ggplot2::scale_fill_manual(values = plotColors) +
     ggplot2::labs(
       group = "Capability Metric",
       color = "Capability Metric",
@@ -374,7 +399,8 @@ build_density_plot <- function(
     ) +
     scale_x +
     scale_y +
-    facet
+    facet +
+    stripTheme
 
   return(plt)
 }
@@ -444,13 +470,15 @@ plot_density.capability_metrics <- function(
     show_ci_bar     = ci != "none",
     show_point_text = point_estimate != "none",
     ci_fill         = "grey60",
-    ci_fill_alpha   = 0.8,
+    ci_fill_alpha   = 0.7,
     linewidth       = 1,
     single_panel    = FALSE,
     axes            = c("automatic", "fixed", "free", "custom"),
     axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
     textsize        = 18,
     priorSummaryObject = NULL,
+    colorScheme     = NULL,
+    stripTextFontsize = NULL,
     ...
   ) {
 
@@ -521,7 +549,9 @@ plot_density.capability_metrics <- function(
     single_panel = single_panel,
     axes = axes,
     axes_custom = axes_custom,
-    textsize = textsize
+    textsize = textsize,
+    colorScheme = colorScheme,
+    stripTextFontsize = stripTextFontsize
   )
 }
 
@@ -577,12 +607,14 @@ plot_density_integration_results <- function(
     show_ci_bar     = ci != "none",
     show_point_text = point_estimate != "none",
     ci_fill         = "grey60",
-    ci_fill_alpha   = 0.8,
+    ci_fill_alpha   = 0.7,
     linewidth       = 1,
     single_panel    = FALSE,
     axes            = c("automatic", "fixed", "free", "custom"),
     axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
     textsize        = 18,
+    colorScheme     = NULL,
+    stripTextFontsize = NULL,
     ...
   ) {
 
@@ -648,6 +680,8 @@ plot_density_integration_results <- function(
     single_panel = single_panel,
     axes = axes,
     axes_custom = axes_custom,
-    textsize = textsize
+    textsize = textsize,
+    colorScheme = colorScheme,
+    stripTextFontsize = stripTextFontsize
   )
 }

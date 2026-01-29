@@ -10,7 +10,7 @@ bpc(
   target,
   USL,
   distribution = "normal",
-  method = "mcmc",
+  method = c("mcmc", "integration"),
   prior_mu = "Jeffreys_mu",
   prior_sigma = "Jeffreys_sigma",
   prior_nu = NULL,

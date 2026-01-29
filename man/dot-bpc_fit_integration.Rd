@@ -4,7 +4,16 @@
 \alias{.bpc_fit_integration}
 \title{Fit using numerical integration method}
 \usage{
-.bpc_fit_integration(data, LSL, USL, target, prior_mu, prior_sigma, sigma = 3)
+.bpc_fit_integration(
+  data,
+  LSL,
+  USL,
+  target,
+  prior_mu,
+  prior_sigma,
+  sigma = 3,
+  sample_priors = FALSE
+)
 }
 \arguments{
 \item{data}{Numeric vector of observations}

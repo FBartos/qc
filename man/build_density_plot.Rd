@@ -16,11 +16,14 @@ build_density_plot(
   show_ci_bar = FALSE,
   show_point_text = FALSE,
   ci_fill = "grey60",
-  ci_fill_alpha = 0.8,
+  ci_fill_alpha = 0.2,
   linewidth = 1,
   single_panel = FALSE,
   axes = "automatic",
-  axes_custom = list()
+  axes_custom = list(),
+  textsize = textsize,
+  colorScheme = NULL,
+  stripTextFontsize = NULL
 )
 }
 \arguments{

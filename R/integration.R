@@ -140,15 +140,22 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
                                                    use_analytic = TRUE,
                                                    cached_state = NULL) {
   n <- length(data)
-  x_bar <- mean(data)
-  SS <- sum((data - x_bar)^2)
+  if (n > 0) {
+    x_bar <- mean(data)
+    SS <- sum((data - x_bar)^2)
 
-  # Posterior hyperparameters
-
-  k_n <- prior$k0 + n
-  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
-  alpha_n <- prior$alpha0 + n / 2
-  beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+    # Posterior hyperparameters
+    k_n <- prior$k0 + n
+    mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+    alpha_n <- prior$alpha0 + n / 2
+    beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+  } else {
+    # No data: posterior = prior
+    k_n <- prior$k0
+    mu_n <- prior$mu0
+    alpha_n <- prior$alpha0
+    beta_n <- prior$beta0
+  }
 
   tol <- USL - LSL
   mid <- (LSL + USL) / 2
@@ -402,6 +409,20 @@ compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
   mu_lower <- map_mu - 5 * uni_s
   mu_upper <- map_mu + 5 * uni_s
 
+  # xgrid <- as.matrix(expand.grid(
+  #   mu = seq(mu_lower, mu_upper, length.out = 5),
+  #   sigma = seq(1e-10, uni_s, length.out = 5)
+  # ))
+  # log_post_vals <- integrand(t(xgrid))
+  # df <- data.frame(
+  #   mu = xgrid[, 1],
+  #   sigma = xgrid[, 2],
+  #   log_post = as.numeric(log_post_vals)
+  # )
+  # ggplot2::ggplot(data = df, ggplot2::aes(x = mu, y = sigma, fill = log(log_post))) +
+  #   ggplot2::geom_tile() +
+  #   ggplot2::scale_fill_viridis_c()
+
   # Both the integral and Z use the same h_max normalization, so they cancel out
   E1 <- cubature::pcubature(
     function(x) integrand(x, power = 1),
@@ -443,14 +464,21 @@ make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL, ..
 make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
                                         target = NULL, ...) {
   n <- length(data)
-  x_bar <- mean(data)
-  SS <- sum((data - x_bar)^2)
+  if (n > 0) {
+    x_bar <- mean(data)
+    SS <- sum((data - x_bar)^2)
 
-  # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
-  k_n <- prior$k0 + n
-  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
-  alpha_n <- prior$alpha0 + n / 2
-  beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+    # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
+    k_n <- prior$k0 + n
+    mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+    alpha_n <- prior$alpha0 + n / 2
+    beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+  } else {
+    k_n <- prior$k0
+    mu_n <- prior$mu0
+    alpha_n <- prior$alpha0
+    beta_n <- prior$beta0
+  }
   df_p <- 2 * alpha_n
 
   # Pre-compute global h_max (chi-square mode density for numerical stability)
@@ -537,14 +565,21 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = 
 make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
                                                 metric = "Cpk", target = NULL, ...) {
   n <- length(data)
-  x_bar <- mean(data)
-  SS <- sum((data - x_bar)^2)
+  if (n > 0) {
+    x_bar <- mean(data)
+    SS <- sum((data - x_bar)^2)
 
-  # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
-  k_n <- prior$k0 + n
-  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
-  alpha_n <- prior$alpha0 + n / 2
-  beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+    # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
+    k_n <- prior$k0 + n
+    mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+    alpha_n <- prior$alpha0 + n / 2
+    beta_n <- prior$beta0 + 0.5 * SS + (prior$k0 * n * (x_bar - prior$mu0)^2) / (2 * k_n)
+  } else {
+    k_n <- prior$k0
+    mu_n <- prior$mu0
+    alpha_n <- prior$alpha0
+    beta_n <- prior$beta0
+  }
 
   M <- (LSL + USL) / 2  # Midpoint
   tol <- USL - LSL      # Tolerance
@@ -1039,36 +1074,56 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
 #' @keywords internal
 precompute_generic_state <- function(data, prior) {
   n <- length(data)
-  x_bar <- mean(data)
-  sse <- sum((data - x_bar)^2)
+  if (n > 0) {
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+    init_sd <- sqrt(sse / (n - 1))
+    init_mu <- x_bar
+  } else {
+    # No data: use default initial values
+    x_bar <- 0
+    sse <- 0
+    init_sd <- 1
+    init_mu <- 0
+  }
 
   # Scalar log posterior (used by optim)
   log_post <- function(mu, sigma) {
     if (sigma <= 0) return(-Inf)
-    -n * log(sigma) - (sse + n * (mu - x_bar)^2) / (2 * sigma^2) +
-      prior$log_dens(mu, sigma)
+    log_lik <- if (n > 0) {
+      -n * log(sigma) - (sse + n * (mu - x_bar)^2) / (2 * sigma^2)
+    } else {
+      0
+    }
+    log_lik + prior$log_dens(mu, sigma)
   }
 
   # Vectorized log posterior (used by cubature)
   log_post_vec <- function(mu, sigma) {
-    log_lik <- rep(-Inf, length(mu))
-    valid <- sigma > 0
-    if (any(valid)) {
-      log_lik[valid] <- -n * log(sigma[valid]) -
-                        (sse + n * (mu[valid] - x_bar)^2) / (2 * sigma[valid]^2)
+    log_lik <- rep(0, length(mu))
+    if (n > 0) {
+      log_lik[] <- -Inf
+      valid <- sigma > 0
+      if (any(valid)) {
+        log_lik[valid] <- -n * log(sigma[valid]) -
+                          (sse + n * (mu[valid] - x_bar)^2) / (2 * sigma[valid]^2)
+      }
     }
     log_prior <- prior$log_dens(mu, sigma)
     log_lik + log_prior
   }
 
-  init_sd <- sqrt(sse / (n - 1))
-  opt <- stats::optim(c(x_bar, init_sd), function(p) -log_post(p[1], p[2]))
+  opt <- stats::optim(c(init_mu, init_sd), function(p) -log_post(p[1], p[2]))
   map_mu <- opt$par[1]
   map_sig <- opt$par[2]
   h_max <- -opt$value
 
   # Tighter bounds: 5 sigma from MAP
-  uni_s <- map_sig * 5
+  # If n=0, map_sig is determined by prior. If prior is flat or wide, 5 sigma might be too small
+  # or too large depending on the prior.
+  # For safety, ensure uni_s is at least a reasonable minimum and scale up if n=0
+  uni_s <- map_sig * (if (n > 0) 5 else 10)
+  uni_s <- max(uni_s, 20.0) # Ensure at least some width
 
   # cubature 2D integration with fully vectorized interface
   int_2d <- function(s_lim, m_fn) {
@@ -1196,9 +1251,28 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     x_end <- moments$mean + 3 * moments$sd
   }
 
+  # If bounds seem excessive (divergent mean), refine using quantiles via solver
+  if (x_end > 50) {
+     # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
+     try({
+       S_fn <- if (!is.null(cached_state) && inherits(prior, "PriorGeneric")) {
+         make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+       } else {
+         make_solver(data, LSL, USL, prior, metric, target)
+       }
+       # Search for upper bound where prob < 0.001
+       for (try_limit in c(10, 20, 50, 100, 1000)) {
+         if (S_fn(try_limit) < 0.001) {
+           x_end <- try_limit
+           break
+         }
+       }
+     }, silent = TRUE)
+  }
+
   # Ensure valid grid (minimum width)
   if (x_end <= x_start || !is.finite(x_end)) {
-    x_end <- x_start + 3
+    x_end <- max(x_start + 3, 3)
   }
 
   # Choose method: density solver (direct PDF) vs survival function + finite diff
@@ -1490,7 +1564,16 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' @return List with metrics and integration results
 #' @keywords internal
 .bpc_fit_integration <- function(data, LSL, USL, target, prior_mu, prior_sigma,
-                                  sigma = 3) {
+                                  sigma = 3, sample_priors = FALSE) {
+
+  # If sampling from priors, ignore data (likelihood becomes flat/unity effectively)
+  # Ideally we should pass sample_priors down, but clearing data works if the
+  # functions handle empty data correctly.
+  # However, the conjugate update uses n and sufficiency stats.
+  # If we set data to empty, n=0, and the posterior parameters equal prior parameters.
+  if (sample_priors) {
+    data <- numeric(0)
+  }
 
   # Convert priors to integration format
   prior_info <- .bayestools_to_integration_prior(prior_mu, prior_sigma)

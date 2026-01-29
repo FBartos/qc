@@ -29,7 +29,7 @@ bpc <- function(
     x,
     LSL, target, USL,
     distribution = "normal",
-    method = "mcmc",
+    method = c("mcmc", "integration"),
 
     # prior settings
     prior_mu    = "Jeffreys_mu",
@@ -71,6 +71,7 @@ bpc <- function(
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
   # Check method-distribution compatibility
+  method <- match.arg(method)
 
   if (method == "integration" && distribution != "normal") {
     stop("The integration method currently only supports distribution = 'normal'. ",
@@ -90,7 +91,8 @@ bpc <- function(
     # Fit using integration
     int_result <- .bpc_fit_integration(
       data = x, LSL = LSL, USL = USL, target = target,
-      prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma
+      prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma,
+      sample_priors = sample_priors
     )
 
     object$integration_result <- int_result
