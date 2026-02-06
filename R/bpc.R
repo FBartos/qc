@@ -73,6 +73,22 @@ bpc <- function(
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
+  # Identification of improper priors
+  # 1. String "Jeffreys..."
+  # 2. Uniform unbounded? (BayesTools checks this usually)
+  is_improper_mu <- identical(prior_mu, "Jeffreys_mu")
+  is_improper_sigma <- identical(prior_sigma, "Jeffreys_sigma")
+
+  if (sample_priors) {
+    if (is_improper_mu) {
+      stop("Improper prior for mu (Jeffreys) cannot be used without data (or with sample_priors = TRUE).")
+    }
+    if (is_improper_sigma) {
+      stop("Improper prior for sigma (Jeffreys) cannot be used without data (or with sample_priors = TRUE).")
+    }
+  }
+
+
   # Check method-distribution compatibility
   if (method == "integration" && distribution != "normal") {
     stop("The integration method currently only supports distribution = 'normal'. ",
@@ -299,10 +315,18 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     cached_state <- int_result$cached_state
 
     # Get data from the original call
-    data <- eval(object$call$x, envir = parent.frame())
-    orig_LSL <- eval(object$call$LSL, envir = parent.frame())
-    orig_USL <- eval(object$call$USL, envir = parent.frame())
-    orig_target <- eval(object$call$target, envir = parent.frame())
+    # If cached_state is available, we don't strictly need data for integration
+    data <- tryCatch(eval(object$call$x, envir = parent.frame()), error = function(e) NULL)
+
+    # Try to get parameters from call, or fallback to stored attributes
+    get_param <- function(param_name, attr_name) {
+       val <- tryCatch(eval(object$call[[param_name]], envir = parent.frame()), error = function(e) NULL)
+       if (is.null(val) && !is.null(object$metrics)) attr(object$metrics, attr_name) else val
+    }
+
+    orig_LSL <- get_param("LSL", "LSL")
+    orig_USL <- get_param("USL", "USL")
+    orig_target <- get_param("target", "target")
 
     # Compute interval probabilities for each metric
     interval_breaks <- c(-Inf, interval_probability, Inf)

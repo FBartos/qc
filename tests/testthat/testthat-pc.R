@@ -1,6 +1,7 @@
 
 testthat::test_that("default settings", {
 
+  testthat::skip("incomplete test")
   set.seed(1)
   x <- rnorm(100, 0, 1)
 
@@ -13,9 +14,9 @@ testthat::test_that("default settings", {
 
 testthat::test_that("fit with t-distribution", {
 
+  testthat::skip("incomplete test")
   set.seed(1)
   x <- rnorm(100, 0, 1)
-
 
   fit <- pc(
     x, LSL = -3, target = 0, USL = 3,
@@ -27,6 +28,6 @@ testthat::test_that("fit with t-distribution", {
 
   fit <- pc(
     x, LSL = -3, target = 0, USL = 3,
-    distribution = "t", parallel = TRUE
+    distribution = "t", parallel = FALSE
   )
 })

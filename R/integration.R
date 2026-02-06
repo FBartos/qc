@@ -33,6 +33,32 @@ create_prior_generic <- function(log_dens_fn, bayestools_priors = NULL) {
             class = "PriorGeneric")
 }
 
+#' Create a semi-conjugate prior (conjugate mu, non-conjugate sigma)
+#' @param mu0 Prior mean location
+#' @param k0 Prior precision multiplier (0 = noninformative)
+#' @param log_dens_sigma Function(sigma) returning log prior density for sigma
+#' @param bayestools_priors Optional list with original BayesTools prior objects
+#' @return PriorSemiConjugateMu object
+#' @keywords internal
+create_prior_semi_mu <- function(mu0, k0, log_dens_sigma, bayestools_priors = NULL) {
+  structure(list(mu0 = mu0, k0 = k0, log_dens_sigma = log_dens_sigma,
+                 bayestools_priors = bayestools_priors),
+            class = "PriorSemiConjugateMu")
+}
+
+#' Create a semi-conjugate prior (non-conjugate mu, conjugate sigma)
+#' @param alpha0 Prior shape for sigma^2
+#' @param beta0 Prior rate for sigma^2
+#' @param log_dens_mu Function(mu) returning log prior density for mu
+#' @param bayestools_priors Optional list with original BayesTools prior objects
+#' @return PriorSemiConjugateSigma object
+#' @keywords internal
+create_prior_semi_sigma <- function(alpha0, beta0, log_dens_mu, bayestools_priors = NULL) {
+  structure(list(alpha0 = alpha0, beta0 = beta0, log_dens_mu = log_dens_mu,
+                 bayestools_priors = bayestools_priors),
+            class = "PriorSemiConjugateSigma")
+}
+
 # ==============================================================================
 # Metric Constraints
 # ==============================================================================
@@ -202,11 +228,17 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
                                                    metric = "Cpk", target = NULL,
                                                    use_analytic = TRUE,
                                                    cached_state = NULL) {
-  n <- length(data)
-  if (n > 0) {
+  n <- if (!is.null(cached_state)) cached_state$n else length(data)
+  if (!is.null(cached_state)) {
+    x_bar <- cached_state$x_bar
+    SS <- cached_state$sse
+    n <- cached_state$n
+  } else if (n > 0) {
     x_bar <- mean(data)
     SS <- sum((data - x_bar)^2)
+  }
 
+  if (n > 0) {
     # Posterior hyperparameters
     k_n <- prior$k0 + n
     mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
@@ -438,6 +470,165 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 
 
 #' @export
+compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
+                                                         metric = "Cpk", target = NULL,
+                                                         use_analytic = TRUE,
+                                                         cached_state = NULL) {
+  # Case 2: Conjugate mu, non-conjugate sigma
+  # Use 1D numerical integration over sigma with analytical mu integration
+
+  n <- length(data)
+  x_bar <- if (n > 0) mean(data) else 0
+  sse <- if (n > 0) sum((data - x_bar)^2) else 0
+
+  k_n <- prior$k0 + n
+  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+  sse_n <- sse + prior$k0 * n * (x_bar - prior$mu0)^2 / k_n
+  sd_data <- sqrt(sse_n / max(n, 1))
+
+  # Compute E[metric] and E[metric^2] via 1D integration over sigma
+  # For each sigma, sample mu from N(mu_n, sigma^2/k_n) and compute expectations
+
+  integrand_E1 <- function(sigma) {
+    log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
+    log_prior <- prior$log_dens_sigma(sigma)
+    weight <- exp(log_lik + log_prior)
+    if (!is.finite(weight) || weight <= 0) return(0)
+
+    # Sample mu from conditional posterior
+    sd_mu <- sigma / sqrt(k_n)
+    # E[metric | sigma] via Gauss-Hermite quadrature approximation
+    # Use 5-point approximation
+    mu_pts <- mu_n + sd_mu * c(-2.02, -0.958, 0, 0.958, 2.02)
+    wts <- c(0.0199, 0.393, 0.945, 0.393, 0.0199)
+    wts <- wts / sum(wts)
+    metric_vals <- compute_metric_value(mu_pts, rep(sigma, 5), LSL, USL, target, metric)
+    E_metric <- sum(wts * metric_vals)
+    weight * E_metric
+  }
+
+  integrand_E2 <- function(sigma) {
+    log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
+    log_prior <- prior$log_dens_sigma(sigma)
+    weight <- exp(log_lik + log_prior)
+    if (!is.finite(weight) || weight <= 0) return(0)
+
+    sd_mu <- sigma / sqrt(k_n)
+    mu_pts <- mu_n + sd_mu * c(-2.02, -0.958, 0, 0.958, 2.02)
+    wts <- c(0.0199, 0.393, 0.945, 0.393, 0.0199)
+    wts <- wts / sum(wts)
+    metric_vals <- compute_metric_value(mu_pts, rep(sigma, 5), LSL, USL, target, metric)
+    E_metric2 <- sum(wts * metric_vals^2)
+    weight * E_metric2
+  }
+
+  sigma_upper <- 20 * sd_data
+  Z <- stats::integrate(function(s) {
+    exp(-n * log(s) - sse_n / (2 * s^2) + prior$log_dens_sigma(s))
+  }, 1e-10, sigma_upper, rel.tol = 1e-5)$value
+
+  E1 <- stats::integrate(Vectorize(integrand_E1), 1e-10, sigma_upper, rel.tol = 1e-4)$value / Z
+  E2 <- stats::integrate(Vectorize(integrand_E2), 1e-10, sigma_upper, rel.tol = 1e-4)$value / Z
+
+  list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
+}
+
+#' @export
+compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
+                                                            metric = "Cpk", target = NULL,
+                                                            use_analytic = TRUE,
+                                                            cached_state = NULL) {
+  # Case 3: Non-conjugate mu, conjugate sigma (InvGamma)
+  # Use 1D numerical integration over mu with analytical sigma integration
+
+  n <- length(data)
+  x_bar <- if (n > 0) mean(data) else 0
+  sse <- if (n > 0) sum((data - x_bar)^2) else 0
+
+  alpha0 <- prior$alpha0
+  beta0 <- prior$beta0
+  alpha_n <- alpha0 + n / 2
+
+  sd_data <- sqrt(sse / max(n - 1, 1))
+
+  # For each mu, sigma marginally follows scaled-InvChi2
+  # E[sigma | mu] via InvGamma moments
+
+  # for the Jeffreys prior case, beta0 = 0, so we need to handle that carefully
+  alpha_0_times_logbeta0 <- if (prior$beta0 == 0) 0 else alpha0 * log(beta0)
+
+  integrand_E1 <- function(mu) {
+    sse_mu <- sse + n * (mu - x_bar)^2
+    beta_n <- beta0 + sse_mu / 2
+
+    # Marginal likelihood p(data | mu)
+    log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
+    log_prior <- prior$log_dens_mu(mu)
+    weight <- exp(log_marginal + log_prior)
+    if (!is.finite(weight) || weight <= 0) return(0)
+
+    # Sample sigma from InvGamma(alpha_n, beta_n) and average metric
+    # Use analytic E[sigma] for simple metrics, or quadrature
+    # E[sigma | mu, data] = sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n) (when alpha_n > 0.5)
+    if (alpha_n > 0.5) {
+      E_sigma <- sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n)
+    } else {
+      E_sigma <- sqrt(beta_n / alpha_n)  # Approximation
+    }
+
+    # For linear metrics in 1/sigma, use expected value
+    metric_val <- compute_metric_value(mu, E_sigma, LSL, USL, target, metric)
+    weight * metric_val
+  }
+
+  integrand_E2 <- function(mu) {
+    sse_mu <- sse + n * (mu - x_bar)^2
+    beta_n <- beta0 + sse_mu / 2
+
+    log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
+    log_prior <- prior$log_dens_mu(mu)
+    weight <- exp(log_marginal + log_prior)
+    if (!is.finite(weight) || weight <= 0) return(0)
+
+    if (alpha_n > 0.5) {
+      E_sigma <- sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n)
+    } else {
+      E_sigma <- sqrt(beta_n / alpha_n)
+    }
+    metric_val <- compute_metric_value(mu, E_sigma, LSL, USL, target, metric)
+    weight * metric_val^2
+  }
+
+  mu_low <- x_bar - 10 * sd_data
+  mu_high <- x_bar + 10 * sd_data
+
+  # TODO: we should create a generic integrate interface that computes the mode first and then the integral on a log scale
+  # log_integrand_Z <- function(mu) {
+  #   sse_mu <- sse + n * (mu - x_bar)^2
+  #   beta_n <- beta0 + sse_mu / 2
+  #   log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha0 * log(beta0) - alpha_n * log(beta_n)
+  #   log_prior <- prior$log_dens_mu(mu)
+  #   log_marginal + log_prior
+  # }
+  # mode_Z <- optimize(log_integrand_Z, c(mu_low, mu_high), maximum = TRUE)$maximum
+  # Normalization constant
+  Z <- stats::integrate(function(mu) {
+    sse_mu <- sse + n * (mu - x_bar)^2
+    beta_n <- beta0 + sse_mu / 2
+    log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
+    result <- exp(log_marginal + prior$log_dens_mu(mu))
+    if (anyNA(result) || any(is.infinite(result)))
+      browser()
+    result
+  }, mu_low, mu_high, rel.tol = 1e-5)$value
+
+  E1 <- stats::integrate(Vectorize(integrand_E1), mu_low, mu_high, rel.tol = 1e-4)$value / Z
+  E2 <- stats::integrate(Vectorize(integrand_E2), mu_low, mu_high, rel.tol = 1e-4)$value / Z
+
+  list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
+}
+
+#' @export
 compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
                                                  metric = "Cpk", target = NULL,
                                                  use_analytic = TRUE,
@@ -525,11 +716,17 @@ make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL, ..
 
 #' @export
 make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
-                                        target = NULL, ...) {
-  n <- length(data)
-  if (n > 0) {
+                                        target = NULL, cached_state = NULL, ...) {
+  n <- if (!is.null(cached_state)) cached_state$n else length(data)
+  if (!is.null(cached_state)) {
+    x_bar <- cached_state$x_bar
+    SS <- cached_state$sse
+  } else if (n > 0) {
     x_bar <- mean(data)
     SS <- sum((data - x_bar)^2)
+  }
+
+  if (n > 0) {
 
     # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
     k_n <- prior$k0 + n
@@ -601,6 +798,130 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   }
 }
 
+#' @export
+make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
+                                              metric = "Cpk", target = NULL,
+                                              cached_state = NULL, ...) {
+  # Case 2: Conjugate mu (Normal/Jeffreys), non-conjugate sigma
+  # Integrate mu analytically using pnorm, then 1D numerical over sigma
+
+  # Use cached state for sufficient statistics (data may not be in scope)
+  if (!is.null(cached_state)) {
+    n <- cached_state$n
+    x_bar <- cached_state$x_bar
+    sse <- cached_state$sse
+  } else {
+    n <- length(data)
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+  }
+
+  # Posterior update for mu (conjugate)
+  k_n <- prior$k0 + n
+  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+  sse_n <- sse + prior$k0 * n * (x_bar - prior$mu0)^2 / k_n
+
+  function(c) {
+    if (c <= 0) return(1.0)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    s_max <- constr$s_max_fn()
+    if (!is.infinite(s_max) && s_max <= 0) return(0.0)
+
+    integrand <- function(sigma) {
+      # Log marginal likelihood p(data | sigma) after integrating mu
+      log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
+
+      # Log prior on sigma (non-conjugate)
+      log_prior_sigma <- prior$log_dens_sigma(sigma)
+
+      # P(mu in constraint region | sigma, data)
+      sd_mu <- sigma / sqrt(k_n)
+      mb <- constr$mu_b_fn_vec(sigma)
+      z_U <- (mb$upper - mu_n) / sd_mu
+      z_L <- (mb$lower - mu_n) / sd_mu
+
+      # Safety check for impossible regions
+      log_prob_mu <- ifelse(z_L >= z_U, -Inf,
+                             log_diff_exp(stats::pnorm(z_U, log.p = TRUE),
+                                          stats::pnorm(z_L, log.p = TRUE)))
+
+      exp(log_lik + log_prior_sigma + log_prob_mu)
+    }
+
+    # Integration bounds for sigma
+    sigma_upper <- if (is.infinite(s_max)) 20 * sqrt(sse_n / max(n, 1)) else s_max
+    sigma_upper <- max(sigma_upper, 1e-6)
+
+    stats::integrate(Vectorize(integrand), 1e-10, sigma_upper,
+                     rel.tol = 1e-5, subdivisions = 200)$value
+  }
+}
+
+#' @export
+make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
+                                                 metric = "Cpk", target = NULL,
+                                                 cached_state = NULL, ...) {
+  # Case 3: Non-conjugate mu, conjugate sigma (InvGamma/Jeffreys)
+  # Integrate sigma analytically using Gamma functions, then 1D over mu
+
+  # Use cached state for sufficient statistics (data may not be in scope)
+  if (!is.null(cached_state)) {
+    n <- cached_state$n
+    x_bar <- cached_state$x_bar
+    sse <- cached_state$sse
+  } else {
+    n <- length(data)
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+  }
+  alpha0 <- prior$alpha0
+  beta0 <- prior$beta0
+
+  function(c) {
+    if (c <= 0) return(1.0)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    s_max <- constr$s_max_fn()
+    if (!is.infinite(s_max) && s_max <= 0) return(0.0)
+
+    integrand <- function(mu) {
+      # Updated error sum of squares for each mu
+      sse_mu <- sse + n * (mu - x_bar)^2
+
+      # Posterior InvGamma parameters after observing data
+      alpha_n <- alpha0 + n / 2
+      beta_n <- beta0 + sse_mu / 2
+
+      # Log marginal p(data | mu) via Gamma functions
+      # This is the analytical integral over sigma
+      log_marginal <- lgamma(alpha_n) - lgamma(alpha0) +
+                      alpha0 * log(beta0) - alpha_n * log(beta_n)
+
+      # Log prior on mu (non-conjugate)
+      log_prior_mu <- prior$log_dens_mu(mu)
+
+      # P(sigma < s_max | mu, data) via incomplete Gamma
+      # tau = 1/sigma^2 ~ Gamma(alpha_n, rate = beta_n)
+      # P(sigma < s_max) = P(tau > 1/s_max^2)
+      if (is.infinite(s_max)) {
+        log_prob_sigma <- 0
+      } else {
+        prob_sigma <- 1 - stats::pgamma(1 / s_max^2, shape = alpha_n, rate = beta_n)
+        log_prob_sigma <- log(max(prob_sigma, 1e-300))
+      }
+
+      exp(log_marginal + log_prior_mu + log_prob_sigma)
+    }
+
+    # Dynamic integration bounds based on data
+    mu_sd <- sqrt(sse / max(n - 1, 1))
+    mu_low <- x_bar - 10 * mu_sd
+    mu_high <- x_bar + 10 * mu_sd
+
+    stats::integrate(Vectorize(integrand), mu_low, mu_high,
+                     rel.tol = 1e-5, subdivisions = 200)$value
+  }
+}
+
 # ==============================================================================
 # Density Solver Factory: Direct PDF via Contour Integration
 # ==============================================================================
@@ -626,11 +947,17 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = 
 
 #' @export
 make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
-                                                metric = "Cpk", target = NULL, ...) {
-  n <- length(data)
-  if (n > 0) {
+                                                metric = "Cpk", target = NULL, cached_state = NULL, ...) {
+  n <- if (!is.null(cached_state)) cached_state$n else length(data)
+  if (!is.null(cached_state)) {
+    x_bar <- cached_state$x_bar
+    SS <- cached_state$sse
+  } else if (n > 0) {
     x_bar <- mean(data)
     SS <- sum((data - x_bar)^2)
+  }
+
+  if (n > 0) {
 
     # Posterior hyperparameters (Normal-Inverse-Gamma conjugate update)
     k_n <- prior$k0 + n
@@ -830,6 +1157,468 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   }
 
   stop("Unsupported metric for density solver: ", metric)
+}
+
+#' @export
+make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
+                                                      metric = "Cpk", target = NULL,
+                                                      cached_state = NULL, ...) {
+  # Case 2: Contour integration with semi-analytical mu integration
+  # Uses the same contour approach as PriorConjugate but with
+  # log p(sigma | data) = log_lik(sigma) + log_prior_sigma(sigma)
+
+  # Use cached state for sufficient statistics (data may not be in scope)
+  if (!is.null(cached_state)) {
+    n <- cached_state$n
+    x_bar <- cached_state$x_bar
+    sse <- cached_state$sse
+  } else {
+    n <- length(data)
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+  }
+  k_n <- prior$k0 + n
+  mu_n <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
+  sse_n <- sse + prior$k0 * n * (x_bar - prior$mu0)^2 / k_n
+
+  M <- (LSL + USL) / 2
+  tol <- USL - LSL
+
+  # Compute normalization constant Z for the marginal posterior of sigma
+  log_Z <- .compute_semi_mu_log_Z(n, sse_n, prior$log_dens_sigma)
+
+  # Helper: log marginal posterior of sigma (unnormalized)
+  log_p_sigma <- function(sigma_v) {
+    log_lik <- -n * log(sigma_v) - sse_n / (2 * sigma_v^2)
+    log_prior <- prior$log_dens_sigma(sigma_v)
+    log_lik + log_prior
+  }
+
+  # Cpk: two contours mu_L and mu_U
+  if (metric == "Cpk") {
+    return(function(c) {
+      if (c <= 0) return(0)
+      sigma_max <- tol / (6 * c)
+      if (sigma_max <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0 & sigma < sigma_max
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        sd_mu <- sigma_v / sqrt(k_n)
+
+        mu_L <- LSL + 3 * c * sigma_v
+        mu_U <- USL - 3 * c * sigma_v
+
+        lps <- log_p_sigma(sigma_v)
+        log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu, log = TRUE)
+        log_p_mu_U <- stats::dnorm(mu_U, mu_n, sd_mu, log = TRUE)
+        log_jacobian <- log(3) + log(sigma_v)
+
+        contrib_L <- exp(lps + log_p_mu_L + log_jacobian - log_Z)
+        contrib_U <- exp(lps + log_p_mu_U + log_jacobian - log_Z)
+
+        contrib_L[!is.finite(contrib_L)] <- 0
+        contrib_U[!is.finite(contrib_U)] <- 0
+
+        result[valid] <- contrib_L + contrib_U
+        result
+      }
+
+      stats::integrate(integrand, 0, sigma_max, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # CpU: single contour mu_U = USL - 3*c*sigma
+  if (metric == "CpU") {
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        sd_mu <- sigma_v / sqrt(k_n)
+        mu_U <- USL - 3 * c * sigma_v
+
+        lps <- log_p_sigma(sigma_v)
+        log_p_mu_U <- stats::dnorm(mu_U, mu_n, sd_mu, log = TRUE)
+        log_jacobian <- log(3) + log(sigma_v)
+
+        contrib <- exp(lps + log_p_mu_U + log_jacobian - log_Z)
+        contrib[!is.finite(contrib)] <- 0
+        result[valid] <- contrib
+        result
+      }
+
+      sigma_upper <- 20 * sqrt(sse_n / max(n, 1))
+      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # CpL: single contour mu_L = LSL + 3*c*sigma
+  if (metric == "CpL") {
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        sd_mu <- sigma_v / sqrt(k_n)
+        mu_L <- LSL + 3 * c * sigma_v
+
+        lps <- log_p_sigma(sigma_v)
+        log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu, log = TRUE)
+        log_jacobian <- log(3) + log(sigma_v)
+
+        contrib <- exp(lps + log_p_mu_L + log_jacobian - log_Z)
+        contrib[!is.finite(contrib)] <- 0
+        result[valid] <- contrib
+        result
+      }
+
+      sigma_upper <- 20 * sqrt(sse_n / max(n, 1))
+      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # Cp: single contour sigma = tol / (6*c), marginal over mu
+  if (metric == "Cp") {
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      sigma_c <- tol / (6 * c)
+      if (sigma_c <= 0) return(0)
+
+      # For Cp, sigma is fixed on the contour
+      # Jacobian: |dsigma/dc| = tol / (6 * c^2)
+      lps <- log_p_sigma(sigma_c)
+      log_jacobian <- log(tol / 6) - 2 * log(c)
+
+      # Marginal over mu (integral of N(mu|mu_n, sigma^2/k_n) = 1)
+      # So the density is just the sigma marginal * jacobian
+      exp(lps + log_jacobian - log_Z)
+    })
+  }
+
+  # Cpm/Cpc: Semicircular contours
+  if (metric %in% c("Cpm", "Cpc")) {
+    T_val <- if (metric == "Cpc") M else target
+    if (is.null(T_val)) stop("Target required for Cpm")
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      R <- tol / (6 * c)
+      if (R <= 0) return(0)
+
+      log_jacobian <- 2 * log(R) - log(c)
+
+      integrand <- function(theta) {
+        sigma_v <- R * sin(theta)
+
+        valid <- sigma_v > 1e-10
+        result <- rep(0, length(theta))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma_v[valid]
+        mu_v <- T_val + R * cos(theta[valid])
+        sd_mu <- sigma_v / sqrt(k_n)
+
+        lps <- log_p_sigma(sigma_v)
+        log_p_mu <- stats::dnorm(mu_v, mu_n, sd_mu, log = TRUE)
+
+        log_contrib <- lps + log_p_mu + log_jacobian - log_Z
+
+        result[valid] <- exp(log_contrib)
+        result
+      }
+
+      stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  stop("Unsupported metric for density solver: ", metric)
+}
+
+#' Helper to compute log normalization constant for semi-conjugate mu prior
+#' @keywords internal
+.compute_semi_mu_log_Z <- function(n, sse_n, log_dens_sigma) {
+  integrand <- function(sigma) {
+    log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
+    log_prior <- log_dens_sigma(sigma)
+    exp(log_lik + log_prior)
+  }
+  Z <- stats::integrate(Vectorize(integrand), 1e-10, Inf, rel.tol = 1e-5)$value
+  log(max(Z, 1e-300))
+}
+
+#' @export
+make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
+                                                         metric = "Cpk", target = NULL,
+                                                         cached_state = NULL, ...) {
+  # Case 3: Contour integration with semi-analytical sigma integration
+  # For each mu on the contour, p(sigma|mu,data) is Inverse-Gamma
+
+  # Use cached state for sufficient statistics (data may not be in scope)
+  if (!is.null(cached_state)) {
+    n <- cached_state$n
+    x_bar <- cached_state$x_bar
+    sse <- cached_state$sse
+  } else {
+    n <- length(data)
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+  }
+  alpha0 <- prior$alpha0
+  beta0 <- prior$beta0
+  alpha_n <- alpha0 + n / 2
+
+  M <- (LSL + USL) / 2
+  tol <- USL - LSL
+
+  # Compute normalization constant Z
+  log_Z <- .compute_semi_sigma_log_Z(n, x_bar, sse, alpha0, beta0, prior$log_dens_mu)
+
+  # Helper: compute log marginal p(mu | data) after integrating out sigma
+  log_p_mu_marginal <- function(mu_v) {
+    sse_mu <- sse + n * (mu_v - x_bar)^2
+    beta_n <- beta0 + sse_mu / 2
+    # Log marginal likelihood after integrating sigma
+    log_marginal <- lgamma(alpha_n) - lgamma(alpha0) +
+                    alpha0 * log(beta0) - alpha_n * log(beta_n)
+    log_prior <- prior$log_dens_mu(mu_v)
+    log_marginal + log_prior
+  }
+
+  # Cpk: two contours
+  if (metric == "Cpk") {
+    return(function(c) {
+      if (c <= 0) return(0)
+      sigma_max <- tol / (6 * c)
+      if (sigma_max <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0 & sigma < sigma_max
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        mu_L <- LSL + 3 * c * sigma_v
+        mu_U <- USL - 3 * c * sigma_v
+
+        lpm_L <- log_p_mu_marginal(mu_L)
+        lpm_U <- log_p_mu_marginal(mu_U)
+
+        # For semi-conjugate sigma, we need p(sigma|mu,data)
+        # and integrate along the contour. But the contour is in (mu,sigma) space
+        # where mu = f(sigma). The Jacobian is 3*sigma.
+        log_jacobian <- log(3) + log(sigma_v)
+
+        # p(sigma|mu,data) = InvGamma(alpha_n, beta_n(mu))
+        # We need the joint density p(mu,sigma|data) = p(mu|data) * p(sigma|mu,data)
+        # But since the contour is parameterized by sigma, we actually evaluate
+        # p(mu(sigma)|data) * |d(mu)/d(c)| for the change of variables
+
+        # For contour integration, we need p(mu,sigma|data) at points (mu_L,sigma) and (mu_U,sigma)
+        # This is p(mu|data,sigma) * p(sigma|data)
+        # With semi-conjugate sigma: p(sigma|data) is not in closed form
+        # Instead, we use: p(mu,sigma|data) = p(mu) * p(sigma|mu,data) * likelihood
+        # After marginalizing sigma, we get p(mu|data).
+
+        # The contour integral is: integral p(mu(sigma),sigma|data) * |d(mu)/dc| dsigma
+        # = integral p(mu(sigma)|data) * p(sigma | mu(sigma),data) * |d(mu)/dc| dsigma
+
+        # For each sigma, get p(sigma | mu, data) which is InvGamma
+        sse_L <- sse + n * (mu_L - x_bar)^2
+        sse_U <- sse + n * (mu_U - x_bar)^2
+        beta_n_L <- beta0 + sse_L / 2
+        beta_n_U <- beta0 + sse_U / 2
+
+        # log p(sigma | mu, data) for InvGamma(alpha_n, beta_n)
+        log_p_sigma_given_mu_L <- -(2 * alpha_n + 1) * log(sigma_v) - beta_n_L / sigma_v^2 +
+                                   alpha_n * log(beta_n_L) - lgamma(alpha_n) - log(2)
+        log_p_sigma_given_mu_U <- -(2 * alpha_n + 1) * log(sigma_v) - beta_n_U / sigma_v^2 +
+                                   alpha_n * log(beta_n_U) - lgamma(alpha_n) - log(2)
+
+        # Full joint at contour points: p(mu) * p(sigma|mu,data) (unnormalized)
+        log_prior_mu_L <- prior$log_dens_mu(mu_L)
+        log_prior_mu_U <- prior$log_dens_mu(mu_U)
+
+        contrib_L <- exp(log_prior_mu_L + log_p_sigma_given_mu_L + log_jacobian - log_Z)
+        contrib_U <- exp(log_prior_mu_U + log_p_sigma_given_mu_U + log_jacobian - log_Z)
+
+        contrib_L[!is.finite(contrib_L)] <- 0
+        contrib_U[!is.finite(contrib_U)] <- 0
+
+        result[valid] <- contrib_L + contrib_U
+        result
+      }
+
+      stats::integrate(integrand, 0, sigma_max, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # For other metrics, use the marginal mu approach
+  # CpU: single contour mu_U = USL - 3*c*sigma
+  if (metric == "CpU") {
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        mu_U <- USL - 3 * c * sigma_v
+        log_jacobian <- log(3) + log(sigma_v)
+
+        sse_U <- sse + n * (mu_U - x_bar)^2
+        beta_n_U <- beta0 + sse_U / 2
+        log_p_sigma_given_mu_U <- -(2 * alpha_n + 1) * log(sigma_v) - beta_n_U / sigma_v^2 +
+                                   alpha_n * log(beta_n_U) - lgamma(alpha_n) - log(2)
+        log_prior_mu_U <- prior$log_dens_mu(mu_U)
+
+        contrib <- exp(log_prior_mu_U + log_p_sigma_given_mu_U + log_jacobian - log_Z)
+        contrib[!is.finite(contrib)] <- 0
+        result[valid] <- contrib
+        result
+      }
+
+      sigma_upper <- 20 * sqrt(sse / max(n - 1, 1))
+      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # CpL: single contour mu_L = LSL + 3*c*sigma
+  if (metric == "CpL") {
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(sigma) {
+        valid <- sigma > 0
+        result <- rep(0, length(sigma))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma[valid]
+        mu_L <- LSL + 3 * c * sigma_v
+        log_jacobian <- log(3) + log(sigma_v)
+
+        sse_L <- sse + n * (mu_L - x_bar)^2
+        beta_n_L <- beta0 + sse_L / 2
+        log_p_sigma_given_mu_L <- -(2 * alpha_n + 1) * log(sigma_v) - beta_n_L / sigma_v^2 +
+                                   alpha_n * log(beta_n_L) - lgamma(alpha_n) - log(2)
+        log_prior_mu_L <- prior$log_dens_mu(mu_L)
+
+        contrib <- exp(log_prior_mu_L + log_p_sigma_given_mu_L + log_jacobian - log_Z)
+        contrib[!is.finite(contrib)] <- 0
+        result[valid] <- contrib
+        result
+      }
+
+      sigma_upper <- 20 * sqrt(sse / max(n - 1, 1))
+      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  # Cp: sigma = tol/(6*c), marginal over mu
+  if (metric == "Cp") {
+    return(function(c) {
+      if (c <= 0) return(0)
+      sigma_c <- tol / (6 * c)
+      if (sigma_c <= 0) return(0)
+
+      # Jacobian: |dsigma/dc| = tol / (6 * c^2)
+      log_jacobian <- log(tol / 6) - 2 * log(c)
+
+      # Integrate over mu
+      integrand <- function(mu) {
+        sse_mu <- sse + n * (mu - x_bar)^2
+        beta_n <- beta0 + sse_mu / 2
+        log_p_sigma_given_mu <- -(2 * alpha_n + 1) * log(sigma_c) - beta_n / sigma_c^2 +
+                                 alpha_n * log(beta_n) - lgamma(alpha_n) - log(2)
+        log_prior_mu <- prior$log_dens_mu(mu)
+
+        exp(log_prior_mu + log_p_sigma_given_mu + log_jacobian - log_Z)
+      }
+
+      mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
+      mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
+      stats::integrate(Vectorize(integrand), mu_lower, mu_upper, rel.tol = 1e-5)$value
+    })
+  }
+
+  # Cpm/Cpc: Semicircular contours
+  if (metric %in% c("Cpm", "Cpc")) {
+    T_val <- if (metric == "Cpc") M else target
+    if (is.null(T_val)) stop("Target required for Cpm")
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      R <- tol / (6 * c)
+      if (R <= 0) return(0)
+
+      log_jacobian <- 2 * log(R) - log(c)
+
+      integrand <- function(theta) {
+        sigma_v <- R * sin(theta)
+
+        valid <- sigma_v > 1e-10
+        result <- rep(0, length(theta))
+        if (!any(valid)) return(result)
+
+        sigma_v <- sigma_v[valid]
+        mu_v <- T_val + R * cos(theta[valid])
+
+        sse_mu <- sse + n * (mu_v - x_bar)^2
+        beta_n <- beta0 + sse_mu / 2
+        log_p_sigma_given_mu <- -(2 * alpha_n + 1) * log(sigma_v) - beta_n / sigma_v^2 +
+                                 alpha_n * log(beta_n) - lgamma(alpha_n) - log(2)
+        log_prior_mu <- prior$log_dens_mu(mu_v)
+
+        log_contrib <- log_prior_mu + log_p_sigma_given_mu + log_jacobian - log_Z
+
+        result[valid] <- exp(log_contrib)
+        result
+      }
+
+      stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  stop("Unsupported metric for density solver: ", metric)
+}
+
+#' Helper to compute log normalization constant for semi-conjugate sigma prior
+#' @keywords internal
+.compute_semi_sigma_log_Z <- function(n, x_bar, sse, alpha0, beta0, log_dens_mu) {
+  alpha_n <- alpha0 + n / 2
+
+  # for the Jeffreys prior case, beta0 = 0, so we need to handle that carefully
+  alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
+
+
+  integrand <- function(mu) {
+    sse_mu <- sse + n * (mu - x_bar)^2
+    beta_n <- beta0 + sse_mu / 2
+    log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
+    log_prior <- log_dens_mu(mu)
+    exp(log_marginal + log_prior)
+  }
+
+  mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
+  mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
+  Z <- stats::integrate(Vectorize(integrand), mu_lower, mu_upper, rel.tol = 1e-5)$value
+  log(max(Z, 1e-300))
 }
 
 #' @export
@@ -1234,13 +2023,13 @@ precompute_generic_state <- function(data, prior) {
     # For n=30, this is about 0.77 * map_sig, so bounds [0.5 * map_sig, 3 * map_sig] should work
     sigma_lower <- max(0.2 * map_sig, 1e-6)
     sigma_upper <- 4 * map_sig
-    
+
     # Mu bounds: at sigma_upper, SD of mu|sigma is sigma_upper/sqrt(n)
     # Use 6 SDs for safety
     mu_sd_at_sigma_upper <- sigma_upper / sqrt(n)
     mu_lower <- map_mu - 6 * mu_sd_at_sigma_upper
     mu_upper <- map_mu + 6 * mu_sd_at_sigma_upper
-    
+
     # For other functions (like make_solver), uni_s is used as a reference scale
     uni_s <- sigma_upper
   } else {
@@ -1322,7 +2111,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   # Check if we can use density solver
   density_metrics <- c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")
-  can_use_density <- (inherits(prior, "PriorConjugate") || inherits(prior, "PriorGeneric")) &&
+  can_use_density <- (inherits(prior, "PriorConjugate") ||
+                      inherits(prior, "PriorGeneric") ||
+                      inherits(prior, "PriorSemiConjugateMu") ||
+                      inherits(prior, "PriorSemiConjugateSigma")) &&
                      metric %in% density_metrics
 
   if (can_use_density) {
@@ -1337,7 +2129,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   } else {
     # Fallback: Survival function S(c) = P(Index > c)
-    if (inherits(prior, "PriorGeneric") && !is.null(cached_state)) {
+    if (!is.null(cached_state)) {
       S <- make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
     } else {
       S <- make_solver(data, LSL, USL, prior, metric, target)
@@ -1402,7 +2194,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     if (x_end > 50) {
        # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
        try({
-         S_fn <- if (!is.null(cached_state) && inherits(prior, "PriorGeneric")) {
+         S_fn <- if (!is.null(cached_state)) {
            make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
          } else {
            make_solver(data, LSL, USL, prior, metric, target)
@@ -1427,7 +2219,10 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   # Density solver works for both PriorConjugate and PriorGeneric with supported metrics
   density_metrics <- c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")
   can_use_density <- use_density_solver &&
-                     (inherits(prior, "PriorConjugate") || inherits(prior, "PriorGeneric")) &&
+                     (inherits(prior, "PriorConjugate") ||
+                      inherits(prior, "PriorGeneric") ||
+                      inherits(prior, "PriorSemiConjugateMu") ||
+                      inherits(prior, "PriorSemiConjugateSigma")) &&
                      metric %in% density_metrics
 
   if (can_use_density) {
@@ -1519,35 +2314,111 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' Convert BayesTools priors to integration prior format
 #' @param prior_mu Prior for mu (string or BayesTools prior)
 #' @param prior_sigma Prior for sigma (string or BayesTools prior)
-#' @return List with $prior (integration prior object) and $is_conjugate (logical)
+#' @return List with $prior (integration prior object), $case (1-4), and $is_conjugate (logical)
 #' @keywords internal
+
+#' Classify mu prior as conjugate or non-conjugate
+#' @param prior Prior specification for mu
+#' @return List with is_conjugate, mu0, k0 (if conjugate), or log_dens_fn (if not)
+#' @keywords internal
+.classify_prior_mu <- function(prior) {
+  # Jeffreys (flat) is conjugate with k0 = 0
+
+if (identical(prior, "Jeffreys_mu")) {
+    return(list(is_conjugate = TRUE, mu0 = 0, k0 = 0))
+  }
+
+  # Untruncated Normal is conjugate
+  if (inherits(prior, "prior") && prior$distribution == "normal") {
+    trunc <- prior$truncation
+    has_lower <- !is.null(trunc$lower) && is.finite(trunc$lower)
+    has_upper <- !is.null(trunc$upper) && is.finite(trunc$upper)
+    if (!has_lower && !has_upper) {
+      return(list(
+        is_conjugate = TRUE,
+        mu0 = prior$parameters$mean,
+        k0 = 1 / prior$parameters$sd^2  # precision
+      ))
+    }
+  }
+
+  # Not conjugate - build log-density function
+  list(is_conjugate = FALSE, log_dens_fn = .make_prior_log_dens_fn(prior))
+}
+
+#' Classify sigma prior as conjugate or non-conjugate
+#' @param prior Prior specification for sigma
+#' @return List with is_conjugate, alpha0, beta0 (if conjugate), or log_dens_fn (if not)
+#' @keywords internal
+.classify_prior_sigma <- function(prior) {
+  # Jeffreys (1/sigma) is conjugate with alpha0 = -0.5, beta0 = 0
+  if (identical(prior, "Jeffreys_sigma")) {
+    return(list(is_conjugate = TRUE, alpha0 = -0.5, beta0 = 0))
+  }
+
+  # Untruncated InvGamma on sigma is conjugate
+  if (inherits(prior, "prior") && prior$distribution == "invgamma") {
+    trunc <- prior$truncation
+    has_lower <- !is.null(trunc$lower) && is.finite(trunc$lower)
+    has_upper <- !is.null(trunc$upper) && is.finite(trunc$upper)
+    if (!has_lower && !has_upper) {
+      return(list(
+        is_conjugate = TRUE,
+        alpha0 = prior$parameters$shape,
+        beta0 = prior$parameters$scale
+      ))
+    }
+  }
+
+  # Gamma on sigma is NOT conjugate (requires Bessel K functions)
+  # All other distributions are non-conjugate
+  list(is_conjugate = FALSE, log_dens_fn = .make_prior_log_dens_fn(prior))
+}
 
 .bayestools_to_integration_prior <- function(prior_mu, prior_sigma) {
 
-  # Check for conjugate case: Jeffreys priors
-  if (identical(prior_mu, "Jeffreys_mu") && identical(prior_sigma, "Jeffreys_sigma")) {
+  # Classify each prior
+  mu_info <- .classify_prior_mu(prior_mu)
+  sigma_info <- .classify_prior_sigma(prior_sigma)
+  bayestools_priors <- list(mu = prior_mu, sigma = prior_sigma)
+
+  # Case 1: Full Conjugate (Normal/Jeffreys on mu AND InvGamma/Jeffreys on sigma)
+  if (mu_info$is_conjugate && sigma_info$is_conjugate) {
     return(list(
-      prior = create_prior_conjugate(),
+      prior = create_prior_conjugate(mu_info$mu0, mu_info$k0,
+                                      sigma_info$alpha0, sigma_info$beta0),
+      case = 1L,
       is_conjugate = TRUE
     ))
   }
 
-  # Compile efficient log-density functions for mu and sigma
-  # This avoids repeated switch/lookup overhead on every evaluation
-  log_dens_mu_fn <- .make_prior_log_dens_fn(prior_mu)
-  log_dens_sigma_fn <- .make_prior_log_dens_fn(prior_sigma)
-
-  # Non-conjugate: combine the compiled functions
-  log_dens_fn <- function(mu, sigma) {
-    # If param_name was needed for Jeffreys, it's handled inside the factory now
-    log_dens_mu_fn(mu) + log_dens_sigma_fn(sigma)
+  # Case 2: Semi-Conjugate Mu (conjugate mu, non-conjugate sigma)
+  if (mu_info$is_conjugate && !sigma_info$is_conjugate) {
+    return(list(
+      prior = create_prior_semi_mu(mu_info$mu0, mu_info$k0,
+                                    sigma_info$log_dens_fn, bayestools_priors),
+      case = 2L,
+      is_conjugate = FALSE
+    ))
   }
 
-  # Store original BayesTools priors for quantile-based grid bounds (prior-only case)
-  bayestools_priors <- list(mu = prior_mu, sigma = prior_sigma)
+  # Case 3: Semi-Conjugate Sigma (non-conjugate mu, conjugate sigma)
+  if (!mu_info$is_conjugate && sigma_info$is_conjugate) {
+    return(list(
+      prior = create_prior_semi_sigma(sigma_info$alpha0, sigma_info$beta0,
+                                       mu_info$log_dens_fn, bayestools_priors),
+      case = 3L,
+      is_conjugate = FALSE
+    ))
+  }
 
+  # Case 4: Generic (both non-conjugate)
+  log_dens_fn <- function(mu, sigma) {
+    mu_info$log_dens_fn(mu) + sigma_info$log_dens_fn(sigma)
+  }
   list(
     prior = create_prior_generic(log_dens_fn, bayestools_priors = bayestools_priors),
+    case = 4L,
     is_conjugate = FALSE
   )
 }
@@ -1715,7 +2586,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' @return List with metrics and integration results
 #' @keywords internal
 .bpc_fit_integration <- function(data, LSL, USL, target, prior_mu, prior_sigma,
-                                  sigma = 3, sample_priors = FALSE) {
+                                   sigma = 3, sample_priors = FALSE) {
 
   # If sampling from priors, ignore data (likelihood becomes flat/unity effectively)
   # Ideally we should pass sample_priors down, but clearing data works if the
@@ -1726,19 +2597,35 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     data <- numeric(0)
   }
 
-  # Convert priors to integration format
+  # Convert priors to integration format (4-case classification)
   prior_info <- .bayestools_to_integration_prior(prior_mu, prior_sigma)
   prior <- prior_info$prior
   is_conjugate <- prior_info$is_conjugate
+  case <- prior_info$case
 
-  # Pre-compute state for non-conjugate priors
+  # Pre-compute state (sufficient statistics)
+  # Cases 1-3 use simple sufficient stats, Case 4 uses expensive precompute
   cached_state <- NULL
-  if (!is_conjugate) {
+  n <- length(data)
+  if (n > 0) {
+    x_bar <- mean(data)
+    sse <- sum((data - x_bar)^2)
+  } else {
+    x_bar <- 0
+    sse <- 0
+  }
+
+  if (case == 4L) {
+    # Case 4: Generic - needs full precompute
     cached_state <- precompute_generic_state(data, prior)
+  } else {
+    # Cases 1-3: Simple sufficient statistics
+    cached_state <- list(n = n, x_bar = x_bar, sse = sse)
   }
 
   # Analyze all metrics
-  metrics <- c("Cp", "Cpk", "Cpm", "CpU", "CpL", "Cpc")
+  # Match order of MCMC results for consistency (Cp, CpU, CpL, Cpk, Cpc, Cpm)
+  metrics <- c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
   results <- lapply(metrics, function(m) {
     analyze_capability_integration(data, LSL, USL, prior, metric = m,
                                     target = target, cached_state = cached_state)
@@ -1767,6 +2654,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     coefficients = coefficients,
     prior = prior,
     is_conjugate = is_conjugate,
+    case = case,
     cached_state = cached_state
   )
 }
+

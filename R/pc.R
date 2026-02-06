@@ -100,13 +100,13 @@ pc <- function(
   if (!is.null(control[["seed"]]))
     set.seed(control[["seed"]])
 
-  # bootstrap the data
-  data <- lapply(seq_len(control[["samples"]]), function(i) {
-    list(x = sample(data$x, size = length(data$x), replace = TRUE))
-  })
 
   if (control[["parallel"]]) {
 
+    # TODO: this should not create all bootstrap datasets at once, which is memory inefficient, but I guess this is easier to implement for now.
+    data <- lapply(seq_len(control[["samples"]]), function(i) {
+      list(x = sample(data$x, size = length(data$x), replace = TRUE))
+    })
     cl <- parallel::makeCluster(control[["cores"]])
     parallel::clusterEvalQ(cl, {library("qc")})
     parallel::clusterExport(cl, c("distribution", "data", "control"), envir = environment())
@@ -118,7 +118,8 @@ pc <- function(
 
     out  <- vector("list", control[["samples"]])
     for (i in seq_len(control[["samples"]])) {
-      out[[i]]  <- .pc_single_fit(distribution = distribution, data = data[[i]], control = control)
+      data_i <- list(x = sample(data$x, size = length(data$x), replace = TRUE))
+      out[[i]]  <- .pc_single_fit(distribution = distribution, data = data_i, control = control)
     }
 
   }
@@ -138,14 +139,28 @@ pc_fit_distribution.normal <- function(distribution, data, control) {
     sigma = stats::sd(data[["x"]])
   ))
 }
+
+lpdf_scaled_t <- function(x, df, mu, sigma) {
+  # base R version that underflows more slowly than extraDistr::dlst
+  stats::dt((x - mu) / sigma, df = df, log = TRUE) - log(sigma)
+}
+# reference version for correctness checks
+# lpdf_scaled_t2 <- function(x, df, mu, sigma) {
+#   extraDistr::dlst(x, df = df, mu = mu, sigma = sigma, log = TRUE)
+# }
+
 #' @export
 pc_fit_distribution.t      <- function(distribution, data, control) {
 
   fit <- try(stats::optim(
     par     = c(df = 30, mu = mean(data[["x"]]), sigma = stats::sd(data[["x"]])),
-    fn      = function(par, x) -sum(extraDistr::dlst(x, df = par["df"], mu = par["mu"], sigma = par["sigma"], log = TRUE)),
+    fn      = function(par, x) {
+      ret_val <- -sum(lpdf_scaled_t(x, par[["df"]], par[["mu"]], par[["sigma"]]))
+      # if (is.infinite(ret_val) || is.na(ret_val)) browser()
+      return(ret_val)
+    },
     x       = data[["x"]],
-    lower   = c(2, -Inf, stats::sd(x) / 1e3),
+    lower   = c(2, -Inf, stats::sd(data[["x"]]) / 1e3),
     method  = "L-BFGS-B"
   ))
 
