@@ -62,6 +62,9 @@ bpc <- function(
   object       <- list()
   object$call  <- match.call()
 
+  # Process method argument first (handles default value)
+  method <- match.arg(method)
+
   # check input for capability metrics calculation to fail fast before estimation
   .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
   BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
@@ -71,8 +74,6 @@ bpc <- function(
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
   # Check method-distribution compatibility
-  method <- match.arg(method)
-
   if (method == "integration" && distribution != "normal") {
     stop("The integration method currently only supports distribution = 'normal'. ",
          "Use method = 'mcmc' for t-distribution.")
@@ -292,12 +293,9 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     }))
     summary <- tibble::as_tibble(summary)
 
-    # Compute interval probabilities analytically
-    prior_info <- .bayestools_to_integration_prior(
-      attr(object$call, "prior_mu") %||% "Jeffreys_mu",
-      attr(object$call, "prior_sigma") %||% "Jeffreys_sigma"
-    )
-    prior <- prior_info$prior
+    # Use the prior and cached state from the integration result
+    # (these were already computed during bpc() and should be reused)
+    prior <- int_result$prior
     cached_state <- int_result$cached_state
 
     # Get data from the original call

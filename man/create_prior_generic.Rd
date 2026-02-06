@@ -4,10 +4,12 @@
 \alias{create_prior_generic}
 \title{Create a generic prior with custom log-density function}
 \usage{
-create_prior_generic(log_dens_fn)
+create_prior_generic(log_dens_fn, bayestools_priors = NULL)
 }
 \arguments{
 \item{log_dens_fn}{Function(mu, sigma) returning log prior density}
+
+\item{bayestools_priors}{Optional list with original BayesTools prior objects (mu and sigma)}
 }
 \value{
 PriorGeneric object

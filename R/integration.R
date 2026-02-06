@@ -25,10 +25,12 @@ create_prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
 
 #' Create a generic prior with custom log-density function
 #' @param log_dens_fn Function(mu, sigma) returning log prior density
+#' @param bayestools_priors Optional list with original BayesTools prior objects (mu and sigma)
 #' @return PriorGeneric object
 #' @keywords internal
-create_prior_generic <- function(log_dens_fn) {
-  structure(list(log_dens = log_dens_fn), class = "PriorGeneric")
+create_prior_generic <- function(log_dens_fn, bayestools_priors = NULL) {
+  structure(list(log_dens = log_dens_fn, bayestools_priors = bayestools_priors),
+            class = "PriorGeneric")
 }
 
 # ==============================================================================
@@ -132,6 +134,67 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
                                    target = NULL, use_analytic = TRUE,
                                    cached_state = NULL) {
   UseMethod("compute_metric_moments", prior)
+}
+
+#' Compute grid bounds for a metric using sigma quantiles (prior-only case)
+#'
+#' When sampling from priors only (no data), we can compute grid bounds directly
+#' from the sigma prior quantiles using BayesTools::quant, avoiding expensive
+#' 2D numerical integration for moment computation.
+#'
+#' @param prior_sigma BayesTools prior object for sigma
+#' @param LSL Lower specification limit
+#' @param USL Upper specification limit
+#' @param metric Capability index name
+#' @param target Target value for Cpm
+#' @param p_low Lower quantile probability (default 0.001)
+#' @param p_high Upper quantile probability (default 0.999)
+#' @return List with x_start and x_end for the grid
+#' @keywords internal
+.compute_metric_grid_bounds_from_quantiles <- function(prior_sigma, LSL, USL,
+                                                        metric, target = NULL,
+                                                        p_low = 0.001,
+                                                        p_high = 0.999) {
+  tol <- USL - LSL
+  mid <- (LSL + USL) / 2
+  if (is.null(target)) target <- mid
+
+  # Get sigma quantiles using BayesTools::quant
+  sigma_low <- BayesTools::quant(prior_sigma, p_low)
+  sigma_high <- BayesTools::quant(prior_sigma, p_high)
+
+  # For metrics inversely related to sigma (Cp, Cpk, CpU, CpL, Cpm, Cpc),
+
+# metric_high corresponds to sigma_low and vice versa
+  metric_at_sigma_low <- switch(metric,
+    "Cp" = tol / (6 * sigma_low),
+    "Cpk" = tol / (6 * sigma_low),  # Upper bound (assumes mu = mid)
+    "CpU" = (USL - mid) / (3 * sigma_low),
+    "CpL" = (mid - LSL) / (3 * sigma_low),
+    "Cpm" = tol / (6 * sigma_low),  # Upper bound (assumes mu = target)
+    "Cpc" = tol / (6 * sigma_low),  # Upper bound approximation
+    tol / (6 * sigma_low)  # Default
+  )
+
+  metric_at_sigma_high <- switch(metric,
+    "Cp" = tol / (6 * sigma_high),
+    "Cpk" = tol / (6 * sigma_high),
+    "CpU" = (USL - mid) / (3 * sigma_high),
+    "CpL" = (mid - LSL) / (3 * sigma_high),
+    "Cpm" = tol / (6 * sigma_high),
+    "Cpc" = tol / (6 * sigma_high),
+    tol / (6 * sigma_high)
+  )
+
+  x_start <- max(0, metric_at_sigma_high)
+  x_end <- metric_at_sigma_low
+
+  # Ensure valid range
+  if (x_end <= x_start || !is.finite(x_end)) {
+    x_end <- max(x_start + 3, 10)
+  }
+
+  list(x_start = x_start, x_end = x_end)
 }
 
 #' @export
@@ -833,6 +896,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   }
 
   # CpU: single contour
+  # For CpU = c, contour is mu = USL - 3*c*sigma
+  # Need sigma_upper that ensures mu is within prior support (or has meaningful density)
   if (metric == "CpU") {
     return(function(c) {
       if (c <= 0) return(0)
@@ -854,12 +919,26 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         result
       }
 
-      sigma_upper <- uni_s
-      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+      # Adaptive upper bound: sigma_upper where mu = USL - 3*c*sigma is still
+      # within ~5 SD of x_bar (or prior mean). For prior-only case, use the prior SD.
+      mu_center <- if (n > 0) x_bar else 0
+      mu_sd <- if (n > 0) sqrt(uni_s^2 / n) else 1  # Approximate conditional SD
+      mu_lower_bound <- mu_center - 6 * mu_sd
+      # mu_U = USL - 3*c*sigma >= mu_lower_bound => sigma <= (USL - mu_lower_bound) / (3*c)
+      sigma_upper_mu <- (USL - mu_lower_bound) / (3 * c)
+      sigma_upper <- min(uni_s, max(sigma_upper_mu, 1e-6))
+
+      tryCatch({
+        stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+      }, error = function(e) {
+        # Fallback: return 0 if integration fails (e.g., at extreme c values)
+        0
+      })
     })
   }
 
   # CpL: single contour
+  # For CpL = c, contour is mu = LSL + 3*c*sigma
   if (metric == "CpL") {
     return(function(c) {
       if (c <= 0) return(0)
@@ -881,8 +960,20 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         result
       }
 
-      sigma_upper <- uni_s
-      stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+      # Adaptive upper bound: sigma_upper where mu = LSL + 3*c*sigma is still
+      # within ~6 SD of x_bar (or prior mean)
+      mu_center <- if (n > 0) x_bar else 0
+      mu_sd <- if (n > 0) sqrt(uni_s^2 / n) else 1
+      mu_upper_bound <- mu_center + 6 * mu_sd
+      # mu_L = LSL + 3*c*sigma <= mu_upper_bound => sigma <= (mu_upper_bound - LSL) / (3*c)
+      sigma_upper_mu <- (mu_upper_bound - LSL) / (3 * c)
+      sigma_upper <- min(uni_s, max(sigma_upper_mu, 1e-6))
+
+      tryCatch({
+        stats::integrate(integrand, 0, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+      }, error = function(e) {
+        0
+      })
     })
   }
 
@@ -1113,21 +1204,66 @@ precompute_generic_state <- function(data, prior) {
     log_lik + log_prior
   }
 
-  opt <- stats::optim(c(init_mu, init_sd), function(p) -log_post(p[1], p[2]))
+  # Find MAP using constrained optimization (sigma > 0)
+  # Use L-BFGS-B with reasonable bounds
+  opt <- tryCatch({
+    stats::optim(c(init_mu, init_sd), function(p) -log_post(p[1], p[2]),
+                 method = "L-BFGS-B",
+                 lower = c(-1e6, 1e-6),
+                 upper = c(1e6, 1e6))
+  }, error = function(e) {
+    # Fallback to Nelder-Mead if L-BFGS-B fails
+    stats::optim(c(init_mu, max(init_sd, 0.1)), function(p) {
+      if (p[2] <= 0) return(1e10)
+      -log_post(p[1], p[2])
+    })
+  })
   map_mu <- opt$par[1]
-  map_sig <- opt$par[2]
+  map_sig <- max(opt$par[2], 1e-3)  # Ensure positive
   h_max <- -opt$value
 
-  # Tighter bounds: 5 sigma from MAP
-  # If n=0, map_sig is determined by prior. If prior is flat or wide, 5 sigma might be too small
-  # or too large depending on the prior.
-  # For safety, ensure uni_s is at least a reasonable minimum and scale up if n=0
-  uni_s <- map_sig * (if (n > 0) 5 else 10)
-  uni_s <- max(uni_s, 20.0) # Ensure at least some width
+  # Compute integration bounds based on posterior concentration
+  # For Normal likelihood with data:
+  #   - Posterior of sigma is concentrated around map_sig
+  #   - Effective SD of sigma is roughly map_sig / sqrt(2*n)
+  #   - Posterior of mu|sigma is N(x_bar, sigma^2/n)
+  # Use bounds that capture ~6 SDs of the posterior to get >99.99% of mass
+  if (n > 0) {
+    # Sigma bounds: use multiplier based on posterior concentration
+    # sigma_sd ~ map_sig / sqrt(2n), so 6 sigma_sd ~ 6 * map_sig / sqrt(2n)
+    # For n=30, this is about 0.77 * map_sig, so bounds [0.5 * map_sig, 3 * map_sig] should work
+    sigma_lower <- max(0.2 * map_sig, 1e-6)
+    sigma_upper <- 4 * map_sig
+    
+    # Mu bounds: at sigma_upper, SD of mu|sigma is sigma_upper/sqrt(n)
+    # Use 6 SDs for safety
+    mu_sd_at_sigma_upper <- sigma_upper / sqrt(n)
+    mu_lower <- map_mu - 6 * mu_sd_at_sigma_upper
+    mu_upper <- map_mu + 6 * mu_sd_at_sigma_upper
+    
+    # For other functions (like make_solver), uni_s is used as a reference scale
+    uni_s <- sigma_upper
+  } else {
+    # No data (prior-only): use wider bounds based on prior
+    # For prior-only case, use reasonable defaults or quantiles if available
+    # The prior determines the shape - we need bounds that capture most prior mass
+    # Use a wide range: sigma in [0.01, 100] and mu in [-100, 100]
+    # unless map_sig is reasonable
+    if (map_sig > 0.1 && map_sig < 100) {
+      sigma_lower <- max(0.01, map_sig / 20)
+      sigma_upper <- min(100, map_sig * 20)
+    } else {
+      sigma_lower <- 0.01
+      sigma_upper <- 100
+    }
+    uni_s <- sigma_upper
+    mu_lower <- map_mu - 5 * uni_s
+    mu_upper <- map_mu + 5 * uni_s
+  }
 
   # cubature 2D integration with fully vectorized interface
   int_2d <- function(s_lim, m_fn) {
-    s_top <- if (is.infinite(s_lim)) uni_s else min(s_lim, uni_s)
+    s_top <- if (is.infinite(s_lim)) sigma_upper else min(s_lim, sigma_upper)
 
     # Fully vectorized integrand: x is 2 x n matrix
     integrand <- function(x) {
@@ -1147,15 +1283,11 @@ precompute_generic_state <- function(data, prior) {
       matrix(result, nrow = 1)
     }
 
-
-    mu_lower <- map_mu - 5 * uni_s
-    mu_upper <- map_mu + 5 * uni_s
-
     result <- cubature::pcubature(
       integrand,
-      lowerLimit = c(mu_lower, 1e-10),
+      lowerLimit = c(mu_lower, max(sigma_lower, 1e-10)),
       upperLimit = c(mu_upper, s_top),
-      tol = 1e-3,
+      tol = 1e-4,
       vectorInterface = TRUE
     )
     result$integral
@@ -1236,38 +1368,54 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
                                             cached_state = NULL,
                                             use_density_solver = TRUE) {
 
-  # Compute posterior moments to determine grid bounds
-  moments <- compute_metric_moments(data, LSL, USL, prior, metric = metric, target = target,
-                                     use_analytic = TRUE, cached_state = cached_state)
+  # Check if we're in prior-only mode (no data) with PriorGeneric
+  # In this case, use quantile-based grid bounds to avoid slow moment computation
+  is_prior_only <- length(data) == 0
+  has_bayestools_priors <- inherits(prior, "PriorGeneric") &&
+                           !is.null(prior$bayestools_priors) &&
+                           inherits(prior$bayestools_priors$sigma, "prior")
 
-  # Grid bounds via normal approximation (clip to natural bounds)
-  # Handle NaN moments by falling back to reasonable defaults
-  if (is.na(moments$mean) || is.na(moments$sd) || moments$sd <= 0) {
-    # Fallback: use a wide grid centered around 1.0
-    x_start <- 0
-    x_end <- 3
+  if (is_prior_only && has_bayestools_priors) {
+    # Fast path: compute grid bounds directly from sigma quantiles
+    bounds <- .compute_metric_grid_bounds_from_quantiles(
+      prior$bayestools_priors$sigma, LSL, USL, metric, target
+    )
+    x_start <- bounds$x_start
+    x_end <- bounds$x_end
   } else {
-    x_start <- max(0, moments$mean - 3 * moments$sd)
-    x_end <- moments$mean + 3 * moments$sd
-  }
+    # Standard path: compute posterior moments for grid bounds
+    moments <- compute_metric_moments(data, LSL, USL, prior, metric = metric, target = target,
+                                       use_analytic = TRUE, cached_state = cached_state)
 
-  # If bounds seem excessive (divergent mean), refine using quantiles via solver
-  if (x_end > 50) {
-     # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
-     try({
-       S_fn <- if (!is.null(cached_state) && inherits(prior, "PriorGeneric")) {
-         make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
-       } else {
-         make_solver(data, LSL, USL, prior, metric, target)
-       }
-       # Search for upper bound where prob < 0.001
-       for (try_limit in c(10, 20, 50, 100, 1000)) {
-         if (S_fn(try_limit) < 0.001) {
-           x_end <- try_limit
-           break
+    # Grid bounds via normal approximation (clip to natural bounds)
+    # Handle NaN moments by falling back to reasonable defaults
+    if (is.na(moments$mean) || is.na(moments$sd) || moments$sd <= 0) {
+      # Fallback: use a wide grid centered around 1.0
+      x_start <- 0
+      x_end <- 3
+    } else {
+      x_start <- max(0, moments$mean - 3 * moments$sd)
+      x_end <- moments$mean + 3 * moments$sd
+    }
+
+    # If bounds seem excessive (divergent mean), refine using quantiles via solver
+    if (x_end > 50) {
+       # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
+       try({
+         S_fn <- if (!is.null(cached_state) && inherits(prior, "PriorGeneric")) {
+           make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+         } else {
+           make_solver(data, LSL, USL, prior, metric, target)
          }
-       }
-     }, silent = TRUE)
+         # Search for upper bound where prob < 0.001
+         for (try_limit in c(10, 20, 50, 100, 1000)) {
+           if (S_fn(try_limit) < 0.001) {
+             x_end <- try_limit
+             break
+           }
+         }
+       }, silent = TRUE)
+    }
   }
 
   # Ensure valid grid (minimum width)
@@ -1395,8 +1543,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     log_dens_mu_fn(mu) + log_dens_sigma_fn(sigma)
   }
 
+  # Store original BayesTools priors for quantile-based grid bounds (prior-only case)
+  bayestools_priors <- list(mu = prior_mu, sigma = prior_sigma)
+
   list(
-    prior = create_prior_generic(log_dens_fn),
+    prior = create_prior_generic(log_dens_fn, bayestools_priors = bayestools_priors),
     is_conjugate = FALSE
   )
 }

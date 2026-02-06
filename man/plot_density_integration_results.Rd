@@ -22,6 +22,11 @@ plot_density_integration_results(
   textsize = 18,
   colorScheme = NULL,
   stripTextFontsize = NULL,
+  show_regions = FALSE,
+  region_cutoffs = default_region_cutoffs(),
+  region_colors = default_region_colors(),
+  region_alpha = 0.55,
+  show_cutoff_lines = TRUE,
   ...
 )
 }

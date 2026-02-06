@@ -199,6 +199,81 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
   list(dfCi = dfCi, dfArea = dfArea)
 }
 
+#' Default colors for capability region shading
+#'
+#' Returns the default color palette for the five capability regions.
+#' @return A named character vector of colors
+#' @export
+default_region_colors <- function() {
+  c(
+    "Incapable"     = "#F87462",
+    "Capable"       = "#FAA53D",
+    "Satisfactory"  = "#F5CD47",
+    "Excellent"     = "#579DFF",
+    "Super"         = "#4BCE97"
+  )
+}
+
+#' Default cutoffs for capability regions
+#'
+#' Returns the default cutoff values that separate the five capability regions.
+#' @return A numeric vector of cutoff values
+#' @export
+default_region_cutoffs <- function() {
+  c(1, 4/3, 1.5, 2)
+}
+
+#' Assign region labels based on cutoffs
+#'
+#' @param x Numeric vector of values
+#' @param cutoffs Numeric vector of cutoff values (will be sorted)
+#' @param region_names Character vector of region names (length = length(cutoffs) + 1)
+#' @return Character vector of region labels
+#' @keywords internal
+.assign_regions <- function(x, cutoffs, region_names) {
+  cutoffs <- sort(cutoffs)
+  interval <- findInterval(x, cutoffs, left.open = FALSE) + 1L
+  region_names[interval]
+}
+
+#' Process density data for region coloring
+#'
+#' Adds interpolated points at cutoffs to ensure clean color transitions.
+#'
+#' @param dfLines Data frame with x, y, metric columns
+#' @param cutoffs Numeric vector of cutoff values
+#' @param region_colors Named vector of colors for each region
+#' @return Data frame with region column added and interpolated points at cutoffs
+#' @keywords internal
+.process_regions <- function(dfLines, cutoffs, region_colors) {
+  cutoffs <- sort(cutoffs)
+  region_names <- names(region_colors)
+
+  split_df <- split(dfLines, dfLines$metric)
+
+  processed <- lapply(split_df, function(d) {
+    y_cut <- stats::approx(d$x, d$y, xout = cutoffs)$y
+
+    cut_df <- d[rep(1L, 2L * length(cutoffs)), ]
+    cut_df$x <- rep(cutoffs, each = 2L)
+    cut_df$y <- rep(y_cut, each = 2L)
+
+    region_idx <- rep(seq_along(cutoffs), each = 2L)
+    region_idx <- region_idx + rep(c(0L, 1L), times = length(cutoffs))
+    cut_df$region <- region_names[region_idx]
+
+    d$region <- .assign_regions(d$x, cutoffs, region_names)
+
+    d2 <- rbind(d, cut_df)
+    d2[order(d2$x), ]
+  })
+
+  result <- do.call(rbind, processed)
+  rownames(result) <- NULL
+  result$region <- factor(result$region, levels = region_names)
+  result
+}
+
 #' Build density plot from prepared data
 #'
 #' Single ggplot skeleton that creates the density plot from prepared dataframes.
@@ -240,8 +315,60 @@ build_density_plot <- function(
     axes_custom = list(),
     textsize = textsize,
     colorScheme = NULL,
-    stripTextFontsize = NULL
+    stripTextFontsize = NULL,
+    show_regions = FALSE,
+    region_cutoffs = default_region_cutoffs(),
+    region_colors = default_region_colors(),
+    region_alpha = 0.55,
+    show_cutoff_lines = TRUE
 ) {
+
+  # Region coloring layers
+  layer_region <- layer_cutoffs <- NULL
+  if (show_regions) {
+    dfRegions <- .process_regions(dfLines, region_cutoffs, region_colors)
+
+    layer_region <- ggplot2::geom_area(
+      data = dfRegions,
+      mapping = ggplot2::aes(x = x, y = y, fill = region, group = interaction(metric, region)),
+      alpha = region_alpha,
+      color = NA,
+      stat = "identity",
+      position = "identity",
+      inherit.aes = FALSE
+    )
+
+    if (show_cutoff_lines) {
+      # If point estimates are shown, limit cutoff lines to mode height to avoid overlapping text
+      if (!is.null(dfPoints) && point_estimate != "none") {
+        # Use mode height (max density) for each metric
+        dfCutoffSegments <- do.call(rbind, lapply(unique(dfLines$metric), function(m) {
+          d <- dfLines[dfLines$metric == m, ]
+          mode_height <- max(d$y)
+          data.frame(
+            x = region_cutoffs,
+            yend = mode_height,
+            metric = m
+          )
+        }))
+        dfCutoffSegments$y <- 0
+
+        layer_cutoffs <- ggplot2::geom_segment(
+          data = dfCutoffSegments,
+          mapping = ggplot2::aes(x = x, xend = x, y = y, yend = yend),
+          linetype = "dashed",
+          linewidth = 0.8,
+          inherit.aes = FALSE
+        )
+      } else {
+        layer_cutoffs <- ggplot2::geom_vline(
+          xintercept = region_cutoffs,
+          linetype = "dashed",
+          linewidth = 0.8
+        )
+      }
+    }
+  }
 
   # Density line layer
   layer_line <- ggplot2::geom_line(
@@ -383,17 +510,30 @@ build_density_plot <- function(
 
   # Build final plot
   plt <- ggplot2::ggplot() +
+    layer_region +
+    layer_cutoffs +
     layer_area +
     layer_line +
     layer_points +
     layer_cibar +
     layer_text +
-    ggplot2::scale_color_manual(values = plotColors) +
-    ggplot2::scale_fill_manual(values = plotColors) +
+    ggplot2::scale_color_manual(values = plotColors)
+
+  # Use region colors for fill if regions are shown, otherwise use metric colors
+  if (show_regions) {
+    plt <- plt + ggplot2::scale_fill_manual(
+      values = region_colors,
+      breaks = names(region_colors)
+    )
+  } else {
+    plt <- plt + ggplot2::scale_fill_manual(values = plotColors)
+  }
+
+  plt <- plt +
     ggplot2::labs(
       group = "Capability Metric",
       color = "Capability Metric",
-      fill = "Capability Metric",
+      fill = if (show_regions) NULL else "Capability Metric",
       x = "Value",
       y = "Density"
     ) +
@@ -479,6 +619,11 @@ plot_density.capability_metrics <- function(
     priorSummaryObject = NULL,
     colorScheme     = NULL,
     stripTextFontsize = NULL,
+    show_regions    = FALSE,
+    region_cutoffs  = default_region_cutoffs(),
+    region_colors   = default_region_colors(),
+    region_alpha    = 0.55,
+    show_cutoff_lines = TRUE,
     ...
   ) {
 
@@ -551,7 +696,12 @@ plot_density.capability_metrics <- function(
     axes_custom = axes_custom,
     textsize = textsize,
     colorScheme = colorScheme,
-    stripTextFontsize = stripTextFontsize
+    stripTextFontsize = stripTextFontsize,
+    show_regions = show_regions,
+    region_cutoffs = region_cutoffs,
+    region_colors = region_colors,
+    region_alpha = region_alpha,
+    show_cutoff_lines = show_cutoff_lines
   )
 }
 
@@ -615,6 +765,11 @@ plot_density_integration_results <- function(
     textsize        = 18,
     colorScheme     = NULL,
     stripTextFontsize = NULL,
+    show_regions    = FALSE,
+    region_cutoffs  = default_region_cutoffs(),
+    region_colors   = default_region_colors(),
+    region_alpha    = 0.55,
+    show_cutoff_lines = TRUE,
     ...
   ) {
 
@@ -682,6 +837,11 @@ plot_density_integration_results <- function(
     axes_custom = axes_custom,
     textsize = textsize,
     colorScheme = colorScheme,
-    stripTextFontsize = stripTextFontsize
+    stripTextFontsize = stripTextFontsize,
+    show_regions = show_regions,
+    region_cutoffs = region_cutoffs,
+    region_colors = region_colors,
+    region_alpha = region_alpha,
+    show_cutoff_lines = show_cutoff_lines
   )
 }
