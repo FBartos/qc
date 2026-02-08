@@ -4,7 +4,7 @@
 \alias{.compute_semi_mu_log_Z}
 \title{Helper to compute log normalization constant for semi-conjugate mu prior}
 \usage{
-.compute_semi_mu_log_Z(n, sse_n, log_dens_sigma)
+.compute_semi_mu_log_Z(n_eff, sse_n, log_dens_sigma)
 }
 \description{
 Helper to compute log normalization constant for semi-conjugate mu prior

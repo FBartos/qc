@@ -4,7 +4,15 @@
 \alias{.compute_semi_sigma_log_Z}
 \title{Helper to compute log normalization constant for semi-conjugate sigma prior}
 \usage{
-.compute_semi_sigma_log_Z(n, x_bar, sse, alpha0, beta0, log_dens_mu)
+.compute_semi_sigma_log_Z(
+  n,
+  x_bar,
+  sse,
+  alpha0,
+  beta0,
+  log_dens_mu,
+  jeffreys_adj = 0
+)
 }
 \description{
 Helper to compute log normalization constant for semi-conjugate sigma prior

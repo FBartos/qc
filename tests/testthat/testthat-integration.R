@@ -13,7 +13,7 @@ testthat::test_that("integration method returns valid bpc object", {
   expect_true(!is.null(fit$coefficients))
 
   # Check all metrics are present and positive
-  expected_metrics <- c("Cp", "Cpk", "Cpm", "CpU", "CpL", "Cpc")
+  expected_metrics <- c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
   expect_equal(names(fit$coefficients), expected_metrics)
   expect_true(all(fit$coefficients > 0))
   expect_true(all(is.finite(fit$coefficients)))

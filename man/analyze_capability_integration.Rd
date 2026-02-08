@@ -13,7 +13,8 @@ analyze_capability_integration(
   target = NULL,
   n_grid = 128,
   cached_state = NULL,
-  use_density_solver = TRUE
+  use_density_solver = TRUE,
+  mc_samples = NULL
 )
 }
 \arguments{

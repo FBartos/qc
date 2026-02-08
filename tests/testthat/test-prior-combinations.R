@@ -2,8 +2,9 @@
 # Compares MCMC against integration for both prior-only and with-data scenarios
 testthat::test_that("integration matches MCMC for all prior combinations", {
 
-  skip_on_cran()  # Skip on CRAN due to long runtime
+  # testthat::skip_on_cran()  # Skip on CRAN due to long runtime
 
+  library(qc)
   library(BayesTools)
 
   # Generate test data
@@ -15,8 +16,8 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     "Jeffreys" = "Jeffreys_mu",
     "Normal" = prior("normal", list(10, 5)),
     "Normal_truncated" = prior("normal", list(10, 5), list(5, 15)),
-    # "Student-t" = prior("t", list(10, 3, 5)),     # location=10, scale=3, df=5
-    # "Uniform" = prior("uniform", list(0, 20))
+    "Student-t" = prior("t", list(10, 3, 5)),     # location=10, scale=3, df=5
+    "Uniform" = prior("uniform", list(0, 20))
   )
 
   # Define prior families for sigma
@@ -24,12 +25,12 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     "Jeffreys" = "Jeffreys_sigma",
     "InvGamma" = prior("invgamma", list(2, 1)),   # shape=2, scale=1
     "Gamma" = prior("gamma", list(2, 1)),         # shape=2, rate=1
-    # "LogNormal" = prior("lognormal", list(0, 1)), # log-mean=0, log-sd=1
-    # "Exponential" = prior("exp", list(1))         # rate=1
+    "LogNormal" = prior("lognormal", list(0, 1)), # log-mean=0, log-sd=1
+    "Exponential" = prior("exp", list(1))         # rate=1
   )
 
   sample_prior_opts <- c(TRUE, FALSE)
-  sample_prior_opts <- c(FALSE)
+  # sample_prior_opts <- c(FALSE)
 
   all_opts <- expand.grid(
     mu = names(mu_priors),
@@ -58,8 +59,8 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     is_improper <- (mu_name == "Jeffreys" || sigma_name == "Jeffreys")
     expect_failure <- sample_priors && is_improper
 
-    cat(sprintf("\nTesting: mu=%s, sigma=%s, sample_priors=%s (Expect Failure: %s)\n",
-                mu_name, sigma_name, sample_priors, expect_failure))
+    cat(sprintf("\nTesting: i=%d mu=%s, sigma=%s, sample_priors=%s (Expect Failure: %s)\n",
+                i, mu_name, sigma_name, sample_priors, expect_failure))
 
     # Fit with integration
     fit_int <- tryCatch({
@@ -77,7 +78,7 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
       bpc(x, LSL = LSL, target = target, USL = USL,
           method = "mcmc",
           prior_mu = prior_mu, prior_sigma = prior_sigma,
-          iter = 10000, chains = 2, silent = TRUE, seed = 123,
+          iter = 25000, chains = 2, silent = TRUE, seed = 123,
           sample_priors = sample_priors)
     }, error = function(e) {
       # cat(sprintf("  MCMC error: %s\n", e$message))
@@ -109,7 +110,7 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     # Using low tolerance for means comparison
     # Note: MCMC variance can be high depending on iter, so we check loose agreement or structure
     testthat::expect_equal(metrics_mcmc, metrics_int,
-                           info = sprintf("i=%d, Metric name mismatch", i), tolerance = 1e-1)
+                           info = sprintf("i=%d, Metric summary mismatch", i), tolerance = 1e-1)
 
     # We compare the means with some tolerance
     # Extract mean columns

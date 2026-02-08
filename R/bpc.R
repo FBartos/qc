@@ -221,7 +221,7 @@ bpc <- function(
   )
 
   if(control[["silent"]]){
-    model_call$refresh <- -1
+    model_call$refresh <- 0
     model_call$open_progress <- FALSE
     model_call$show_messages <- FALSE
   }
@@ -333,14 +333,36 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     n_intervals <- length(interval_probability) + 1
 
     interval_summary <- do.call(rbind, lapply(metric_names, function(m) {
-      probs <- numeric(n_intervals)
-      for (i in seq_len(n_intervals)) {
-        bounds <- c(interval_breaks[i], interval_breaks[i + 1])
-        probs[i] <- compute_cpk_prob_integration(
-          data, orig_LSL, orig_USL, bounds, prior, metric = m,
-          target = orig_target, cached_state = cached_state
-        )
+      r <- int_result$results[[m]]
+
+      # If MC samples are available (prior-only mode), use direct binning
+      if (!is.null(r$samples)) {
+        bin_counts <- table(cut(r$samples,
+                                breaks = interval_breaks, include.lowest = TRUE))
+        probs <- as.numeric(bin_counts) / sum(bin_counts)
+      } else {
+        g <- r$grid
+        area <- r$area
+        if (is.null(area)) area <- 1
+        dx <- diff(c(g$x[1], g$x))[seq_len(nrow(g))]
+        cdf_cond <- cumsum(g$density * dx)
+
+        probs <- numeric(n_intervals)
+        for (i in seq_len(n_intervals)) {
+          lo <- interval_breaks[i]
+          hi <- interval_breaks[i + 1]
+          lo_cdf <- if (is.finite(lo) && lo >= min(g$x))
+            (1 - area) + area * stats::approx(g$x, cdf_cond, xout = lo, rule = 2)$y
+          else 0
+          hi_cdf <- if (is.finite(hi) && hi <= max(g$x))
+            (1 - area) + area * stats::approx(g$x, cdf_cond, xout = hi, rule = 2)$y
+          else 1
+          probs[i] <- max(0, hi_cdf - lo_cdf)
+        }
+        total <- sum(probs)
+        if (total > 0) probs <- probs / total
       }
+
       df <- as.data.frame(t(probs))
       names(df) <- levels(cut(0, breaks = interval_breaks, include.lowest = TRUE))
       df$metric <- m
