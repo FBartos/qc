@@ -124,6 +124,11 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
              stop("Unknown point_estimate."))
     }
 
+    # Skip infinite point estimates (analytically divergent moments)
+    if (!is.finite(xValue))
+      return(tibble::tibble(x = numeric(0), y = numeric(0),
+                            metric = factor(character(0), levels = levels(factor(what)))))
+
     tibble::tibble(
       x = unname(xValue),
       y = listOfFuns[[name]](xValue),

@@ -14,7 +14,8 @@ analyze_capability_integration(
   n_grid = 128,
   cached_state = NULL,
   use_density_solver = TRUE,
-  mc_samples = NULL
+  mc_samples = NULL,
+  divergence_info = NULL
 )
 }
 \arguments{

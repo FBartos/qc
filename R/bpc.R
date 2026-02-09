@@ -370,13 +370,37 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     }))
     interval_summary <- tibble::as_tibble(interval_summary)
 
+    # Build divergence diagnostics table from integration results
+    divergence_diagnostics <- NULL
+    if (!is.null(int_result$divergence)) {
+      div_rows <- lapply(metric_names, function(m) {
+        d <- int_result$divergence[[m]]
+        if (is.null(d)) d <- int_result$results[[m]]$divergence_info
+        if (is.null(d)) return(NULL)
+        if (!d$mean_divergent && !d$sd_divergent) return(NULL)
+        data.frame(
+          metric = m,
+          mean_divergent = d$mean_divergent,
+          sd_divergent   = d$sd_divergent,
+          alpha          = d$alpha,
+          reason         = d$reason %||% "",
+          stringsAsFactors = FALSE
+        )
+      })
+      div_rows <- Filter(Negate(is.null), div_rows)
+      if (length(div_rows) > 0)
+        divergence_diagnostics <- tibble::as_tibble(do.call(rbind, div_rows))
+    }
+
     out <- list(
       call               = object$call,
       summary            = summary,
       interval_summary   = interval_summary,
       metrics            = object$metrics,
-      integration_result = int_result
+      integration_result = int_result,
+      divergence_diagnostics = divergence_diagnostics
     )
+    attr(out, "has_divergent_moments") <- !is.null(divergence_diagnostics) && nrow(divergence_diagnostics) > 0
     class(out) <- "bpc_summary"
     return(out)
   }
@@ -427,5 +451,65 @@ print.bpc_summary <- function(x, ...) {
   cat("\nInterval Probability:\n")
   print(as.data.frame(round(x$interval_summary[,-1], 4)), quote = FALSE, right = TRUE, row.names = unlist(x$interval_summary[,1]))
 
+  if (isTRUE(attr(x, "has_divergent_moments"))) {
+    cat("\nNote: Some moments are analytically infinite due to prior specification.\n")
+    for (i in seq_len(nrow(x$divergence_diagnostics))) {
+      cat("  ", x$divergence_diagnostics$reason[i], "\n")
+    }
+  }
+
   invisible(x$summary)
+}
+
+# ==============================================================================
+# Divergence Query API
+# ==============================================================================
+
+#' Check whether a statistic was analytically determined to be infinite
+#'
+#' For certain prior-metric combinations, the posterior mean or standard deviation
+#' is analytically known to diverge. This function queries the divergence
+#' diagnostics attached to a bpc_summary object.
+#'
+#' @param x A bpc_summary object (from \code{summary(bpc(...))})
+#' @param metric One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"
+#' @param statistic One of "mean", "sd"
+#' @return Logical: TRUE if the statistic was analytically determined to be infinite
+#' @export
+is_analytic <- function(x, metric, statistic = c("mean", "sd")) {
+  UseMethod("is_analytic")
+}
+
+#' @export
+is_analytic.bpc_summary <- function(x, metric, statistic = c("mean", "sd")) {
+  statistic <- match.arg(statistic)
+  diag <- x$divergence_diagnostics
+  if (is.null(diag) || nrow(diag) == 0)
+    return(FALSE)
+  row <- diag[diag$metric == metric, , drop = FALSE]
+  if (nrow(row) == 0)
+    return(FALSE)
+  switch(statistic,
+    "mean" = row$mean_divergent[1],
+    "sd"   = row$sd_divergent[1]
+  )
+}
+
+#' Retrieve the full divergence diagnostics table
+#'
+#' Returns a tibble indicating which metric-statistic combinations were
+#' analytically determined to be infinite, along with the effective shape
+#' parameter alpha and a human-readable explanation.
+#'
+#' @param x A bpc_summary object
+#' @return A tibble with columns: metric, mean_divergent, sd_divergent, alpha, reason.
+#'   NULL if no divergent moments were detected.
+#' @export
+get_analytic_flags <- function(x) {
+  UseMethod("get_analytic_flags")
+}
+
+#' @export
+get_analytic_flags.bpc_summary <- function(x) {
+  x$divergence_diagnostics
 }

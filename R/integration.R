@@ -2089,9 +2089,9 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 #' Compute negative-value mean correction for prior-only mode.
-#' For CpU, CpL, Cpk, the metric can be negative when mu is outside [LSL, USL].
-#' This returns E[metric * I(metric <= 0)], a negative correction to add to
-#' area * E[metric | metric > 0] to get the full unconditional mean.
+#' For CpU, CpL, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]}.
+#' This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
+#' \eqn{area * E[metric | metric > 0]} to get the full unconditional mean.
 #' @keywords internal
 .compute_negative_mean_correction <- function(metric, LSL, USL, bayestools_priors) {
   if (is.null(bayestools_priors)) return(0)
@@ -2155,7 +2155,13 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
                                             n_grid = 128,
                                             cached_state = NULL,
                                             use_density_solver = TRUE,
-                                            mc_samples = NULL) {
+                                            mc_samples = NULL,
+                                            divergence_info = NULL) {
+
+  # Default: no divergence
+  if (is.null(divergence_info))
+    divergence_info <- list(mean_divergent = FALSE, sd_divergent = FALSE,
+                            alpha = Inf, reason = NULL)
 
   # Check if we're in prior-only mode (no data) with PriorGeneric
   # In this case, use quantile-based grid bounds to avoid slow moment computation
@@ -2171,6 +2177,23 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     )
     x_start <- bounds$x_start
     x_end <- bounds$x_end
+  } else if (divergence_info$mean_divergent) {
+    # Divergent mean: skip moment computation, use solver-based grid bounds
+    x_start <- 0
+    x_end <- 3
+    try({
+      S_fn <- if (!is.null(cached_state)) {
+        make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+      } else {
+        make_solver(data, LSL, USL, prior, metric, target)
+      }
+      for (try_limit in c(10, 20, 50, 100, 500, 1000)) {
+        if (S_fn(try_limit) < 0.001) {
+          x_end <- try_limit
+          break
+        }
+      }
+    }, silent = TRUE)
   } else {
     # Standard path: compute posterior moments for grid bounds
     moments <- compute_metric_moments(data, LSL, USL, prior, metric = metric, target = target,
@@ -2256,13 +2279,22 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     hdi_lo <- sorted_samples[best_ci]
     hdi_hi <- sorted_samples[best_ci + n_ci]
 
+    # Override with analytic Inf where divergent
+    if (divergence_info$mean_divergent) {
+      post_mean <- Inf
+      post_sd   <- Inf
+    } else if (divergence_info$sd_divergent) {
+      post_sd <- Inf
+    }
+
     return(list(
       metric = metric,
       samples = metric_samples,
       area = 1,
       stats = c(Mean = post_mean, Median = post_median, SD = post_sd,
                 Q2.5 = q2.5, Q97.5 = q97.5,
-                HDI_Lo = hdi_lo, HDI_Hi = hdi_hi)
+                HDI_Lo = hdi_lo, HDI_Hi = hdi_hi),
+      divergence_info = divergence_info
     ))
   }
 
@@ -2392,6 +2424,14 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   }
   hdi_indices <- sorted_idx[1:cutoff_idx]
 
+  # Override with analytic Inf where divergent
+  if (divergence_info$mean_divergent) {
+    post_mean <- Inf
+    post_sd   <- Inf
+  } else if (divergence_info$sd_divergent) {
+    post_sd <- Inf
+  }
+
   list(
     metric = metric,
     grid = data.frame(x = mid_x, density = pdf_vals),
@@ -2399,7 +2439,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     stats = c(Mean = post_mean, Median = median_val, SD = post_sd,
               Q2.5 = q2.5, Q97.5 = q97.5,
               HDI_Lo = min(mid_x[hdi_indices]),
-              HDI_Hi = max(mid_x[hdi_indices]))
+              HDI_Hi = max(mid_x[hdi_indices])),
+    divergence_info = divergence_info
   )
 }
 
@@ -2407,6 +2448,119 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 # ==============================================================================
 # BayesTools Prior Conversion
 # ==============================================================================
+
+# ==============================================================================
+# Analytic Moment Divergence Detection
+# ==============================================================================
+
+#' Extract the effective shape parameter alpha controlling tail behavior at sigma -> 0
+#'
+#' For a prior pi(sigma), alpha characterizes the density near zero:
+#' pi(sigma) ~ sigma^(alpha - 1) as sigma -> 0.
+#' Finite alpha indicates a potential divergence of E[sigma^{-k}] for k >= alpha.
+#' alpha = Inf means the prior is bounded away from zero or decays superexponentially.
+#'
+#' @param prior_sigma BayesTools prior object or string ("Jeffreys_sigma")
+#' @return Numeric scalar: the effective alpha (possibly Inf)
+#' @keywords internal
+.extract_alpha_parameter <- function(prior_sigma) {
+  if (identical(prior_sigma, "Jeffreys_sigma"))
+    return(0)
+
+  if (!inherits(prior_sigma, "prior"))
+    stop("prior_sigma must be a string or BayesTools::prior object")
+
+  dist   <- prior_sigma[["distribution"]]
+  params <- prior_sigma[["parameters"]]
+  trunc  <- prior_sigma[["truncation"]]
+  lower  <- if (!is.null(trunc[["lower"]])) trunc[["lower"]] else -Inf
+  upper  <- if (!is.null(trunc[["upper"]])) trunc[["upper"]] else  Inf
+
+  # Truncation bounded away from zero overrides everything
+  if (is.finite(lower) && lower > 0)
+    return(Inf)
+
+  alpha <- switch(dist,
+    "gamma"    = params[["shape"]],
+    "exp"      = 1,
+    "invgamma" = Inf,
+    "lognormal"= Inf,
+    "normal"   = Inf,
+    "t"        = 1,
+    "cauchy"   = 1,
+    "point"    = Inf,
+    "uniform"  = if (params[["a"]] <= 0) 1 else Inf,
+    "beta"     = if (params[["a"]] <= 0 || (is.finite(lower) && lower <= 0)) params[["alpha"]] else Inf,
+    Inf  # conservative default for unknown families
+  )
+
+  alpha
+}
+
+#' Check whether posterior moments of a capability metric diverge
+#'
+#' Uses the analytic decision rules from the divergence analysis: for metrics
+#' scaling as sigma^{-1} (Cp, CpU, CpL, Cpk), E[C^k] < Inf iff alpha > k.
+#' For metrics involving sqrt(sigma^2 + (mu - T)^2) (Cpm, Cpc), the singularity
+#' is regularised and E[C^k] < Inf iff alpha > k - 1.
+#'
+#' @param metric One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"
+#' @param alpha_sigma Effective alpha from .extract_alpha_parameter()
+#' @param prior_sigma_label Human-readable label for the sigma prior (for messages)
+#' @return List with mean_divergent, sd_divergent, alpha, reason
+#' @keywords internal
+.check_moment_divergence <- function(metric, alpha_sigma,
+                                     prior_sigma_label = "sigma prior") {
+  if (metric %in% c("Cp", "CpU", "CpL", "Cpk")) {
+    mean_threshold <- 1
+    var_threshold  <- 2
+  } else if (metric %in% c("Cpm", "Cpc")) {
+    mean_threshold <- 0
+    var_threshold  <- 1
+  } else {
+    return(list(mean_divergent = FALSE, sd_divergent = FALSE,
+                alpha = alpha_sigma, reason = NULL))
+  }
+
+  mean_div <- is.finite(alpha_sigma) && alpha_sigma <= mean_threshold
+  sd_div   <- is.finite(alpha_sigma) && alpha_sigma <= var_threshold
+
+  reason <- NULL
+  if (mean_div) {
+    reason <- sprintf(
+      "%s has alpha=%.3g; %s requires alpha>%g for a finite mean (and alpha>%g for finite variance)",
+      prior_sigma_label, alpha_sigma, metric, mean_threshold, var_threshold
+    )
+  } else if (sd_div) {
+    reason <- sprintf(
+      "%s has alpha=%.3g; %s requires alpha>%g for finite variance",
+      prior_sigma_label, alpha_sigma, metric, var_threshold
+    )
+  }
+
+  list(
+    mean_divergent = mean_div,
+    sd_divergent   = sd_div,
+    alpha          = alpha_sigma,
+    reason         = reason
+  )
+}
+
+#' Build a human-readable label for a BayesTools prior
+#' @param prior_sigma BayesTools prior object or string
+#' @return Character string
+#' @keywords internal
+.prior_sigma_label <- function(prior_sigma) {
+  if (identical(prior_sigma, "Jeffreys_sigma"))
+    return("Jeffreys(sigma)")
+  if (!inherits(prior_sigma, "prior"))
+    return("unknown prior")
+
+  dist   <- prior_sigma[["distribution"]]
+  params <- prior_sigma[["parameters"]]
+  param_str <- paste(vapply(params, function(p) format(p, digits = 3), character(1)), collapse = ", ")
+  sprintf("%s(%s)", dist, param_str)
+}
 
 #' Convert BayesTools priors to integration prior format
 #' @param prior_mu Prior for mu (string or BayesTools prior)
@@ -2744,10 +2898,25 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   # Match order of MCMC results for consistency (Cp, CpU, CpL, Cpk, Cpc, Cpm)
   metrics <- c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
 
+  # Pre-compute analytic divergence info for each metric.
+  # With data (n > 0), the likelihood provides superexponential decay at sigma = 0,
+  # so all moments are finite regardless of the prior.
+  is_prior_only <- n == 0
+  alpha_sigma <- .extract_alpha_parameter(prior_sigma)
+  sigma_label <- .prior_sigma_label(prior_sigma)
+  divergence_map <- if (is_prior_only) {
+    setNames(lapply(metrics, function(m)
+      .check_moment_divergence(m, alpha_sigma, sigma_label)
+    ), metrics)
+  } else {
+    no_div <- list(mean_divergent = FALSE, sd_divergent = FALSE,
+                   alpha = alpha_sigma, reason = NULL)
+    setNames(rep(list(no_div), length(metrics)), metrics)
+  }
+
   # For prior-only mode with BayesTools priors, pre-generate shared samples
   # so all metrics use the same (mu, sigma) draws for consistency.
   mc_samples <- NULL
-  is_prior_only <- length(data) == 0
   has_bt_priors <- inherits(prior, "PriorGeneric") &&
                    !is.null(prior$bayestools_priors) &&
                    inherits(prior$bayestools_priors$sigma, "prior")
@@ -2763,7 +2932,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   results <- lapply(metrics, function(m) {
     analyze_capability_integration(data, LSL, USL, prior, metric = m,
                                     target = target, cached_state = cached_state,
-                                    mc_samples = mc_samples)
+                                    mc_samples = mc_samples,
+                                    divergence_info = divergence_map[[m]])
   })
   names(results) <- metrics
 
@@ -2790,7 +2960,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     prior = prior,
     is_conjugate = is_conjugate,
     case = case,
-    cached_state = cached_state
+    cached_state = cached_state,
+    divergence = divergence_map
   )
 }
 

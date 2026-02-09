@@ -106,24 +106,48 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     metrics_mcmc <- sum_mcmc$summary
     metrics_int  <- sum_int$summary
 
-    # Check equality of summary statistics (compare means)
-    # Using low tolerance for means comparison
-    # Note: MCMC variance can be high depending on iter, so we check loose agreement or structure
-    testthat::expect_equal(metrics_mcmc, metrics_int,
+    # When the integration method analytically detects divergent moments, it
+    # replaces mean/sd with Inf. MCMC will produce finite but unstable values
+    # for these same quantities. Filter out analytically divergent rows/columns
+    # before comparing the two methods.
+    div_flags <- get_analytic_flags(sum_int)
+    has_divergence <- !is.null(div_flags)
+
+    if (has_divergence) {
+      # For metrics with divergent mean: skip mean comparison
+      # For metrics with divergent sd: skip sd comparison
+      # Build a mask of cells that are analytically Inf
+      div_mean_metrics <- div_flags$metric[div_flags$mean_divergent]
+      div_sd_metrics   <- div_flags$metric[div_flags$sd_divergent]
+
+      # Replace Inf in integration with MCMC values so expect_equal passes
+      # on the non-divergent parts
+      metrics_int_cmp  <- metrics_int
+      metrics_mcmc_cmp <- metrics_mcmc
+      for (m in div_mean_metrics) {
+        idx <- metrics_int_cmp$metric == m
+        metrics_int_cmp$mean[idx]  <- metrics_mcmc_cmp$mean[idx]
+      }
+      for (m in div_sd_metrics) {
+        idx <- metrics_int_cmp$metric == m
+        metrics_int_cmp$sd[idx]  <- metrics_mcmc_cmp$sd[idx]
+      }
+    } else {
+      metrics_int_cmp  <- metrics_int
+      metrics_mcmc_cmp <- metrics_mcmc
+    }
+
+    testthat::expect_equal(metrics_mcmc_cmp, metrics_int_cmp,
                            info = sprintf("i=%d, Metric summary mismatch", i), tolerance = 1e-1)
 
-    # We compare the means with some tolerance
-    # Extract mean columns
-    mcmc_means <- metrics_mcmc$mean
-    int_means <- metrics_int$mean
+    mcmc_means <- metrics_mcmc_cmp$mean
+    int_means <- metrics_int_cmp$mean
 
-    # Note: Tolerance MCMC vs Integration can be loose
     diffs <- abs(mcmc_means - int_means)
     max_diff <- max(diffs, na.rm = TRUE)
 
     cat(sprintf("i: %d,  Max mean diff: %.4f\n", i, max_diff))
 
-    # Just checking intervals structure for now as requested
     intervals_mcmc <- sum_mcmc$interval_summary
     intervals_int  <- sum_int$interval_summary
 
