@@ -354,35 +354,33 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     # Chi-square y has most mass near df_p, so integrate from small epsilon to large upper bound
     y_upper <- max(100, df_p * 10)
 
+    z_pts <- c(-3, -2, -1, 0, 1, 2, 3)
+    w_pts <- stats::dnorm(z_pts)
+    w_pts <- w_pts / sum(w_pts)
+
     integrand_cpm <- function(y) {
       sigma <- sqrt(2 * beta_n / y)
       tau <- sigma / sqrt(k_n)
-      # E[1/sqrt(sigma^2 + (mu - T)^2) | sigma]
-      # mu ~ N(mu_n, tau^2), so (mu - T) ~ N(delta_T, tau^2)
-      # E[1/sqrt(sigma^2 + X^2)] where X ~ N(delta_T, tau^2)
-      # Use Gauss-Hermite style quadrature over standardized variable
-      z_pts <- c(-3, -2, -1, 0, 1, 2, 3)
-      w_pts <- stats::dnorm(z_pts)
-      w_pts <- w_pts / sum(w_pts)
-      x_pts <- delta_T + tau * z_pts
-      inner <- sum(w_pts / sqrt(sigma^2 + x_pts^2))
+      x_pts <- tcrossprod(tau, z_pts) + delta_T
+      sigma2 <- sigma^2
+      inv_sqrt_vals <- 1 / sqrt(x_pts^2 + sigma2)
+      inner <- drop(inv_sqrt_vals %*% w_pts)
       inner * stats::dchisq(y, df_p)
     }
-    E_inv_sqrt <- stats::integrate(Vectorize(integrand_cpm), 1e-6, y_upper,
+    E_inv_sqrt <- stats::integrate(integrand_cpm, 1e-6, y_upper,
                             rel.tol = 1e-4, subdivisions = 200)$value
     E1 <- (tol / 6) * E_inv_sqrt
 
     integrand_cpm2 <- function(y) {
       sigma <- sqrt(2 * beta_n / y)
       tau <- sigma / sqrt(k_n)
-      z_pts <- c(-3, -2, -1, 0, 1, 2, 3)
-      w_pts <- stats::dnorm(z_pts)
-      w_pts <- w_pts / sum(w_pts)
-      x_pts <- delta_T + tau * z_pts
-      inner <- sum(w_pts / (sigma^2 + x_pts^2))
+      x_pts <- tcrossprod(tau, z_pts) + delta_T
+      sigma2 <- sigma^2
+      inv_vals <- 1 / (x_pts^2 + sigma2)
+      inner <- drop(inv_vals %*% w_pts)
       inner * stats::dchisq(y, df_p)
     }
-    E_inv <- stats::integrate(Vectorize(integrand_cpm2), 1e-6, y_upper,
+    E_inv <- stats::integrate(integrand_cpm2, 1e-6, y_upper,
                        rel.tol = 1e-4, subdivisions = 200)$value
     E2 <- (tol / 6)^2 * E_inv
 
@@ -489,46 +487,52 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   # Compute E[metric] and E[metric^2] via 1D integration over sigma
   # For each sigma, sample mu from N(mu_n, sigma^2/k_n) and compute expectations
 
+  gh_nodes <- c(-2.02, -0.958, 0, 0.958, 2.02)
+  gh_wts   <- c(0.0199, 0.393, 0.945, 0.393, 0.0199)
+  gh_wts   <- gh_wts / sum(gh_wts)
+  n_gh     <- length(gh_nodes)
+
   integrand_E1 <- function(sigma) {
     log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
     log_prior <- prior$log_dens_sigma(sigma)
     weight <- exp(log_lik + log_prior)
-    if (!is.finite(weight) || weight <= 0) return(0)
+    ok <- is.finite(weight) & weight > 0
+    result <- numeric(length(sigma))
+    if (!any(ok)) return(result)
 
-    # Sample mu from conditional posterior
-    sd_mu <- sigma / sqrt(k_n)
-    # E[metric | sigma] via Gauss-Hermite quadrature approximation
-    # Use 5-point approximation
-    mu_pts <- mu_n + sd_mu * c(-2.02, -0.958, 0, 0.958, 2.02)
-    wts <- c(0.0199, 0.393, 0.945, 0.393, 0.0199)
-    wts <- wts / sum(wts)
-    metric_vals <- compute_metric_value(mu_pts, rep(sigma, 5), LSL, USL, target, metric)
-    E_metric <- sum(wts * metric_vals)
-    weight * E_metric
+    sd_mu <- sigma[ok] / sqrt(k_n)
+    mu_mat <- tcrossprod(sd_mu, gh_nodes) + mu_n
+    sigma_rep <- rep(sigma[ok], each = n_gh)
+    m_vals <- compute_metric_value(as.vector(t(mu_mat)), sigma_rep, LSL, USL, target, metric)
+    m_mat <- matrix(m_vals, ncol = n_gh, byrow = TRUE)
+    result[ok] <- weight[ok] * drop(m_mat %*% gh_wts)
+    result
   }
 
   integrand_E2 <- function(sigma) {
     log_lik <- -n * log(sigma) - sse_n / (2 * sigma^2)
     log_prior <- prior$log_dens_sigma(sigma)
     weight <- exp(log_lik + log_prior)
-    if (!is.finite(weight) || weight <= 0) return(0)
+    ok <- is.finite(weight) & weight > 0
+    result <- numeric(length(sigma))
+    if (!any(ok)) return(result)
 
-    sd_mu <- sigma / sqrt(k_n)
-    mu_pts <- mu_n + sd_mu * c(-2.02, -0.958, 0, 0.958, 2.02)
-    wts <- c(0.0199, 0.393, 0.945, 0.393, 0.0199)
-    wts <- wts / sum(wts)
-    metric_vals <- compute_metric_value(mu_pts, rep(sigma, 5), LSL, USL, target, metric)
-    E_metric2 <- sum(wts * metric_vals^2)
-    weight * E_metric2
+    sd_mu <- sigma[ok] / sqrt(k_n)
+    mu_mat <- tcrossprod(sd_mu, gh_nodes) + mu_n
+    sigma_rep <- rep(sigma[ok], each = n_gh)
+    m_vals <- compute_metric_value(as.vector(t(mu_mat)), sigma_rep, LSL, USL, target, metric)
+    m_mat <- matrix(m_vals, ncol = n_gh, byrow = TRUE)
+    result[ok] <- weight[ok] * drop(m_mat^2 %*% gh_wts)
+    result
   }
 
-  sigma_upper <- 20 * sd_data
+  sigma_upper <- max(20 * sd_data, 20)
   Z <- stats::integrate(function(s) {
     exp(-n * log(s) - sse_n / (2 * s^2) + prior$log_dens_sigma(s))
   }, 1e-10, sigma_upper, rel.tol = 1e-5)$value
 
-  E1 <- stats::integrate(Vectorize(integrand_E1), 1e-10, sigma_upper, rel.tol = 1e-4)$value / Z
-  E2 <- stats::integrate(Vectorize(integrand_E2), 1e-10, sigma_upper, rel.tol = 1e-4)$value / Z
+  E1 <- stats::integrate(integrand_E1, 1e-10, sigma_upper, rel.tol = 1e-4, subdivisions = 200)$value / Z
+  E2 <- stats::integrate(integrand_E2, 1e-10, sigma_upper, rel.tol = 1e-4, subdivisions = 200)$value / Z
 
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
@@ -557,73 +561,49 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
   # for the Jeffreys prior case, beta0 = 0, so we need to handle that carefully
   alpha_0_times_logbeta0 <- if (prior$beta0 == 0) 0 else alpha0 * log(beta0)
 
+  gamma_ratio <- if (alpha_n > 0.5) gamma(alpha_n - 0.5) / gamma(alpha_n) else 1 / sqrt(alpha_n)
+
   integrand_E1 <- function(mu) {
     sse_mu <- sse + n * (mu - x_bar)^2
     beta_n <- beta0 + sse_mu / 2
-
-    # Marginal likelihood p(data | mu)
     log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
     log_prior <- prior$log_dens_mu(mu)
     weight <- exp(log_marginal + log_prior)
-    if (!is.finite(weight) || weight <= 0) return(0)
-
-    # Sample sigma from InvGamma(alpha_n, beta_n) and average metric
-    # Use analytic E[sigma] for simple metrics, or quadrature
-    # E[sigma | mu, data] = sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n) (when alpha_n > 0.5)
-    if (alpha_n > 0.5) {
-      E_sigma <- sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n)
-    } else {
-      E_sigma <- sqrt(beta_n / alpha_n)  # Approximation
-    }
-
-    # For linear metrics in 1/sigma, use expected value
-    metric_val <- compute_metric_value(mu, E_sigma, LSL, USL, target, metric)
-    weight * metric_val
+    ok <- is.finite(weight) & weight > 0
+    result <- numeric(length(mu))
+    if (!any(ok)) return(result)
+    E_sigma <- sqrt(beta_n[ok]) * gamma_ratio
+    result[ok] <- weight[ok] * compute_metric_value(mu[ok], E_sigma, LSL, USL, target, metric)
+    result
   }
 
   integrand_E2 <- function(mu) {
     sse_mu <- sse + n * (mu - x_bar)^2
     beta_n <- beta0 + sse_mu / 2
-
     log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
     log_prior <- prior$log_dens_mu(mu)
     weight <- exp(log_marginal + log_prior)
-    if (!is.finite(weight) || weight <= 0) return(0)
-
-    if (alpha_n > 0.5) {
-      E_sigma <- sqrt(beta_n) * gamma(alpha_n - 0.5) / gamma(alpha_n)
-    } else {
-      E_sigma <- sqrt(beta_n / alpha_n)
-    }
-    metric_val <- compute_metric_value(mu, E_sigma, LSL, USL, target, metric)
-    weight * metric_val^2
+    ok <- is.finite(weight) & weight > 0
+    result <- numeric(length(mu))
+    if (!any(ok)) return(result)
+    E_sigma <- sqrt(beta_n[ok]) * gamma_ratio
+    m_vals <- compute_metric_value(mu[ok], E_sigma, LSL, USL, target, metric)
+    result[ok] <- weight[ok] * m_vals^2
+    result
   }
 
   mu_low <- x_bar - 10 * sd_data
   mu_high <- x_bar + 10 * sd_data
 
-  # TODO: we should create a generic integrate interface that computes the mode first and then the integral on a log scale
-  # log_integrand_Z <- function(mu) {
-  #   sse_mu <- sse + n * (mu - x_bar)^2
-  #   beta_n <- beta0 + sse_mu / 2
-  #   log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha0 * log(beta0) - alpha_n * log(beta_n)
-  #   log_prior <- prior$log_dens_mu(mu)
-  #   log_marginal + log_prior
-  # }
-  # mode_Z <- optimize(log_integrand_Z, c(mu_low, mu_high), maximum = TRUE)$maximum
-  # Normalization constant
   Z <- stats::integrate(function(mu) {
     sse_mu <- sse + n * (mu - x_bar)^2
     beta_n <- beta0 + sse_mu / 2
     log_marginal <- lgamma(alpha_n) - lgamma(alpha0) + alpha_0_times_logbeta0 - alpha_n * log(beta_n)
-    result <- exp(log_marginal + prior$log_dens_mu(mu))
-    if (anyNA(result) || any(is.infinite(result)))
-      browser()
-    result
+    exp(log_marginal + prior$log_dens_mu(mu))
   }, mu_low, mu_high, rel.tol = 1e-5)$value
 
-  E1 <- stats::integrate(Vectorize(integrand_E1), mu_low, mu_high, rel.tol = 1e-4)$value / Z
-  E2 <- stats::integrate(Vectorize(integrand_E2), mu_low, mu_high, rel.tol = 1e-4)$value / Z
+  E1 <- stats::integrate(integrand_E1, mu_low, mu_high, rel.tol = 1e-4, subdivisions = 200)$value / Z
+  E2 <- stats::integrate(integrand_E2, mu_low, mu_high, rel.tol = 1e-4, subdivisions = 200)$value / Z
 
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
@@ -852,7 +832,7 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     sigma_upper <- if (is.infinite(s_max)) 20 * sqrt(sse_n / max(n, 1)) else s_max
     sigma_upper <- max(sigma_upper, 1e-6)
 
-    stats::integrate(Vectorize(integrand), 1e-10, sigma_upper,
+    stats::integrate(integrand, 1e-10, sigma_upper,
                      rel.tol = 1e-5, subdivisions = 200)$value
   }
 }
@@ -884,40 +864,28 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
 
     integrand <- function(mu) {
-      # Updated error sum of squares for each mu
       sse_mu <- sse + n * (mu - x_bar)^2
-
-      # Posterior InvGamma parameters after observing data
       alpha_n <- alpha0 + n / 2
       beta_n <- beta0 + sse_mu / 2
-
-      # Log marginal p(data | mu) via Gamma functions
-      # This is the analytical integral over sigma
       log_marginal <- lgamma(alpha_n) - lgamma(alpha0) +
                       alpha0 * log(beta0) - alpha_n * log(beta_n)
-
-      # Log prior on mu (non-conjugate)
       log_prior_mu <- prior$log_dens_mu(mu)
 
-      # P(sigma < s_max | mu, data) via incomplete Gamma
-      # tau = 1/sigma^2 ~ Gamma(alpha_n, rate = beta_n)
-      # P(sigma < s_max) = P(tau > 1/s_max^2)
       if (is.infinite(s_max)) {
         log_prob_sigma <- 0
       } else {
         prob_sigma <- 1 - stats::pgamma(1 / s_max^2, shape = alpha_n, rate = beta_n)
-        log_prob_sigma <- log(max(prob_sigma, 1e-300))
+        log_prob_sigma <- log(pmax(prob_sigma, 1e-300))
       }
 
       exp(log_marginal + log_prior_mu + log_prob_sigma)
     }
 
-    # Dynamic integration bounds based on data
     mu_sd <- sqrt(sse / max(n - 1, 1))
     mu_low <- x_bar - 10 * mu_sd
     mu_high <- x_bar + 10 * mu_sd
 
-    stats::integrate(Vectorize(integrand), mu_low, mu_high,
+    stats::integrate(integrand, mu_low, mu_high,
                      rel.tol = 1e-5, subdivisions = 200)$value
   }
 }
@@ -1322,7 +1290,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     log_prior <- log_dens_sigma(sigma)
     exp(log_lik + log_prior)
   }
-  Z <- stats::integrate(Vectorize(integrand), 1e-10, Inf, rel.tol = 1e-5)$value
+  Z <- stats::integrate(integrand, 1e-10, Inf, rel.tol = 1e-5)$value
   log(max(Z, 1e-300))
 }
 
@@ -1466,7 +1434,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 
       mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
       mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
-      stats::integrate(Vectorize(integrand), mu_lower, mu_upper, rel.tol = 1e-5)$value
+      stats::integrate(integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
     })
   }
 
@@ -1525,7 +1493,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 
   mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
   mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
-  Z <- stats::integrate(Vectorize(integrand), mu_lower, mu_upper, rel.tol = 1e-5)$value
+  Z <- stats::integrate(integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
   log(max(Z, 1e-300))
 }
 
@@ -2047,7 +2015,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     # Use density solver PDF and integrate over bounds
     pdf_fn <- make_density_solver(data, LSL, USL, prior, metric, target,
                                    cached_state = cached_state)
-    pdf_vec <- Vectorize(pdf_fn)
+    pdf_vec <- function(x) vapply(x, pdf_fn, numeric(1L))
 
     # Clip infinite bounds: capability indices are >= 0 and rarely exceed 10
     lower <- max(min(bounds), 0)
@@ -2457,7 +2425,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #'
 #' For a prior pi(sigma), alpha characterizes the density near zero:
 #' pi(sigma) ~ sigma^(alpha - 1) as sigma -> 0.
-#' Finite alpha indicates a potential divergence of E[sigma^{-k}] for k >= alpha.
+#' Finite alpha indicates a potential divergence of \eqn{E[\sigma^{-k}]} for \eqn{k \ge \alpha}.
 #' alpha = Inf means the prior is bounded away from zero or decays superexponentially.
 #'
 #' @param prior_sigma BayesTools prior object or string ("Jeffreys_sigma")
@@ -2500,9 +2468,9 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' Check whether posterior moments of a capability metric diverge
 #'
 #' Uses the analytic decision rules from the divergence analysis: for metrics
-#' scaling as sigma^{-1} (Cp, CpU, CpL, Cpk), E[C^k] < Inf iff alpha > k.
-#' For metrics involving sqrt(sigma^2 + (mu - T)^2) (Cpm, Cpc), the singularity
-#' is regularised and E[C^k] < Inf iff alpha > k - 1.
+#' scaling as \eqn{\sigma^{-1}} (Cp, CpU, CpL, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
+#' For metrics involving \eqn{\sqrt{\sigma^2 + (\mu - T)^2}} (Cpm, Cpc), the singularity
+#' is regularised and \eqn{E[C^k] < \infty} iff \eqn{\alpha > k - 1}.
 #'
 #' @param metric One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"
 #' @param alpha_sigma Effective alpha from .extract_alpha_parameter()

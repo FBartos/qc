@@ -3,16 +3,16 @@
 \name{.compute_negative_mean_correction}
 \alias{.compute_negative_mean_correction}
 \title{Compute negative-value mean correction for prior-only mode.
-For CpU, CpL, Cpk, the metric can be negative when mu is outside \link{LSL, USL}.
-This returns E\link{metric * I(metric <= 0)}, a negative correction to add to
-area * E\link{metric | metric > 0} to get the full unconditional mean.}
+For CpU, CpL, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]}.
+This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
+\eqn{area * E[metric | metric > 0]} to get the full unconditional mean.}
 \usage{
 .compute_negative_mean_correction(metric, LSL, USL, bayestools_priors)
 }
 \description{
 Compute negative-value mean correction for prior-only mode.
-For CpU, CpL, Cpk, the metric can be negative when mu is outside \link{LSL, USL}.
-This returns E\link{metric * I(metric <= 0)}, a negative correction to add to
-area * E\link{metric | metric > 0} to get the full unconditional mean.
+For CpU, CpL, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]}.
+This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
+\eqn{area * E[metric | metric > 0]} to get the full unconditional mean.
 }
 \keyword{internal}

@@ -15,7 +15,7 @@ Numeric scalar: the effective alpha (possibly Inf)
 \description{
 For a prior pi(sigma), alpha characterizes the density near zero:
 pi(sigma) ~ sigma^(alpha - 1) as sigma -> 0.
-Finite alpha indicates a potential divergence of E\link{sigma^{-k}} for k >= alpha.
+Finite alpha indicates a potential divergence of \eqn{E[\sigma^{-k}]} for \eqn{k \ge \alpha}.
 alpha = Inf means the prior is bounded away from zero or decays superexponentially.
 }
 \keyword{internal}

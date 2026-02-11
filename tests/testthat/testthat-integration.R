@@ -128,7 +128,7 @@ testthat::test_that("extract_samples errors for integration method", {
 
 testthat::test_that("integration vs MCMC agreement with Jeffreys prior", {
 
-  skip_on_cran()  # Skip on CRAN due to long runtime
+  # skip_on_cran()  # Skip on CRAN due to long runtime
 
   set.seed(42)
   x <- rnorm(30, 50, 0.5)
@@ -165,7 +165,7 @@ testthat::test_that("integration vs MCMC agreement with Jeffreys prior", {
 
 testthat::test_that("integration interval probabilities agree with MCMC", {
 
-  skip_on_cran()  # Skip on CRAN due to long runtime
+  # skip_on_cran()  # Skip on CRAN due to long runtime
 
   set.seed(42)
   x <- rnorm(30, 50, 0.5)
@@ -319,7 +319,7 @@ testthat::test_that("integration interval probabilities with non-conjugate prior
 
 testthat::test_that("integration method speed advantage", {
 
-  skip_on_cran()
+  # skip_on_cran()
 
   set.seed(1)
   x <- rnorm(50, 10, 2)
@@ -431,7 +431,7 @@ testthat::test_that("extract_density_data works for integration method", {
 
 testthat::test_that("extract_density_data MCMC vs integration produce comparable results", {
 
-  skip_on_cran()
+  # skip_on_cran()
 
   set.seed(42)
   x <- rnorm(30, 50, 0.5)

@@ -22,8 +22,8 @@ List with mean_divergent, sd_divergent, alpha, reason
 }
 \description{
 Uses the analytic decision rules from the divergence analysis: for metrics
-scaling as sigma^{-1} (Cp, CpU, CpL, Cpk), E\link{C^k} < Inf iff alpha > k.
-For metrics involving sqrt(sigma^2 + (mu - T)^2) (Cpm, Cpc), the singularity
-is regularised and E\link{C^k} < Inf iff alpha > k - 1.
+scaling as \eqn{\sigma^{-1}} (Cp, CpU, CpL, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
+For metrics involving \eqn{\sqrt{\sigma^2 + (\mu - T)^2}} (Cpm, Cpc), the singularity
+is regularised and \eqn{E[C^k] < \infty} iff \eqn{\alpha > k - 1}.
 }
 \keyword{internal}
