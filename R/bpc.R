@@ -185,8 +185,8 @@ bpc <- function(
       N = N,
 
       is_ss   = 0,
-      ss_mean = ss_mean,
-      ss_sd   = ss_sd
+      ss_mean = mean,
+      ss_sd   = sd
     ))
   }
 }
@@ -386,7 +386,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
         # Validate: the density solver for Cpk can fail structurally for some
         # priors (returning ~0 where the grid shows non-trivial mass)
-        if (any(is.na(probs))) {
+        if (anyNA(probs)) {
           use_integration <- FALSE
         } else if (!is.null(grid_probs)) {
           suspect <- any(grid_probs > 0.05 & probs < 0.001)

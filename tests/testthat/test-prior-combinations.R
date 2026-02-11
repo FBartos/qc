@@ -59,6 +59,7 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
     is_improper <- (mu_name == "Jeffreys" || sigma_name == "Jeffreys")
     expect_failure <- sample_priors && is_improper
 
+    # maybe this shouldn't always print but it does help debugging
     cat(sprintf("\nTesting: i=%d mu=%s, sigma=%s, sample_priors=%s (Expect Failure: %s)\n",
                 i, mu_name, sigma_name, sample_priors, expect_failure))
 
