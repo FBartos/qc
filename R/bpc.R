@@ -309,6 +309,8 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     }))
     summary <- tibble::as_tibble(summary)
 
+    # Use the prior and cached state from the integration result
+    # (these were already computed during bpc() and should be reused)
     prior <- int_result$prior
     cached_state <- int_result$cached_state
 
