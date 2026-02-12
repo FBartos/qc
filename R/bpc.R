@@ -97,6 +97,8 @@ bpc <- function(
 
   object$method <- method
   object$distribution <- distribution
+  object$prior_mu <- prior_mu
+  object$prior_sigma <- prior_sigma
 
   # Dispatch based on method
   if (method == "integration") {
@@ -275,15 +277,13 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
       # Validate new specification limits
       .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
 
-      # Get original data and priors from the call
-      data <- eval(object$call$x, envir = parent.frame())
-      prior_mu <- eval(object$call$prior_mu, envir = parent.frame()) %||% "Jeffreys_mu"
-      prior_sigma <- eval(object$call$prior_sigma, envir = parent.frame()) %||% "Jeffreys_sigma"
-
-      # Re-fit with new specification limits
+      # Re-fit with new specification limits, reusing the cached posterior state
       int_result <- .bpc_fit_integration(
-        data = data, LSL = LSL, USL = USL, target = target,
-        prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma
+        data = numeric(0), LSL = LSL, USL = USL, target = target,
+        prior_mu = object$prior_mu %||% "Jeffreys_mu",
+        prior_sigma = object$prior_sigma %||% "Jeffreys_sigma",
+        sigma = sigma,
+        cached_state = object$integration_result$cached_state
       )
 
     } else {
@@ -309,24 +309,12 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     }))
     summary <- tibble::as_tibble(summary)
 
-    # Use the prior and cached state from the integration result
-    # (these were already computed during bpc() and should be reused)
     prior <- int_result$prior
     cached_state <- int_result$cached_state
 
-    # Get data from the original call
-    # If cached_state is available, we don't strictly need data for integration
-    data <- tryCatch(eval(object$call$x, envir = parent.frame()), error = function(e) NULL)
-
-    # Try to get parameters from call, or fallback to stored attributes
-    get_param <- function(param_name, attr_name) {
-       val <- tryCatch(eval(object$call[[param_name]], envir = parent.frame()), error = function(e) NULL)
-       if (is.null(val) && !is.null(object$metrics)) attr(object$metrics, attr_name) else val
-    }
-
-    orig_LSL <- get_param("LSL", "LSL")
-    orig_USL <- get_param("USL", "USL")
-    orig_target <- get_param("target", "target")
+    orig_LSL    <- attr(object$metrics, "LSL")
+    orig_USL    <- attr(object$metrics, "USL")
+    orig_target <- attr(object$metrics, "target")
 
     # Compute interval probabilities for each metric
     interval_breaks <- c(-Inf, interval_probability, Inf)
@@ -376,7 +364,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
           hi <- interval_breaks[j + 1]
           probs[j] <- tryCatch(
             compute_cpk_prob_integration(
-              data, orig_LSL, orig_USL, c(lo, hi), prior,
+              numeric(0), orig_LSL, orig_USL, c(lo, hi), prior,
               metric = m, target = orig_target,
               cached_state = cached_state
             ),

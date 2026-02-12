@@ -425,11 +425,16 @@ build_density_plot <- function(
   layer_text <- NULL
   if (show_ci_text || show_point_text) {
     ci_mult <- if (ci != "none" && show_ci_bar) 1.3 else 1.15
+    x_center <- if (axes == "custom" && !is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
+      mean(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
+    } else {
+      NA_real_
+    }
     df_text <- dfLines |>
       dplyr::group_by(metric) |>
       dplyr::summarize(
         y = max(y) * ci_mult,
-        x = stats::median(x),
+        x = if (is.na(x_center)) stats::median(x) else x_center,
         .groups = "drop"
       )
 
@@ -471,9 +476,18 @@ build_density_plot <- function(
   # Scales and facets
   scale_x <- scale_y <- facet <- NULL
   if (length(what) == 1L || single_panel) {
-    xBreaks <- getPrettyAxisBreaks(dfLines$x)
-    xLimits <- range(dfLines$x)
-    scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
+    if (axes == "custom" && !is.null(axes_custom[["xmin"]]) && !is.null(axes_custom[["xmax"]])) {
+      xBreaks <- getPrettyAxisBreaks(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
+      scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
+    } else {
+      xBreaks <- getPrettyAxisBreaks(dfLines$x)
+      xLimits <- range(dfLines$x)
+      scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
+    }
+    if (axes == "custom" && !is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
+      ybreaks <- getPrettyAxisBreaks(c(axes_custom[["ymin"]], axes_custom[["ymax"]]))
+      scale_y <- ggplot2::scale_y_continuous(breaks = ybreaks, limits = sort(c(axes_custom[["ymin"]], axes_custom[["ymax"]])))
+    }
   } else {
     scales <- switch(axes,
                      "automatic" = "free",
@@ -576,13 +590,14 @@ plot_density.bpc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
   # For integration method
   if (!is.null(obj$method) && obj$method == "integration") {
     if (all(provided)) {
-      # Recompute integration with new spec limits
       new_result <- .bpc_fit_integration(
-        fit = obj,
+        data = numeric(0),
         LSL = LSL,
         USL = USL,
         target = target,
-        metrics = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
+        prior_mu = obj$prior_mu %||% "Jeffreys_mu",
+        prior_sigma = obj$prior_sigma %||% "Jeffreys_sigma",
+        cached_state = obj$integration_result$cached_state
       )
       plot_density_integration_results(new_result, ...)
     } else {

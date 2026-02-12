@@ -2071,7 +2071,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 
   # Check if we're in prior-only mode (no data) with PriorGeneric
   # In this case, use quantile-based grid bounds to avoid slow moment computation
-  is_prior_only <- length(data) == 0
+  is_prior_only <- if (!is.null(cached_state$n)) cached_state$n == 0L else length(data) == 0
   has_bayestools_priors <- inherits(prior, "PriorGeneric") &&
                            !is.null(prior$bayestools_priors) &&
                            inherits(prior$bayestools_priors$sigma, "prior")
@@ -2765,7 +2765,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' @return List with metrics and integration results
 #' @keywords internal
 .bpc_fit_integration <- function(data, LSL, USL, target, prior_mu, prior_sigma,
-                                   sigma = 3, sample_priors = FALSE) {
+                                   sigma = 3, sample_priors = FALSE,
+                                   cached_state = NULL) {
 
   # If sampling from priors, ignore data (likelihood becomes flat/unity effectively)
   # Ideally we should pass sample_priors down, but clearing data works if the
@@ -2782,25 +2783,25 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   is_conjugate <- prior_info$is_conjugate
   case <- prior_info$case
 
-  # Pre-compute state (sufficient statistics)
-  # Cases 1-3 use simple sufficient stats, Case 4 uses expensive precompute
-  cached_state <- NULL
-  n <- length(data)
-  if (n > 0) {
-    x_bar <- mean(data)
-    sse <- sum((data - x_bar)^2)
-  } else {
-    x_bar <- 0
-    sse <- 0
+  # Pre-compute state (sufficient statistics) unless already provided
+  if (is.null(cached_state)) {
+    n <- length(data)
+    if (n > 0) {
+      x_bar <- mean(data)
+      sse <- sum((data - x_bar)^2)
+    } else {
+      x_bar <- 0
+      sse <- 0
+    }
+
+    if (case == 4L) {
+      cached_state <- precompute_generic_state(data, prior)
+    } else {
+      cached_state <- list(n = n, x_bar = x_bar, sse = sse)
+    }
   }
 
-  if (case == 4L) {
-    # Case 4: Generic - needs full precompute
-    cached_state <- precompute_generic_state(data, prior)
-  } else {
-    # Cases 1-3: Simple sufficient statistics
-    cached_state <- list(n = n, x_bar = x_bar, sse = sse)
-  }
+  n <- cached_state$n %||% 0L
 
   # Analyze all metrics
   # Match order of MCMC results for consistency (Cp, CpU, CpL, Cpk, Cpc, Cpm)
