@@ -12,7 +12,8 @@
   prior_mu,
   prior_sigma,
   sigma = 3,
-  sample_priors = FALSE
+  sample_priors = FALSE,
+  cached_state = NULL
 )
 }
 \arguments{

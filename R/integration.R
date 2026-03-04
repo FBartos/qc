@@ -17,7 +17,7 @@ log_diff_exp <- function(x, y) {
 #' @param alpha0 Prior shape for sigma^2
 #' @param beta0 Prior rate for sigma^2
 #' @return PriorConjugate object
-#' @keywords internal
+#' @export
 create_prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
   structure(list(mu0 = mu0, k0 = k0, alpha0 = alpha0, beta0 = beta0),
             class = "PriorConjugate")
@@ -2373,6 +2373,9 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   if (identical(prior_sigma, "Jeffreys_sigma"))
     return(0)
 
+  if (inherits(prior_sigma, "PriorConjugate"))
+    return(prior_sigma$alpha0)
+
   if (!inherits(prior_sigma, "prior"))
     stop("prior_sigma must be a string or BayesTools::prior object")
 
@@ -2484,6 +2487,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     return(list(is_conjugate = TRUE, mu0 = 0, k0 = 0))
   }
 
+  # PriorConjugate carries the full NIG hyperparameters
+  if (inherits(prior, "PriorConjugate")) {
+    return(list(is_conjugate = TRUE, mu0 = prior$mu0, k0 = prior$k0))
+  }
+
   # BayesTools Normal(mean, sd) prior on mu is sigma-INDEPENDENT: N(mean, sd^2).
   # The conjugate NIG model requires N(mu0, sigma^2/k0), which is sigma-DEPENDENT.
   # These are different models, so Normal mu priors are NOT conjugate here.
@@ -2500,6 +2508,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   # Jeffreys (1/sigma) is conjugate with alpha0 = -0.5, beta0 = 0
   if (identical(prior, "Jeffreys_sigma")) {
     return(list(is_conjugate = TRUE, alpha0 = -0.5, beta0 = 0))
+  }
+
+  # PriorConjugate carries the full NIG hyperparameters
+  if (inherits(prior, "PriorConjugate")) {
+    return(list(is_conjugate = TRUE, alpha0 = prior$alpha0, beta0 = prior$beta0))
   }
 
   # InvGamma on sigma is NOT conjugate with the Normal likelihood because
