@@ -21,4 +21,3 @@ PriorConjugate object
 \description{
 Create a conjugate prior for Normal-InverseGamma model
 }
-\keyword{internal}

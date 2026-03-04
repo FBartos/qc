@@ -375,12 +375,33 @@ build_density_plot <- function(
     }
   }
 
+  has_prior <- any(dfLines$type == "prior")
+
   # Density line layer
-  layer_line <- ggplot2::geom_line(
-    data = dfLines,
-    mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric),
-    linewidth = linewidth
-  )
+  layer_line <- if (has_prior) {
+    ggplot2::geom_line(
+      data = dfLines,
+      mapping = ggplot2::aes(x = x, y = y, group = interaction(metric, type), color = metric, linetype = type),
+      linewidth = linewidth
+    )
+  } else {
+    ggplot2::geom_line(
+      data = dfLines,
+      mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric),
+      linewidth = linewidth
+    )
+  }
+
+  # Set linetype scale: solid for posterior, dashed for prior
+  scale_linetype <- if (has_prior) {
+    ggplot2::scale_linetype_manual(
+      name = NULL,
+      values = c("posterior" = "solid", "prior" = "dashed"),
+      labels = c("posterior" = "Posterior", "prior" = "Prior")
+    )
+  } else {
+    NULL
+  }
 
   # Point estimate layer
   layer_points <- NULL
@@ -531,9 +552,10 @@ build_density_plot <- function(
   plt <- ggplot2::ggplot() +
     layer_region +
     layer_cutoffs +
-    layer_area +
     layer_line +
+    scale_linetype +
     layer_points +
+    layer_area +
     layer_cibar +
     layer_text +
     ggplot2::scale_color_manual(values = plotColors)
@@ -667,13 +689,21 @@ plot_density.capability_metrics <- function(
 
   # Extract density data
   dfDensity <- extract_density_data(obj, what = what)
+  dfDensity$type <- "posterior"
+
+  # Extract prior density if available and not showing regions
+  if (!is.null(priorSummaryObject) && !show_regions) {
+    dfDensityPrior <- extract_density_data(priorSummaryObject, what = what)
+    dfDensityPrior$type <- "prior"
+    dfDensity <- vctrs::vec_rbind(dfDensity, dfDensityPrior)
+  }
 
   # Extract point estimates (MCMC: pass obj for sample-based computation)
   dfPoints <- extract_point_estimates(
     obj = obj,
     what = what,
     point_estimate = point_estimate,
-    dfDensity = dfDensity,
+    dfDensity = dfDensity[dfDensity$type == "posterior", ],
     stats_list = NULL  # MCMC uses samples
   )
 
@@ -683,7 +713,7 @@ plot_density.capability_metrics <- function(
     what = what,
     ci = ci,
     ci_level = ci_level,
-    dfDensity = dfDensity,
+    dfDensity = dfDensity[dfDensity$type == "posterior", ],
     stats_list = NULL,  # MCMC uses samples
     ci_custom_left = ci_custom_left,
     ci_custom_right = ci_custom_right
@@ -693,7 +723,8 @@ plot_density.capability_metrics <- function(
   dfLines <- tibble::tibble(
     x = dfDensity$x,
     y = dfDensity$density,
-    metric = dfDensity$metric
+    metric = dfDensity$metric,
+    type = dfDensity$type
   )
 
   # Build plot using single skeleton
@@ -726,14 +757,14 @@ plot_density.capability_metrics <- function(
 }
 
 #' @export
-plot_density.bpc_summary <- function(obj, ...) {
+plot_density.bpc_summary <- function(obj, ..., priorSummaryObject = NULL) {
   # Check if this is from integration method
   if (!is.null(obj$integration_result)) {
     # Use the stored integration results for plotting
-    plot_density_integration_results(obj$integration_result, ...)
+    plot_density_integration_results(obj$integration_result, ..., priorSummaryObject = priorSummaryObject)
   } else {
     # MCMC method: metrics contain samples
-    plot_density(obj = obj$metrics, ...)
+    plot_density(obj = obj$metrics, ..., priorSummaryObject = priorSummaryObject)
   }
 }
 
@@ -783,6 +814,7 @@ plot_density_integration_results <- function(
     axes            = c("automatic", "fixed", "free", "custom"),
     axes_custom     = list("xmin" = -10, "xmax" = 10, "ymin" = -10, "ymax" = 10),
     textsize        = 18,
+    priorSummaryObject = NULL,
     colorScheme     = NULL,
     stripTextFontsize = NULL,
     show_regions    = FALSE,
@@ -804,6 +836,14 @@ plot_density_integration_results <- function(
 
   # Extract density data using shared extractor
   dfDensity <- .extract_density_integration(integration_result, what = what)
+  dfDensity$type <- "posterior"
+
+  # Extract prior density if available and not showing regions
+  if (!is.null(priorSummaryObject) && !show_regions) {
+    dfDensityPrior <- extract_density_data(priorSummaryObject, what = what)
+    dfDensityPrior$type <- "prior"
+    dfDensity <- vctrs::vec_rbind(dfDensity, dfDensityPrior)
+  }
 
   # Build stats list for integration method
   results <- integration_result$results
@@ -816,7 +856,7 @@ plot_density_integration_results <- function(
     obj = NULL,  # Not needed for integration
     what = what,
     point_estimate = point_estimate,
-    dfDensity = dfDensity,
+    dfDensity = dfDensity[dfDensity$type == "posterior", ],
     stats_list = stats_list
   )
 
@@ -826,7 +866,7 @@ plot_density_integration_results <- function(
     what = what,
     ci = ci,
     ci_level = ci_level,
-    dfDensity = dfDensity,
+    dfDensity = dfDensity[dfDensity$type == "posterior", ],
     stats_list = stats_list
   )
 
@@ -834,7 +874,8 @@ plot_density_integration_results <- function(
   dfLines <- tibble::tibble(
     x = dfDensity$x,
     y = dfDensity$density,
-    metric = dfDensity$metric
+    metric = dfDensity$metric,
+    type = dfDensity$type
   )
 
   # Build plot using single skeleton

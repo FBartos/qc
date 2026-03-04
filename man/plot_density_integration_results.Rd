@@ -20,6 +20,7 @@ plot_density_integration_results(
   axes = c("automatic", "fixed", "free", "custom"),
   axes_custom = list(xmin = -10, xmax = 10, ymin = -10, ymax = 10),
   textsize = 18,
+  priorSummaryObject = NULL,
   colorScheme = NULL,
   stripTextFontsize = NULL,
   show_regions = FALSE,
