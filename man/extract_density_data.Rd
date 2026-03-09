@@ -11,19 +11,19 @@ extract_density_data(obj, ...)
 
 \method{extract_density_data}{bpc}(
   obj,
-  what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
   ...
 )
 
 \method{extract_density_data}{bpc_summary}(
   obj,
-  what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
   ...
 )
 
 \method{extract_density_data}{capability_metrics}(
   obj,
-  what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
   ...
 )
 }

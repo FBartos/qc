@@ -24,8 +24,8 @@ get_metric_constraints <- function(metric, c, LSL, USL, target) {
     mu_b_fn = function(s) {
       if (metric=="Cp") return(c(-Inf, Inf))
       if (metric=="Cpk") return(c(LSL+3*c*s, USL-3*c*s))
-      if (metric=="Cpu"||metric=="CpU") return(c(-Inf, USL-3*c*s))
-      if (metric=="Cpl"||metric=="CpL") return(c(LSL+3*c*s, Inf))
+      if (metric=="Cpu"||metric=="Cpu") return(c(-Inf, USL-3*c*s))
+      if (metric=="Cpl"||metric=="Cpl") return(c(LSL+3*c*s, Inf))
       if (metric=="Cpm"||metric=="Cpc") {
         T_val <- if(metric=="Cpc") mid else target
         R <- tol/(6*c); if(s>=R) return(c(0,-1))
@@ -149,7 +149,7 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric="Cpk", target
 #' @param USL Upper specification limit
 #' @param bounds Vector c(lower, upper) defining the interval
 #' @param prior Prior object (PriorConjugate or PriorGeneric)
-#' @param metric Capability index: "Cp", "Cpk", "Cpm", "Cpc", "CpU", "CpL"
+#' @param metric Capability index: "Cp", "Cpk", "Cpm", "Cpc", "Cpu", "Cpl"
 #' @param target Target value for Cpm (defaults to midpoint)
 #' @param cached_state Pre-computed state from precompute_generic_state (for PriorGeneric only)
 #' @return Probability that metric is in (bounds[1], bounds[2])
@@ -386,7 +386,7 @@ fit_mcmc <- qc::bpc(x = data_vec, LSL = LSL, USL = USL, target = target, iter = 
 result_mcmc <- sapply(fit_mcmc$metrics, function(metric_values) mean(bounds[1] < metric_values & metric_values < bounds[2]))
 
 # Compare Indices
-metrics <- c("Cp", "Cpk", "Cpm", "CpU", "CpL", "Cpc")
+metrics <- c("Cp", "Cpk", "Cpm", "Cpu", "Cpl", "Cpc")
 
 # FAST: Precompute expensive state once, reuse for all metrics
 cached_conj <- NULL  # Conjugate doesn't need caching (already fast)

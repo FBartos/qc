@@ -104,7 +104,7 @@ create_prior_semi_sigma <- function(alpha0, beta0, log_dens_mu, bayestools_prior
 # ==============================================================================
 
 #' Get constraint functions for a capability metric
-#' @param metric One of "Cp", "Cpk", "Cpm", "Cpc", "CpU", "CpL"
+#' @param metric One of "Cp", "Cpk", "Cpm", "Cpc", "Cpu", "Cpl"
 #' @param c Threshold value
 #' @param LSL Lower specification limit
 #' @param USL Upper specification limit
@@ -130,10 +130,10 @@ get_metric_constraints <- function(metric, c, LSL, USL, target) {
       if (metric == "Cpk") {
         return(list(lower = LSL + 3 * c * s, upper = USL - 3 * c * s))
       }
-      if (metric == "CpU") {
+      if (metric == "Cpu") {
         return(list(lower = rep(-Inf, n), upper = USL - 3 * c * s))
       }
-      if (metric == "CpL") {
+      if (metric == "Cpl") {
         return(list(lower = LSL + 3 * c * s, upper = rep(Inf, n)))
       }
       if (metric %in% c("Cpm", "Cpc")) {
@@ -162,7 +162,7 @@ get_metric_constraints <- function(metric, c, LSL, USL, target) {
 #' @param LSL Lower specification limit
 #' @param USL Upper specification limit
 #' @param target Target value (required for Cpm)
-#' @param metric One of "Cp", "Cpk", "CpU", "CpL", "Cpm", "Cpc"
+#' @param metric One of "Cp", "Cpk", "Cpu", "Cpl", "Cpm", "Cpc"
 #' @return Metric value(s) (same length as mu/sigma)
 #' @keywords internal
 compute_metric_value <- function(mu, sigma, LSL, USL, target, metric) {
@@ -172,8 +172,8 @@ compute_metric_value <- function(mu, sigma, LSL, USL, target, metric) {
 
   switch(metric,
     "Cp"  = tol / (6 * sigma),
-    "CpU" = (USL - mu) / (3 * sigma),
-    "CpL" = (mu - LSL) / (3 * sigma),
+    "Cpu" = (USL - mu) / (3 * sigma),
+    "Cpl" = (mu - LSL) / (3 * sigma),
     "Cpk" = pmin((USL - mu) / (3 * sigma), (mu - LSL) / (3 * sigma)),
     "Cpm" = tol / (6 * sqrt(sigma^2 + (mu - target)^2)),
     "Cpc" = tol / (6 * sqrt(sigma^2 + (mu - mid)^2)),
@@ -229,14 +229,14 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
   sigma_low <- BayesTools::quant(prior_sigma, p_low)
   sigma_high <- BayesTools::quant(prior_sigma, p_high)
 
-  # For metrics inversely related to sigma (Cp, Cpk, CpU, CpL, Cpm, Cpc),
+  # For metrics inversely related to sigma (Cp, Cpk, Cpu, Cpl, Cpm, Cpc),
 
 # metric_high corresponds to sigma_low and vice versa
   metric_at_sigma_low <- switch(metric,
     "Cp" = tol / (6 * sigma_low),
     "Cpk" = tol / (6 * sigma_low),  # Upper bound (assumes mu = mid)
-    "CpU" = (USL - mid) / (3 * sigma_low),
-    "CpL" = (mid - LSL) / (3 * sigma_low),
+    "Cpu" = (USL - mid) / (3 * sigma_low),
+    "Cpl" = (mid - LSL) / (3 * sigma_low),
     "Cpm" = tol / (6 * sigma_low),  # Upper bound (assumes mu = target)
     "Cpc" = tol / (6 * sigma_low),  # Upper bound approximation
     tol / (6 * sigma_low)  # Default
@@ -245,8 +245,8 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
   metric_at_sigma_high <- switch(metric,
     "Cp" = tol / (6 * sigma_high),
     "Cpk" = tol / (6 * sigma_high),
-    "CpU" = (USL - mid) / (3 * sigma_high),
-    "CpL" = (mid - LSL) / (3 * sigma_high),
+    "Cpu" = (USL - mid) / (3 * sigma_high),
+    "Cpl" = (mid - LSL) / (3 * sigma_high),
     "Cpm" = tol / (6 * sigma_high),
     "Cpc" = tol / (6 * sigma_high),
     tol / (6 * sigma_high)
@@ -301,14 +301,14 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
-  if (metric == "CpU") {
-    # CpU = (USL - mu) / (3*sigma)
-    # E[CpU] = E[(USL - mu)/sigma] / 3
+  if (metric == "Cpu") {
+    # Cpu = (USL - mu) / (3*sigma)
+    # E[Cpu] = E[(USL - mu)/sigma] / 3
     # mu|sigma ~ N(mu_n, sigma^2/k_n), so E[mu|sigma] = mu_n
     # E[(USL - mu)/sigma] = (USL - mu_n) * E[1/sigma]
     E1 <- (USL - mu_n) / 3 * E_inv_sigma
 
-    # E[CpU^2] = E[(USL - mu)^2 / sigma^2] / 9
+    # E[Cpu^2] = E[(USL - mu)^2 / sigma^2] / 9
     # (USL - mu)^2 = (USL - mu_n)^2 - 2*(USL - mu_n)*(mu - mu_n) + (mu - mu_n)^2
     # E[(mu - mu_n)^2 | sigma] = sigma^2/k_n
     # E[(USL - mu)^2 / sigma^2] = (USL - mu_n)^2 * E[1/sigma^2] + E[1/k_n] = (USL - mu_n)^2 * E[1/sigma^2] + 1/k_n
@@ -316,15 +316,15 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
-  if (metric == "CpL") {
-    # CpL = (mu - LSL) / (3*sigma)
+  if (metric == "Cpl") {
+    # Cpl = (mu - LSL) / (3*sigma)
     E1 <- (mu_n - LSL) / 3 * E_inv_sigma
     E2 <- ((mu_n - LSL)^2 * E_inv_sigma2 + 1 / k_n) / 9
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
   if (metric == "Cpk") {
-    # Cpk = min(CpU, CpL) = (tol/2 - |mu - mid|) / (3*sigma)
+    # Cpk = min(Cpu, Cpl) = (tol/2 - |mu - mid|) / (3*sigma)
     # E[Cpk] = (tol/2)/3 * E[1/sigma] - (1/3) * E[|mu - mid|/sigma]
 
     # E[|mu - mid|/sigma] requires integrating over sigma
@@ -522,7 +522,7 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
 
   Z <- stats::integrate(base_w, t_lo, t_hi, rel.tol = 1e-5)$value
 
-  if (metric %in% c("Cp", "CpU", "CpL", "Cpk")) {
+  if (metric %in% c("Cp", "Cpu", "Cpl", "Cpk")) {
     # Analytical E[metric|sigma] and E[metric^2|sigma] under mu|sigma ~ N(mu_n, sigma^2/k_n)
     inner_moments <- function(sigma) {
       sd_mu <- sigma / sqrt(k_n)
@@ -530,8 +530,8 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       inv3s <- 1 / (3 * sigma)
       switch(metric,
         "Cp"  = list(E1 = spec_tol * inv3s / 2, E2 = (spec_tol * inv3s / 2)^2),
-        "CpU" = list(E1 = cc * inv3s, E2 = (cc^2 + b^2) * inv3s^2),
-        "CpL" = list(E1 = a * inv3s,  E2 = (a^2 + b^2) * inv3s^2),
+        "Cpu" = list(E1 = cc * inv3s, E2 = (cc^2 + b^2) * inv3s^2),
+        "Cpl" = list(E1 = a * inv3s,  E2 = (a^2 + b^2) * inv3s^2),
         "Cpk" = {
           zs  <- (M - mu_n) / sd_mu
           Phi <- stats::pnorm(zs); phi <- stats::dnorm(zs)
@@ -939,7 +939,7 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 #' @param LSL Lower specification limit
 #' @param USL Upper specification limit
 #' @param prior Prior object (PriorConjugate)
-#' @param metric Capability metric (currently "Cpk", "CpU", "CpL", "Cp" supported)
+#' @param metric Capability metric (currently "Cpk", "Cpu", "Cpl", "Cp" supported)
 #' @param target Target value for Cpm/Cpc
 #' @param ... Additional arguments
 #' @return Function pdf(c) returning the marginal posterior density at c
@@ -1020,7 +1020,7 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpU") {
+  if (metric == "Cpu") {
     return(function(c) {
       if (c <= 0) return(0)
       mu_U <- USL - 3 * c * sigma_grid
@@ -1031,7 +1031,7 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpL") {
+  if (metric == "Cpl") {
     return(function(c) {
       if (c <= 0) return(0)
       mu_L <- LSL + 3 * c * sigma_grid
@@ -1146,7 +1146,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpU") {
+  if (metric == "Cpu") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1160,7 +1160,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpL") {
+  if (metric == "Cpl") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1319,7 +1319,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpU") {
+  if (metric == "Cpu") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1336,7 +1336,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "CpL") {
+  if (metric == "Cpl") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1500,10 +1500,10 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     })
   }
 
-  # CpU: single contour
-  # For CpU = c, contour is mu = USL - 3*c*sigma
+  # Cpu: single contour
+  # For Cpu = c, contour is mu = USL - 3*c*sigma
   # Need sigma_upper that ensures mu is within prior support (or has meaningful density)
-  if (metric == "CpU") {
+  if (metric == "Cpu") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1539,9 +1539,9 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     })
   }
 
-  # CpL: single contour
-  # For CpL = c, contour is mu = LSL + 3*c*sigma
-  if (metric == "CpL") {
+  # Cpl: single contour
+  # For Cpl = c, contour is mu = LSL + 3*c*sigma
+  if (metric == "Cpl") {
     return(function(c) {
       if (c <= 0) return(0)
 
@@ -1942,7 +1942,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                           cached_state = NULL) {
 
   # Check if we can use density solver
-  density_metrics <- c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")
+  density_metrics <- c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")
   can_use_density <- (inherits(prior, "PriorConjugate") ||
                       inherits(prior, "PriorGeneric") ||
                       inherits(prior, "PriorSemiConjugateMu") ||
@@ -1995,7 +1995,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 #' Compute negative-value mean correction for prior-only mode.
-#' For CpU, CpL, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]}.
+#' For Cpu, Cpl, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]}.
 #' This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
 #' \eqn{area * E[metric | metric > 0]} to get the full unconditional mean.
 #' @keywords internal
@@ -2016,30 +2016,30 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   tol <- USL - LSL
 
-  if (metric == "CpU" || metric == "Cpk") {
+  if (metric == "Cpu" || metric == "Cpk") {
     # E[(USL - mu) * I(mu > USL)]: negative since USL - mu < 0 when mu > USL
-    E_CpU_neg <- tryCatch({
+    E_Cpu_neg <- tryCatch({
       integrand <- function(mu) (USL - mu) * exp(log_dens_mu(mu))
       stats::integrate(Vectorize(integrand), USL, USL + 20 * tol,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
-    corr_CpU <- (1 / 3) * E_CpU_neg * E_inv_sigma
+    corr_Cpu <- (1 / 3) * E_Cpu_neg * E_inv_sigma
   }
 
-  if (metric == "CpL" || metric == "Cpk") {
+  if (metric == "Cpl" || metric == "Cpk") {
     # E[(mu - LSL) * I(mu < LSL)]: negative since mu - LSL < 0 when mu < LSL
-    E_CpL_neg <- tryCatch({
+    E_Cpl_neg <- tryCatch({
       integrand <- function(mu) (mu - LSL) * exp(log_dens_mu(mu))
       stats::integrate(Vectorize(integrand), LSL - 20 * tol, LSL,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
-    corr_CpL <- (1 / 3) * E_CpL_neg * E_inv_sigma
+    corr_Cpl <- (1 / 3) * E_Cpl_neg * E_inv_sigma
   }
 
   switch(metric,
-    "CpU" = corr_CpU,
-    "CpL" = corr_CpL,
-    "Cpk" = corr_CpU + corr_CpL,
+    "Cpu" = corr_Cpu,
+    "Cpl" = corr_Cpl,
+    "Cpk" = corr_Cpu + corr_Cpl,
     0
   )
 }
@@ -2157,8 +2157,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 
     metric_samples <- switch(metric,
       "Cp"  = tol / (6 * sig_samples),
-      "CpU" = (USL - mu_samples) / (3 * sig_samples),
-      "CpL" = (mu_samples - LSL) / (3 * sig_samples),
+      "Cpu" = (USL - mu_samples) / (3 * sig_samples),
+      "Cpl" = (mu_samples - LSL) / (3 * sig_samples),
       "Cpk" = pmin((USL - mu_samples), (mu_samples - LSL)) / (3 * sig_samples),
       "Cpm" = pmin(USL - target, target - LSL) /
               (3 * sqrt(sig_samples^2 + (mu_samples - target)^2)),
@@ -2206,7 +2206,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 
   # Choose method: density solver (direct PDF) vs survival function + finite diff
   # Density solver works for both PriorConjugate and PriorGeneric with supported metrics
-  density_metrics <- c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")
+  density_metrics <- c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")
   can_use_density <- use_density_solver &&
                      (inherits(prior, "PriorConjugate") ||
                       inherits(prior, "PriorGeneric") ||
@@ -2409,18 +2409,18 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 #' Check whether posterior moments of a capability metric diverge
 #'
 #' Uses the analytic decision rules from the divergence analysis: for metrics
-#' scaling as \eqn{\sigma^{-1}} (Cp, CpU, CpL, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
+#' scaling as \eqn{\sigma^{-1}} (Cp, Cpu, Cpl, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
 #' For metrics involving \eqn{\sqrt{\sigma^2 + (\mu - T)^2}} (Cpm, Cpc), the singularity
 #' is regularised and \eqn{E[C^k] < \infty} iff \eqn{\alpha > k - 1}.
 #'
-#' @param metric One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"
+#' @param metric One of "Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc"
 #' @param alpha_sigma Effective alpha from .extract_alpha_parameter()
 #' @param prior_sigma_label Human-readable label for the sigma prior (for messages)
 #' @return List with mean_divergent, sd_divergent, alpha, reason
 #' @keywords internal
 .check_moment_divergence <- function(metric, alpha_sigma,
                                      prior_sigma_label = "sigma prior") {
-  if (metric %in% c("Cp", "CpU", "CpL", "Cpk")) {
+  if (metric %in% c("Cp", "Cpu", "Cpl", "Cpk")) {
     mean_threshold <- 1
     var_threshold  <- 2
   } else if (metric %in% c("Cpm", "Cpc")) {
@@ -2817,8 +2817,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   n <- cached_state$n %||% 0L
 
   # Analyze all metrics
-  # Match order of MCMC results for consistency (Cp, CpU, CpL, Cpk, Cpc, Cpm)
-  metrics <- c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
+  # Match order of MCMC results for consistency (Cp, Cpu, Cpl, Cpk, Cpc, Cpm)
+  metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
 
   # Pre-compute analytic divergence info for each metric.
   # With data (n > 0), the likelihood provides superexponential decay at sigma = 0,

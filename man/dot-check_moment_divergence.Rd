@@ -11,7 +11,7 @@
 )
 }
 \arguments{
-\item{metric}{One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"}
+\item{metric}{One of "Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc"}
 
 \item{alpha_sigma}{Effective alpha from .extract_alpha_parameter()}
 
@@ -22,7 +22,7 @@ List with mean_divergent, sd_divergent, alpha, reason
 }
 \description{
 Uses the analytic decision rules from the divergence analysis: for metrics
-scaling as \eqn{\sigma^{-1}} (Cp, CpU, CpL, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
+scaling as \eqn{\sigma^{-1}} (Cp, Cpu, Cpl, Cpk), \eqn{E[C^k] < \infty} iff \eqn{\alpha > k}.
 For metrics involving \eqn{\sqrt{\sigma^2 + (\mu - T)^2}} (Cpm, Cpc), the singularity
 is regularised and \eqn{E[C^k] < \infty} iff \eqn{\alpha > k - 1}.
 }

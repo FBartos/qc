@@ -115,7 +115,7 @@ testthat::test_that("#8: semi-conjugate sigma moments match 2D numerical integra
 })
 
 testthat::test_that("#9: Gauss-Hermite quadrature is accurate for Cpk", {
-  # Cpk = min(CpU, CpL) has a kink at mu = midpoint. Low-order GH can miss this.
+  # Cpk = min(Cpu, Cpl) has a kink at mu = midpoint. Low-order GH can miss this.
   # Compare compute_metric_moments.PriorSemiConjugateMu against a brute-force 2D reference.
   skip_if_not_installed("BayesTools")
   skip_if_not_installed("cubature")

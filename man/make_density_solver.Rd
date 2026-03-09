@@ -15,7 +15,7 @@ make_density_solver(data, LSL, USL, prior, metric = "Cpk", target = NULL, ...)
 
 \item{prior}{Prior object (PriorConjugate)}
 
-\item{metric}{Capability metric (currently "Cpk", "CpU", "CpL", "Cp" supported)}
+\item{metric}{Capability metric (currently "Cpk", "Cpu", "Cpl", "Cp" supported)}
 
 \item{target}{Target value for Cpm/Cpc}
 

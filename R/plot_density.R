@@ -21,7 +21,7 @@ extract_density_data <- function(obj, ...) {
 
 #' @rdname extract_density_data
 #' @export
-extract_density_data.bpc <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+extract_density_data.bpc <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
 
   if (!is.null(obj$method) && obj$method == "integration") {
@@ -35,7 +35,7 @@ extract_density_data.bpc <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "C
 
 #' @rdname extract_density_data
 #' @export
-extract_density_data.bpc_summary <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+extract_density_data.bpc_summary <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
 
   if (!is.null(obj$integration_result)) {
@@ -49,7 +49,7 @@ extract_density_data.bpc_summary <- function(obj, what = c("Cp", "CpU", "CpL", "
 
 #' @rdname extract_density_data
 #' @export
-extract_density_data.capability_metrics <- function(obj, what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"), ...) {
+extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
 
   # Check method attribute - for integration metrics, we can't compute density from samples
@@ -641,7 +641,7 @@ plot_density.bpc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
 #' @export
 plot_density.capability_metrics <- function(
     obj,
-    what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+    what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
     point_estimate  = c("none", "mean", "median", "mode"),
     ci              = c("none", "central", "HPD", "custom", "support"),
     ci_level        = 0.95,
@@ -800,7 +800,7 @@ plot_density_integration <- function(obj, ...) {
 #' @keywords internal
 plot_density_integration_results <- function(
     integration_result,
-    what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+    what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
     point_estimate  = c("none", "mean", "median", "mode"),
     ci              = c("none", "central", "HPD"),
     ci_level        = 0.95,
