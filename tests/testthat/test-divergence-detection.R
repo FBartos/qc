@@ -65,8 +65,8 @@ test_that(".check_moment_divergence returns correct flags for Cp-family", {
   expect_false(dInf$mean_divergent)
   expect_false(dInf$sd_divergent)
 
-  # CpU, CpL, Cpk behave identical to Cp
-  for (m in c("CpU", "CpL", "Cpk")) {
+  # Cpu, Cpl, Cpk behave identical to Cp
+  for (m in c("Cpu", "Cpl", "Cpk")) {
     d <- qc:::.check_moment_divergence(m, 1, "Exp(1)")
     expect_true(d$mean_divergent, info = paste(m, "alpha=1 mean"))
     expect_true(d$sd_divergent, info = paste(m, "alpha=1 sd"))
@@ -104,7 +104,7 @@ test_that("bpc with Exp(1) prior: all Cp-family means are Inf", {
              sample_priors = TRUE, method = "integration")
   s <- summary(fit)
 
-  cp_family <- c("Cp", "CpU", "CpL", "Cpk")
+  cp_family <- c("Cp", "Cpu", "Cpl", "Cpk")
   for (m in cp_family) {
     row <- s$summary[s$summary$metric == m, ]
     expect_true(is.infinite(row$mean), info = paste(m, "mean should be Inf"))
@@ -155,7 +155,7 @@ test_that("bpc with InvGamma(2,1) prior: no divergence", {
   s <- summary(fit)
 
   expect_false(isTRUE(attr(s, "has_divergent_moments")))
-  for (m in c("Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc")) {
+  for (m in c("Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc")) {
     expect_false(is_analytic(s, m, "mean"), info = paste(m, "mean"))
     expect_false(is_analytic(s, m, "sd"),   info = paste(m, "sd"))
   }

@@ -6,7 +6,7 @@
 \usage{
 plot_density_integration_results(
   integration_result,
-  what = c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"),
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
   point_estimate = c("none", "mean", "median", "mode"),
   ci = c("none", "central", "HPD"),
   ci_level = 0.95,

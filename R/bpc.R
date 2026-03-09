@@ -503,7 +503,7 @@ print.bpc_summary <- function(x, ...) {
 #' diagnostics attached to a bpc_summary object.
 #'
 #' @param x A bpc_summary object (from \code{summary(bpc(...))})
-#' @param metric One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"
+#' @param metric One of "Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc"
 #' @param statistic One of "mean", "sd"
 #' @return Logical: TRUE if the statistic was analytically determined to be infinite
 #' @export

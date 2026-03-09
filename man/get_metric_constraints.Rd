@@ -7,7 +7,7 @@
 get_metric_constraints(metric, c, LSL, USL, target)
 }
 \arguments{
-\item{metric}{One of "Cp", "Cpk", "Cpm", "Cpc", "CpU", "CpL"}
+\item{metric}{One of "Cp", "Cpk", "Cpm", "Cpc", "Cpu", "Cpl"}
 
 \item{c}{Threshold value}
 

@@ -225,9 +225,9 @@ samples_to_posterior_predictives.t      <- function(samples) {
     six_sigma   <- two_sigma * samples$sigma
 
     Cp  <- range / six_sigma
-    CpU <- (USL - samples$mu) / three_sigma
-    CpL <- (samples$mu - LSL) / three_sigma
-    Cpk <- pmin(CpU, CpL)
+    Cpu <- (USL - samples$mu) / three_sigma
+    Cpl <- (samples$mu - LSL) / three_sigma
+    Cpk <- pmin(Cpu, Cpl)
 
     # Eq. 8.14 of Montgomery, 8th edition
     xi <- (samples$mu - target) / (samples$sigma)
@@ -245,9 +245,9 @@ samples_to_posterior_predictives.t      <- function(samples) {
     samples <- samples_to_percentiles(raw_samples, sigma = one_sigma)
 
     Cp  <- range / (samples$UP - samples$LP)
-    CpU <- (USL - samples$MP) / (samples$UP - samples$MP)
-    CpL <- (samples$MP - LSL) / (samples$MP - samples$LP)
-    Cpk <- pmin(CpU, CpL)
+    Cpu <- (USL - samples$MP) / (samples$UP - samples$MP)
+    Cpl <- (samples$MP - LSL) / (samples$MP - samples$LP)
+    Cpk <- pmin(Cpu, Cpl)
 
     Cpm <- min(USL - target, target - LSL) / (one_sigma * sqrt( ( (samples$UP - samples$LP) / two_sigma)^2  + (samples$MP - target)^2) )
 
@@ -259,8 +259,8 @@ samples_to_posterior_predictives.t      <- function(samples) {
 
   lst <- list(
     Cp  = Cp,
-    CpU = CpU,
-    CpL = CpL,
+    Cpu = Cpu,
+    Cpl = Cpl,
     Cpk = Cpk,
     Cpc = Cpc,
     Cpm = Cpm

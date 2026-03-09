@@ -13,7 +13,7 @@ testthat::test_that("integration method returns valid bpc object", {
   expect_true(!is.null(fit$coefficients))
 
   # Check all metrics are present and positive
-  expected_metrics <- c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm")
+  expected_metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
   expect_equal(names(fit$coefficients), expected_metrics)
   expect_true(all(fit$coefficients > 0))
   expect_true(all(is.finite(fit$coefficients)))
@@ -29,7 +29,7 @@ testthat::test_that("density solver vs survival function methods agree", {
   prior <- qc:::create_prior_conjugate()
 
   # Test each supported metric
-  for (metric in c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")) {
+  for (metric in c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")) {
 
     # Use density solver (new default)
     result_density <- qc:::analyze_capability_integration(x, LSL, USL, prior,
@@ -65,7 +65,7 @@ testthat::test_that("density solver produces normalized PDFs", {
   target <- 5
   prior <- qc:::create_prior_conjugate()
 
-  for (metric in c("Cpk", "Cp", "CpU", "CpL", "Cpm", "Cpc")) {
+  for (metric in c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")) {
     pdf_fn <- qc:::make_density_solver(x, LSL, USL, prior, metric = metric, target = target)
     pdf_fn_vec <- Vectorize(pdf_fn)
 
@@ -414,7 +414,7 @@ testthat::test_that("extract_density_data works for integration method", {
   df <- extract_density_data(fit)
   expect_s3_class(df, "tbl_df")
   expect_equal(names(df), c("x", "density", "metric"))
-  expect_equal(levels(df$metric), c("Cp", "CpU", "CpL", "Cpk", "Cpc", "Cpm"))
+  expect_equal(levels(df$metric), c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"))
   expect_true(all(df$density >= 0))
 
   # Extract single metric

@@ -9,7 +9,7 @@ is_analytic(x, metric, statistic = c("mean", "sd"))
 \arguments{
 \item{x}{A bpc_summary object (from \code{summary(bpc(...))})}
 
-\item{metric}{One of "Cp", "CpU", "CpL", "Cpk", "Cpm", "Cpc"}
+\item{metric}{One of "Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc"}
 
 \item{statistic}{One of "mean", "sd"}
 }

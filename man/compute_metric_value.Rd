@@ -17,7 +17,7 @@ compute_metric_value(mu, sigma, LSL, USL, target, metric)
 
 \item{target}{Target value (required for Cpm)}
 
-\item{metric}{One of "Cp", "Cpk", "CpU", "CpL", "Cpm", "Cpc"}
+\item{metric}{One of "Cp", "Cpk", "Cpu", "Cpl", "Cpm", "Cpc"}
 }
 \value{
 Metric value(s) (same length as mu/sigma)
