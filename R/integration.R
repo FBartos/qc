@@ -765,6 +765,31 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
   alpha_n <- post$alpha_n; beta_n <- post$beta_n
   df_p <- 2 * alpha_n
+  tol <- USL - LSL
+
+  # Analytic fast paths for Cp, Cpu, Cpl
+  if (metric == "Cp") {
+    return(function(c) {
+      if (c <= 0) return(1.0)
+      stats::pchisq(72 * beta_n * c^2 / tol^2, df = df_p, lower.tail = FALSE)
+    })
+  }
+  if (metric == "Cpu") {
+    x_U <- (USL - mu_n) * sqrt(k_n * alpha_n / beta_n)
+    sqrt_k_n <- sqrt(k_n)
+    return(function(c) {
+      if (c <= 0) return(1.0)
+      suppressWarnings(stats::pt(x_U, df = df_p, ncp = 3 * c * sqrt_k_n))
+    })
+  }
+  if (metric == "Cpl") {
+    x_L <- (mu_n - LSL) * sqrt(k_n * alpha_n / beta_n)
+    sqrt_k_n <- sqrt(k_n)
+    return(function(c) {
+      if (c <= 0) return(1.0)
+      suppressWarnings(stats::pt(x_L, df = df_p, ncp = 3 * c * sqrt_k_n))
+    })
+  }
 
   # Pre-compute global h_max (chi-square mode density for numerical stability)
   y_mode <- max(df_p - 2, 1e-6)
@@ -974,6 +999,31 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     })
   }
 
+  # Cpu/Cpl: analytic via non-central t finite-differencing
+  if (metric == "Cpu") {
+    x_U <- (USL - mu_n) * sqrt(k_n * alpha_n / beta_n)
+    sqrt_k_n <- sqrt(k_n)
+    return(function(c) {
+      if (c <= 0) return(0)
+      h <- max(c * 1e-5, 1e-8)
+      S_plus  <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n, ncp = 3 * (c + h) * sqrt_k_n))
+      S_minus <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n, ncp = 3 * (c - h) * sqrt_k_n))
+      max(0, -(S_plus - S_minus) / (2 * h))
+    })
+  }
+
+  if (metric == "Cpl") {
+    x_L <- (mu_n - LSL) * sqrt(k_n * alpha_n / beta_n)
+    sqrt_k_n <- sqrt(k_n)
+    return(function(c) {
+      if (c <= 0) return(0)
+      h <- max(c * 1e-5, 1e-8)
+      S_plus  <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n, ncp = 3 * (c + h) * sqrt_k_n))
+      S_minus <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n, ncp = 3 * (c - h) * sqrt_k_n))
+      max(0, -(S_plus - S_minus) / (2 * h))
+    })
+  }
+
   # Precompute sigma grid for metrics requiring contour integration.
   # Replaces per-call stats::integrate with a fixed trapezoidal rule.
   sigma_mode_approx <- sqrt(beta_n / max(alpha_n, 1))
@@ -981,10 +1031,8 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   sigma_hi <- sigma_mode_approx * 10
   n_sigma <- 1024L
   sigma_grid <- seq(sigma_lo, sigma_hi, length.out = n_sigma)
-  d_sigma <- sigma_grid[2] - sigma_grid[1]
   lps_grid <- -(2 * alpha_n + 1) * log(sigma_grid) - beta_n / sigma_grid^2
   log_jac_grid <- log(3) + log(sigma_grid)
-  sd_mu_grid <- sigma_grid / sqrt(k_n)
 
   if (metric == "Cpk") {
     return(function(c) {
@@ -1017,28 +1065,6 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
       contrib_L[!is.finite(contrib_L)] <- 0
       contrib_U[!is.finite(contrib_U)] <- 0
       sum((contrib_L + contrib_U) * w_trap)
-    })
-  }
-
-  if (metric == "Cpu") {
-    return(function(c) {
-      if (c <= 0) return(0)
-      mu_U <- USL - 3 * c * sigma_grid
-      log_p_mu_U <- stats::dnorm(mu_U, mu_n, sd_mu_grid, log = TRUE)
-      vals <- exp(lps_grid + log_p_mu_U + log_jac_grid - log_Z_sigma)
-      vals[!is.finite(vals)] <- 0
-      sum(vals) * d_sigma
-    })
-  }
-
-  if (metric == "Cpl") {
-    return(function(c) {
-      if (c <= 0) return(0)
-      mu_L <- LSL + 3 * c * sigma_grid
-      log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu_grid, log = TRUE)
-      vals <- exp(lps_grid + log_p_mu_L + log_jac_grid - log_Z_sigma)
-      vals[!is.finite(vals)] <- 0
-      sum(vals) * d_sigma
     })
   }
 
