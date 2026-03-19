@@ -31,6 +31,58 @@ extract_samples.pc  <- function(fit, bootstrap) {
   return(samples)
 }
 
+#' Extract posterior (or prior) predictive samples from a fitted model
+#'
+#' Works for both \code{"mcmc"} and \code{"integration"} methods.  For MCMC
+#' fits the existing Stan samples are reused.  For integration fits with a
+#' conjugate NIG prior the posterior parameters are computed analytically and
+#' \code{n_samples} draws are generated from the NIG predictive.
+#'
+#' @param fit A fitted object of class \code{bpc}.
+#' @param n_samples Integer.  Number of predictive samples to draw.  Only
+#'   used for \code{method = "integration"}; MCMC fits return one sample per
+#'   posterior draw.
+#' @param ... Currently unused.
+#' @return A numeric vector of predictive samples.
+#' @export
+extract_predictive_samples <- function(fit, n_samples = 10000L, ...) {
+  UseMethod("extract_predictive_samples")
+}
+
+#' @export
+extract_predictive_samples.bpc <- function(fit, n_samples = 10000L, ...) {
+  if (!is.null(fit$method) && fit$method == "integration") {
+    .extract_predictive_samples_integration(fit, n_samples = n_samples)
+  } else {
+    raw_samples <- extract_samples(fit, bootstrap = FALSE)
+    samples     <- samples_to_mu_and_sigma(raw_samples)
+    samples_to_posterior_predictives(samples)
+  }
+}
+
+.extract_predictive_samples_integration <- function(fit, n_samples) {
+  ir    <- fit$integration_result
+  prior <- ir$prior
+
+  if (!inherits(prior, "PriorConjugate")) {
+    stop(
+      "Predictive sampling from integration fits is only supported for conjugate (NIG) priors. ",
+      "Refit with 'method = \"mcmc\"' to obtain predictive samples with non-conjugate priors."
+    )
+  }
+
+  cs   <- ir$cached_state
+  post <- .nig_posterior(prior, n = cs$n, x_bar = cs$x_bar, SS = cs$sse)
+
+  sigma2  <- 1 / stats::rgamma(n_samples, shape = post$alpha_n, rate = post$beta_n)
+  sigma   <- sqrt(sigma2)
+  mu      <- stats::rnorm(n_samples, mean = post$mu_n, sd = sigma / sqrt(post$k_n))
+
+  samples <- list(mu = mu, sigma = sigma)
+  class(samples) <- "normal"
+  samples_to_posterior_predictives(samples)
+}
+
 samples_to_mu_and_sigma         <- function(samples) {
   UseMethod("samples_to_mu_and_sigma")
 }

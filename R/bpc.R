@@ -79,7 +79,9 @@ bpc <- function(
   is_improper_mu <- identical(prior_mu, "Jeffreys_mu")
   is_improper_sigma <- identical(prior_sigma, "Jeffreys_sigma")
 
-  if (sample_priors) {
+  # When prior_mu is a PriorConjugate, the sigma prior is already encoded in
+  # the joint NIG structure, so the Jeffreys check on prior_sigma is not relevant.
+  if (sample_priors && !inherits(prior_mu, "PriorConjugate")) {
     if (is_improper_mu) {
       stop("Improper prior for mu (Jeffreys) cannot be used without data (or with sample_priors = TRUE).")
     }

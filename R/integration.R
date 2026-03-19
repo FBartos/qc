@@ -59,6 +59,34 @@ create_prior_semi_sigma <- function(alpha0, beta0, log_dens_mu, bayestools_prior
             class = "PriorSemiConjugateSigma")
 }
 
+#' Create a unit information prior for a normal model
+#'
+#' Constructs a Normal-Inverse-Gamma (NIG) conjugate prior that carries
+#' approximately one unit of Fisher information.  The prior parameters are
+#' derived from the observed data:
+#' \itemize{
+#'   \item \eqn{\mu \mid \sigma^2 \sim \mathrm{Normal}(\bar{x},\, \sigma^2 / 1)}
+#'   \item \eqn{\sigma^2 \sim \mathrm{Inv-Gamma}(1/2,\, s^2/2)}
+#' }
+#' which corresponds to \code{create_prior_conjugate(mu0 = xbar, k0 = 1,
+#' alpha0 = 0.5, beta0 = s2 / 2)}.
+#'
+#' The returned \code{PriorConjugate} object can be passed as \code{prior_mu}
+#' to \code{\link{bpc}} when \code{method = "integration"}.
+#'
+#' @param x Numeric vector of observations.  \code{NA} values are removed.
+#'   At least 2 finite observations are required.
+#' @return A \code{PriorConjugate} object.
+#' @export
+create_prior_unit_information <- function(x) {
+  x <- x[is.finite(x)]
+  if (length(x) < 2L)
+    stop("At least 2 finite observations are required to compute a unit information prior.")
+  xbar <- mean(x)
+  s2   <- stats::var(x)
+  create_prior_conjugate(mu0 = xbar, k0 = 1, alpha0 = 0.5, beta0 = s2 / 2)
+}
+
 # ==============================================================================
 # Sufficient Statistics & Posterior Update Helpers
 # ==============================================================================
@@ -2070,6 +2098,101 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   )
 }
 
+# Two-pass adaptive grid for density evaluation.
+# Pass 1 (coarse): ~n_coarse uniform points to locate the significant region
+#   and extend edges if density is non-negligible at boundaries.
+# Pass 2 (fine):   concentrate remaining points in the significant region
+#   (where pdf > 1% of peak), with sparse coverage in the tails.
+# Returns a list with grid_x, mid_x, pdf_vals, dx, area — ready for
+# downstream statistics and plotting.
+.adaptive_density_grid <- function(pdf_fn, x_start, x_end, n_grid,
+                                   is_prior_only = FALSE) {
+
+  n_coarse <- min(32L, n_grid)
+
+  # --- Pass 1: coarse grid + edge extension ---
+  max_extend <- if (is_prior_only) 5L else 3L
+  for (attempt in seq_len(max_extend)) {
+    coarse_x   <- seq(x_start, x_end, length.out = n_coarse)
+    coarse_mid <- (coarse_x[-1] + coarse_x[-n_coarse]) / 2
+    coarse_pdf <- vapply(coarse_mid, pdf_fn, numeric(1))
+    coarse_pdf[!is.finite(coarse_pdf) | coarse_pdf < 0] <- 0
+
+    peak <- max(coarse_pdf)
+    if (peak == 0) break
+    edge_threshold <- 0.01 * peak
+    need_left  <- coarse_pdf[1] > edge_threshold && x_start > 0
+    need_right <- coarse_pdf[length(coarse_pdf)] > edge_threshold
+
+    if (!need_left && !need_right) break
+    width <- x_end - x_start
+    if (need_left)  x_start <- max(0, x_start - width)
+    if (need_right) x_end   <- x_end + width
+  }
+
+  if (peak == 0) {
+    grid_x   <- seq(x_start, x_end, length.out = n_grid)
+    mid_x    <- (grid_x[-1] + grid_x[-n_grid]) / 2
+    pdf_vals <- rep(0, length(mid_x))
+    dx       <- diff(grid_x)
+    return(list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
+                dx = dx, area = 0))
+  }
+
+  # For broad prior-only distributions, use log-spaced grid
+  if (is_prior_only && x_end > 0 && x_start > 0 && x_end / x_start > 20) {
+    n_grid_po <- max(n_grid, 1024L)
+    grid_x   <- exp(seq(log(max(x_start, 1e-4)), log(x_end), length.out = n_grid_po))
+    mid_x    <- (grid_x[-1] + grid_x[-n_grid_po]) / 2
+    pdf_vals <- vapply(mid_x, pdf_fn, numeric(1))
+    pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
+    dx   <- diff(grid_x)
+    area <- sum(pdf_vals * dx)
+    if (area > 0) pdf_vals <- pdf_vals / area
+    return(list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
+                dx = dx, area = area))
+  }
+
+  if (is_prior_only) n_grid <- max(n_grid, 1024L)
+
+  # --- Pass 2: adaptive refinement ---
+  # Identify significant region from coarse grid (pdf > 1% of peak)
+  sig <- coarse_pdf > edge_threshold
+  sig_lo <- coarse_mid[which.max(sig)]
+  sig_hi <- coarse_mid[length(sig) - which.max(rev(sig)) + 1L]
+
+  # Allocate ~75% of budget to the significant region, ~25% to tails
+  n_fine <- max(16L, as.integer(0.75 * n_grid))
+  n_tail <- n_grid - n_fine
+
+  fine_grid <- seq(sig_lo, sig_hi, length.out = n_fine)
+
+  # Tail points: split between left and right tails
+  left_width  <- sig_lo - x_start
+  right_width <- x_end - sig_hi
+  total_tail  <- left_width + right_width
+  if (total_tail > 0 && n_tail >= 2L) {
+    n_left  <- max(1L, round(n_tail * left_width / total_tail))
+    n_right <- max(1L, n_tail - n_left)
+    left_grid  <- if (n_left  >= 2L && left_width  > 0) seq(x_start, sig_lo, length.out = n_left + 1L)[-(n_left + 1L)]  else numeric(0)
+    right_grid <- if (n_right >= 2L && right_width > 0) seq(sig_hi, x_end, length.out = n_right + 1L)[-1L] else numeric(0)
+  } else {
+    left_grid <- numeric(0)
+    right_grid <- numeric(0)
+  }
+
+  grid_x <- sort(unique(c(x_start, left_grid, fine_grid, right_grid, x_end)))
+  mid_x    <- (grid_x[-1] + grid_x[-length(grid_x)]) / 2
+  pdf_vals <- vapply(mid_x, pdf_fn, numeric(1))
+  pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
+  dx   <- diff(grid_x)
+  area <- sum(pdf_vals * dx)
+  if (area > 0) pdf_vals <- pdf_vals / area
+
+  list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
+       dx = dx, area = area)
+}
+
 #' Analyze Capability with Automatic Grid Detection
 #' @param data Numeric vector of observations
 #' @param LSL Lower specification limit
@@ -2084,7 +2207,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 #' @keywords internal
 analyze_capability_integration <- function(data, LSL, USL, prior,
                                             metric = "Cpk", target = NULL,
-                                            n_grid = 128,
+                                            n_grid = 512L,
                                             cached_state = NULL,
                                             use_density_solver = TRUE,
                                             mc_samples = NULL,
@@ -2167,9 +2290,6 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     x_end <- max(x_start + 3, 3)
   }
 
-  # Prior-only mode with broad distributions needs more grid resolution
-  if (is_prior_only) n_grid <- max(n_grid, 1024L)
-
   # For prior-only mode with BayesTools priors, use direct Monte Carlo sampling.
   # This avoids grid resolution issues with heavy-tailed priors.
   if (is_prior_only && has_bayestools_priors && !is.null(mc_samples)) {
@@ -2245,44 +2365,13 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     pdf_fn <- make_density_solver(data, LSL, USL, prior, metric, target,
                                    cached_state = cached_state)
 
-    # Adaptive grid: extend if density is non-negligible at edges
-    max_extend <- if (is_prior_only) 5L else 3L
-    for (attempt in seq_len(max_extend)) {
-      grid_x <- seq(x_start, x_end, length.out = n_grid)
-      mid_x <- (grid_x[-1] + grid_x[-n_grid]) / 2
-      pdf_vals <- sapply(mid_x, pdf_fn)
-      pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
-
-      peak <- max(pdf_vals)
-      if (peak == 0) break
-      edge_threshold <- 0.01 * peak
-      need_extend_left  <- pdf_vals[1] > edge_threshold && x_start > 0
-      need_extend_right <- pdf_vals[length(pdf_vals)] > edge_threshold
-
-      if (!need_extend_left && !need_extend_right) break
-      width <- x_end - x_start
-      if (need_extend_left)  x_start <- max(0, x_start - width)
-      if (need_extend_right) x_end   <- x_end + width
-    }
-
-    # For broad prior-only distributions (x_end/x_start > 20), use a composite
-    # grid: log-spaced for the heavy tail to capture the full distribution.
-    if (is_prior_only && x_end > 0 && x_start > 0 && x_end / x_start > 20) {
-      log_grid <- exp(seq(log(max(x_start, 1e-4)), log(x_end), length.out = n_grid))
-      grid_x <- log_grid
-      mid_x <- (grid_x[-1] + grid_x[-n_grid]) / 2
-      dx <- diff(grid_x)
-      pdf_vals <- sapply(mid_x, pdf_fn)
-      pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
-    }
-
-    # Handle NaN/negative in PDF
-    pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
-
-    # Normalize area to 1.0
-    dx <- diff(grid_x)
-    area <- sum(pdf_vals * dx)
-    if (area > 0) pdf_vals <- pdf_vals / area
+    result <- .adaptive_density_grid(pdf_fn, x_start, x_end, n_grid,
+                                     is_prior_only = is_prior_only)
+    grid_x   <- result$grid_x
+    mid_x    <- result$mid_x
+    pdf_vals <- result$pdf_vals
+    dx       <- result$dx
+    area     <- result$area
 
   } else {
     # Fallback: Survival function + finite differences
@@ -2816,8 +2905,14 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     data <- numeric(0)
   }
 
-  # Convert priors to integration format (4-case classification)
-  prior_info <- .bayestools_to_integration_prior(prior_mu, prior_sigma)
+  # Convert priors to integration format (4-case classification).
+  # A PriorConjugate passed as prior_mu (e.g. from create_prior_unit_information)
+  # is already in integration format and does not need conversion.
+  prior_info <- if (inherits(prior_mu, "PriorConjugate")) {
+    list(prior = prior_mu, is_conjugate = TRUE, case = 1L)
+  } else {
+    .bayestools_to_integration_prior(prior_mu, prior_sigma)
+  }
   prior <- prior_info$prior
   is_conjugate <- prior_info$is_conjugate
   case <- prior_info$case
