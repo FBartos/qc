@@ -2945,8 +2945,13 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   # With data (n > 0), the likelihood provides superexponential decay at sigma = 0,
   # so all moments are finite regardless of the prior.
   is_prior_only <- n == 0
-  alpha_sigma <- .extract_alpha_parameter(prior_sigma)
-  sigma_label <- .prior_sigma_label(prior_sigma)
+  if (is_conjugate) {
+    alpha_sigma <- prior$alpha0
+    sigma_label <- sprintf("NIG(alpha0 = %s)", format(prior$alpha0, digits = 3))
+  } else {
+    alpha_sigma <- .extract_alpha_parameter(prior_sigma)
+    sigma_label <- .prior_sigma_label(prior_sigma)
+  }
   divergence_map <- if (is_prior_only) {
     setNames(lapply(metrics, function(m)
       .check_moment_divergence(m, alpha_sigma, sigma_label)
