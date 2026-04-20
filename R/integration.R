@@ -120,6 +120,219 @@ create_prior_unit_information <- function(x) {
   list(k_n = k_n, mu_n = mu_n, alpha_n = alpha_n, beta_n = beta_n)
 }
 
+.is_degenerate_conjugate_posterior <- function(beta_n) {
+  is.finite(beta_n) && beta_n <= 0
+}
+
+.scalar_almost_equal <- function(x, y) {
+  tol <- sqrt(.Machine$double.eps) * max(1, abs(x), abs(y))
+  abs(x - y) <= tol
+}
+
+.degenerate_conjugate_metric_distribution <- function(mu_n, k_n, LSL, USL,
+                                                      target, metric,
+                                                      sigma_level = 3) {
+  mid <- (LSL + USL) / 2
+  if (is.null(target)) target <- mid
+
+  if (!is.finite(k_n) || k_n <= 0) {
+    return(NULL)
+  }
+
+  boundary_sd <- 1 / (sigma_level * sqrt(k_n))
+
+  if (metric == "Cp") {
+    return(list(type = "pos_inf"))
+  }
+
+  if (metric == "Cpu") {
+    if (.scalar_almost_equal(mu_n, USL)) {
+      return(list(type = "normal", mean = 0, sd = boundary_sd))
+    }
+    return(list(type = if (mu_n < USL) "pos_inf" else "neg_inf"))
+  }
+
+  if (metric == "Cpl") {
+    if (.scalar_almost_equal(mu_n, LSL)) {
+      return(list(type = "normal", mean = 0, sd = boundary_sd))
+    }
+    return(list(type = if (mu_n > LSL) "pos_inf" else "neg_inf"))
+  }
+
+  if (metric == "Cpk") {
+    if (.scalar_almost_equal(mu_n, LSL) || .scalar_almost_equal(mu_n, USL)) {
+      return(list(type = "normal", mean = 0, sd = boundary_sd))
+    }
+    if (mu_n > LSL && mu_n < USL) {
+      return(list(type = "pos_inf"))
+    }
+    return(list(type = "neg_inf"))
+  }
+
+  if (metric == "Cpm") {
+    delta <- abs(mu_n - target)
+    if (.scalar_almost_equal(delta, 0)) {
+      return(list(type = "pos_inf"))
+    }
+    value <- (USL - LSL) / ((2 * sigma_level) * delta)
+    return(list(type = "point", value = value))
+  }
+
+  if (metric == "Cpc") {
+    delta <- abs(mu_n - target)
+    if (.scalar_almost_equal(delta, 0)) {
+      return(list(type = "pos_inf"))
+    }
+    value <- (USL - LSL) / ((2 * sigma_level) * sqrt(pi / 2) * delta)
+    return(list(type = "point", value = value))
+  }
+
+  NULL
+}
+
+.degenerate_metric_moments <- function(dist) {
+  switch(dist$type,
+    "point" = list(mean = dist$value, sd = 0),
+    "normal" = list(mean = dist$mean, sd = dist$sd),
+    "pos_inf" = list(mean = Inf, sd = Inf),
+    "neg_inf" = list(mean = -Inf, sd = Inf),
+    stop("Unknown degenerate metric distribution type: ", dist$type)
+  )
+}
+
+.degenerate_metric_quantiles <- function(dist, probs) {
+  probs <- pmin(pmax(probs, 0), 1)
+  switch(dist$type,
+    "point" = rep(dist$value, length(probs)),
+    "normal" = stats::qnorm(probs, mean = dist$mean, sd = dist$sd),
+    "pos_inf" = rep(Inf, length(probs)),
+    "neg_inf" = rep(-Inf, length(probs)),
+    stop("Unknown degenerate metric distribution type: ", dist$type)
+  )
+}
+
+.degenerate_metric_interval <- function(dist, ci, ci_level) {
+  ci_level <- max(min(ci_level, 1), 0)
+  h <- (1 - ci_level) / 2
+
+  switch(dist$type,
+    "point" = rep(dist$value, 2),
+    "normal" = {
+      if (ci == "central" || ci == "HPD") {
+        stats::qnorm(c(h, 1 - h), mean = dist$mean, sd = dist$sd)
+      } else {
+        stop("Unknown ci for degenerate metric distribution.")
+      }
+    },
+    "pos_inf" = rep(Inf, 2),
+    "neg_inf" = rep(-Inf, 2),
+    stop("Unknown degenerate metric distribution type: ", dist$type)
+  )
+}
+
+.degenerate_metric_solver <- function(dist) {
+  force(dist)
+
+  function(c) {
+    c <- as.numeric(c)
+    switch(dist$type,
+      "point" = as.numeric(c < dist$value),
+      "normal" = stats::pnorm(c, mean = dist$mean, sd = dist$sd,
+                               lower.tail = FALSE),
+      "pos_inf" = as.numeric(c < Inf),
+      "neg_inf" = rep(0, length(c)),
+      stop("Unknown degenerate metric distribution type: ", dist$type)
+    )
+  }
+}
+
+.degenerate_metric_density <- function(dist) {
+  force(dist)
+
+  function(c) {
+    c <- as.numeric(c)
+    switch(dist$type,
+      "normal" = stats::dnorm(c, mean = dist$mean, sd = dist$sd),
+      "point" = rep(0, length(c)),
+      "pos_inf" = rep(0, length(c)),
+      "neg_inf" = rep(0, length(c)),
+      stop("Unknown degenerate metric distribution type: ", dist$type)
+    )
+  }
+}
+
+.degenerate_metric_prob <- function(dist, bounds) {
+  lower <- min(bounds)
+  upper <- max(bounds)
+
+  if (!is.finite(lower) && !is.finite(upper)) {
+    return(1)
+  }
+
+  switch(dist$type,
+    "point" = as.numeric(lower < dist$value && dist$value < upper),
+    "normal" = {
+      stats::pnorm(upper, mean = dist$mean, sd = dist$sd) -
+        stats::pnorm(lower, mean = dist$mean, sd = dist$sd)
+    },
+    "pos_inf" = as.numeric(is.infinite(upper) && upper > 0),
+    "neg_inf" = as.numeric(is.infinite(lower) && lower < 0),
+    stop("Unknown degenerate metric distribution type: ", dist$type)
+  )
+}
+
+.degenerate_metric_grid <- function(dist, n_grid = 512L, metric_can_be_negative = FALSE) {
+  n_grid <- max(as.integer(n_grid), 64L)
+
+  if (dist$type == "normal") {
+    probs <- seq(0.001, 0.999, length.out = n_grid)
+    x <- stats::qnorm(probs, mean = dist$mean, sd = dist$sd)
+    density <- stats::dnorm(x, mean = dist$mean, sd = dist$sd)
+    return(data.frame(x = x, density = density))
+  }
+
+  if (dist$type == "point") {
+    plot_sd <- max(1e-6, 0.01 * max(1, abs(dist$value)))
+    x <- seq(dist$value - 4 * plot_sd, dist$value + 4 * plot_sd, length.out = n_grid)
+    density <- stats::dnorm(x, mean = dist$value, sd = plot_sd)
+    return(data.frame(x = x, density = density))
+  }
+
+  if (metric_can_be_negative || identical(dist$type, "neg_inf")) {
+    x <- seq(-1, 1, length.out = n_grid)
+  } else {
+    x <- seq(0, 1, length.out = n_grid)
+  }
+
+  data.frame(x = x, density = rep(0, length(x)))
+}
+
+.analyze_degenerate_metric_distribution <- function(metric, dist, n_grid,
+                                                    divergence_info = NULL,
+                                                    metric_can_be_negative = FALSE) {
+  if (is.null(divergence_info)) {
+    divergence_info <- list(mean_divergent = FALSE, sd_divergent = FALSE,
+                            alpha = Inf, reason = NULL)
+  }
+
+  moments <- .degenerate_metric_moments(dist)
+  central <- .degenerate_metric_interval(dist, "central", 0.95)
+  hdi <- .degenerate_metric_interval(dist, "HPD", 0.95)
+  median_val <- .degenerate_metric_quantiles(dist, 0.5)
+
+  list(
+    metric = metric,
+    grid = .degenerate_metric_grid(dist, n_grid,
+                                   metric_can_be_negative = metric_can_be_negative),
+    area = if (dist$type %in% c("point", "normal")) 1 else 0,
+    stats = c(Mean = moments$mean, Median = median_val, SD = moments$sd,
+              Q2.5 = central[1], Q97.5 = central[2],
+              HDI_Lo = hdi[1], HDI_Hi = hdi[2]),
+    divergence_info = divergence_info,
+    degenerate = dist
+  )
+}
+
 .semi_mu_posterior <- function(prior, n, x_bar, sse) {
   k_n   <- prior$k0 + n
   mu_n  <- (prior$k0 * prior$mu0 + n * x_bar) / k_n
@@ -551,6 +764,16 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   mid <- (LSL + USL) / 2
   if (is.null(target)) target <- mid
 
+  if (.is_degenerate_conjugate_posterior(beta_n)) {
+    dist <- .degenerate_conjugate_metric_distribution(
+      mu_n, k_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
+    if (!is.null(dist)) {
+      return(.degenerate_metric_moments(dist))
+    }
+  }
+
   if (!use_analytic) {
     # Numerical fallback: 2D integration
     return(.compute_moments_numerical_conjugate(
@@ -736,6 +959,16 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 .compute_moments_numerical_conjugate <- function(mu_n, k_n, alpha_n, beta_n,
                                                   LSL, USL, target, metric,
                                                   sigma_level = 3) {
+  if (.is_degenerate_conjugate_posterior(beta_n)) {
+    dist <- .degenerate_conjugate_metric_distribution(
+      mu_n, k_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
+    if (!is.null(dist)) {
+      return(.degenerate_metric_moments(dist))
+    }
+  }
+
   df_p <- 2 * alpha_n
   h_max <- stats::dchisq(max(df_p - 2, 1e-6), df_p, log = TRUE)
 
@@ -1105,6 +1338,16 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   df_p <- 2 * alpha_n
   tol <- USL - LSL
 
+  if (.is_degenerate_conjugate_posterior(beta_n)) {
+    dist <- .degenerate_conjugate_metric_distribution(
+      mu_n, k_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
+    if (!is.null(dist)) {
+      return(.degenerate_metric_solver(dist))
+    }
+  }
+
   # Analytic fast paths for Cp, Cpu, Cpl
   if (metric == "Cp") {
     return(function(c) {
@@ -1335,6 +1578,16 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
 
   M <- (LSL + USL) / 2
   tol <- USL - LSL
+
+  if (.is_degenerate_conjugate_posterior(beta_n)) {
+    dist <- .degenerate_conjugate_metric_distribution(
+      mu_n, k_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
+    if (!is.null(dist)) {
+      return(.degenerate_metric_density(dist))
+    }
+  }
 
   log_Z_sigma <- lgamma(alpha_n) - log(2) - alpha_n * log(beta_n)
 
@@ -2511,6 +2764,19 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                           metric = "Cpk", target = NULL,
                                           cached_state = NULL,
                                           sigma_level = 3) {
+  if (inherits(prior, "PriorConjugate")) {
+    ss <- .extract_suff_stats(data, cached_state)
+    post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+    if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+      dist <- .degenerate_conjugate_metric_distribution(
+        post$mu_n, post$k_n, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )
+      if (!is.null(dist)) {
+        return(.degenerate_metric_prob(dist, bounds))
+      }
+    }
+  }
 
   # Check if we can use density solver
   density_metrics <- c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")
@@ -2754,6 +3020,24 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
                            !is.null(prior$bayestools_priors) &&
                            inherits(prior$bayestools_priors$sigma, "prior")
   metric_can_be_negative <- .metric_can_be_negative(metric)
+
+  if (inherits(prior, "PriorConjugate")) {
+    ss <- .extract_suff_stats(data, cached_state)
+    post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+    if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+      dist <- .degenerate_conjugate_metric_distribution(
+        post$mu_n, post$k_n, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )
+      if (!is.null(dist)) {
+        return(.analyze_degenerate_metric_distribution(
+          metric, dist, n_grid,
+          divergence_info = divergence_info,
+          metric_can_be_negative = metric_can_be_negative
+        ))
+      }
+    }
+  }
 
   if (is_prior_only && has_bayestools_priors) {
     # Fast path: compute grid bounds directly from sigma quantiles

@@ -106,6 +106,10 @@
 }
 
 .integration_interval_from_entry <- function(entry, ci, ci_level, x = NULL, density = NULL) {
+  if (is.list(entry) && !is.null(entry$degenerate)) {
+    return(.degenerate_metric_interval(entry$degenerate, ci, ci_level))
+  }
+
   stats <- .integration_result_stats(entry)
   if (!is.null(stats) && isTRUE(all.equal(ci_level, 0.95))) {
     return(switch(ci,

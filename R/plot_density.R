@@ -141,14 +141,26 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 
   vctrs::vec_rbind(!!!lapply(what, function(name) {
     subset_df <- dfDensity[dfDensity$metric == name, ]
+    entry <- if (!is.null(stats_list)) stats_list[[name]] else NULL
 
     xValue <- if (!is.null(stats_list)) {
       # Integration method: use pre-computed stats
-      stats <- .integration_result_stats(stats_list[[name]])
+      stats <- .integration_result_stats(entry)
       switch(point_estimate,
              "mean"   = stats["Mean"],
              "median" = stats["Median"],
-             "mode"   = subset_df$x[which.max(subset_df$density)],
+             "mode"   = {
+               if (!is.null(entry$degenerate)) {
+                 switch(entry$degenerate$type,
+                        "point" = entry$degenerate$value,
+                        "normal" = entry$degenerate$mean,
+                        "pos_inf" = Inf,
+                        "neg_inf" = -Inf,
+                        subset_df$x[which.max(subset_df$density)])
+               } else {
+                 subset_df$x[which.max(subset_df$density)]
+               }
+             },
              stop("Unknown point_estimate."))
     } else {
       # MCMC method: compute from samples
@@ -232,6 +244,13 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
   # Build dfArea (filled polygon under curve)
   dfArea <- vctrs::vec_rbind(!!!lapply(what, function(name) {
     est <- listOfCiEstimates[[name]]
+    if (length(est$x) < 2L || any(!is.finite(est$x))) {
+      return(tibble::tibble(
+        x = numeric(0),
+        y = numeric(0),
+        metric = factor(character(0), levels = levels(factor(what)))
+      ))
+    }
     xValues <- seq(min(est$x), max(est$x), length.out = 256)
     yValues <- listOfFuns[[name]](xValues)
     tibble::tibble(x = xValues, y = yValues, metric = factor(name))

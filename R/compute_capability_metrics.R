@@ -74,6 +74,10 @@ extract_predictive_samples.bpc <- function(fit, n_samples = 10000L, ...) {
   cs   <- ir$cached_state
   post <- .nig_posterior(prior, n = cs$n, x_bar = cs$x_bar, SS = cs$sse)
 
+  if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+    return(rep(post$mu_n, n_samples))
+  }
+
   sigma2  <- 1 / stats::rgamma(n_samples, shape = post$alpha_n, rate = post$beta_n)
   sigma   <- sqrt(sigma2)
   mu      <- stats::rnorm(n_samples, mean = post$mu_n, sd = sigma / sqrt(post$k_n))
