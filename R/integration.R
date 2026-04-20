@@ -137,7 +137,8 @@ create_prior_unit_information <- function(x) {
     g = g,
     r = r,
     g0 = g[1L],
-    g_max = g[length(g)]
+    g_max = g[length(g)],
+    r_max = r[length(r)]
   )
 })
 
@@ -172,6 +173,7 @@ create_prior_unit_information <- function(x) {
     )$y
   }
   if (any(!use_interp)) {
+    # For z > 8, g(z) is numerically indistinguishable from z.
     z[!use_interp] <- Kf[!use_interp]
   }
 
@@ -214,6 +216,30 @@ create_prior_unit_information <- function(x) {
     mu_lower = target - delta,
     mu_upper = target + delta,
     log_jacobian = 2 * log(sigma) - log(c)
+  )
+}
+
+.metric_sigma_limit_from_mu <- function(metric, mu, c, LSL, USL, target,
+                                        sigma_level = 3) {
+  tol <- USL - LSL
+  mid <- (LSL + USL) / 2
+  if (is.null(target)) target <- mid
+
+  switch(
+    metric,
+    "Cp" = rep(tol / ((2 * sigma_level) * c), length(mu)),
+    "Cpu" = pmax(0, (USL - mu) / (sigma_level * c)),
+    "Cpl" = pmax(0, (mu - LSL) / (sigma_level * c)),
+    "Cpk" = pmax(0, pmin(USL - mu, mu - LSL) / (sigma_level * c)),
+    "Cpm" = {
+      sigma_cap <- tol / ((2 * sigma_level) * c)
+      delta <- abs(mu - target)
+      limit <- sqrt(pmax(0, sigma_cap^2 - delta^2))
+      limit[delta >= sigma_cap] <- 0
+      limit
+    },
+    "Cpc" = .cpc_sigma_limit_from_delta(abs(mu - target), c, tol, sigma_level),
+    stop("Unknown metric: ", metric)
   )
 }
 
@@ -434,7 +460,6 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   if (metric == "Cp") {
     # Cp = tol / (2 * sigma_level * sigma)
     E1 <- (tol / (2 * sigma_level)) * E_inv_sigma
-    # E[Cp^2] = (tol / (2 * sigma_level))^2 * E[1/sigma^2]
     E2 <- (tol / (2 * sigma_level))^2 * E_inv_sigma2
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
@@ -491,7 +516,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
       sigma <- sqrt(2 * beta_n / y)
       tau <- sigma / sqrt(k_n)
       # E[(tol/2 - |mu - mid|)^2 | sigma] / (sigma_level^2 * sigma^2)
-      # = E[(tol/2)^2 - tol*|mu-mid| + |mu-mid|^2 | sigma] / (sigma_level^2 * sigma^2)
+      # = E[(tol/2)^2 - tol*|mu-mid| + |mu-mid|^2 | sigma] / (9*sigma^2)
       abs_mean <- tau * sqrt(2 / pi) * exp(-delta^2 / (2 * tau^2)) +
                   delta * (1 - 2 * stats::pnorm(-delta / tau))
       # E[|X|^2] = E[X^2] = delta^2 + tau^2
@@ -1125,27 +1150,37 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   }
   alpha0 <- prior$alpha0
   beta0 <- prior$beta0
+  alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
+  jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
 
   function(c) {
     if (c <= 0) return(1.0)
-    constr <- get_metric_constraints(metric, c, LSL, USL, target,
-                                     sigma_level = sigma_level)
-    s_max <- constr$s_max_fn()
-    if (!is.infinite(s_max) && s_max <= 0) return(0.0)
 
     integrand <- function(mu) {
       sse_mu <- sse + n * (mu - x_bar)^2
       alpha_n <- alpha0 + n / 2
+      alpha_n_eff <- alpha_n + jeffreys_adj
       beta_n <- beta0 + sse_mu / 2
-      log_marginal <- lgamma(alpha_n) - lgamma(alpha0) +
-                      alpha0 * log(beta0) - alpha_n * log(beta_n)
+      log_marginal <- lgamma(alpha_n_eff) - lgamma(alpha0) +
+        alpha_0_times_logbeta0 - alpha_n_eff * log(beta_n)
       log_prior_mu <- prior$log_dens_mu(mu)
 
-      if (is.infinite(s_max)) {
-        log_prob_sigma <- 0
-      } else {
-        prob_sigma <- 1 - stats::pgamma(1 / s_max^2, shape = alpha_n, rate = beta_n)
-        log_prob_sigma <- log(pmax(prob_sigma, 1e-300))
+      sigma_limit <- .metric_sigma_limit_from_mu(
+        metric, mu, c, LSL, USL, target,
+        sigma_level = sigma_level
+      )
+      log_prob_sigma <- rep(-Inf, length(mu))
+      inf_limit <- is.infinite(sigma_limit)
+      pos_limit <- is.finite(sigma_limit) & sigma_limit > 0
+
+      log_prob_sigma[inf_limit] <- 0
+      if (any(pos_limit)) {
+        prob_sigma <- 1 - stats::pgamma(
+          1 / sigma_limit[pos_limit]^2,
+          shape = alpha_n_eff,
+          rate = beta_n[pos_limit]
+        )
+        log_prob_sigma[pos_limit] <- log(pmax(prob_sigma, 1e-300))
       }
 
       exp(log_marginal + log_prior_mu + log_prob_sigma)
@@ -3477,3 +3512,4 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     divergence = divergence_map
   )
 }
+
