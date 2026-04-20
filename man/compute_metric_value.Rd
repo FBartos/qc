@@ -4,7 +4,7 @@
 \alias{compute_metric_value}
 \title{Compute capability metric value for given (mu, sigma) pairs}
 \usage{
-compute_metric_value(mu, sigma, LSL, USL, target, metric)
+compute_metric_value(mu, sigma, LSL, USL, target, metric, sigma_level = 3)
 }
 \arguments{
 \item{mu}{Mean value(s) (vectorized)}

@@ -12,7 +12,8 @@ compute_metric_moments(
   metric = "Cpk",
   target = NULL,
   use_analytic = TRUE,
-  cached_state = NULL
+  cached_state = NULL,
+  sigma_level = 3
 )
 }
 \arguments{

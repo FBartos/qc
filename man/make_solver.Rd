@@ -4,7 +4,16 @@
 \alias{make_solver}
 \title{Create solver function for P(Index > c)}
 \usage{
-make_solver(data, LSL, USL, prior, metric = "Cpk", target = NULL, ...)
+make_solver(
+  data,
+  LSL,
+  USL,
+  prior,
+  metric = "Cpk",
+  target = NULL,
+  sigma_level = 3,
+  ...
+)
 }
 \arguments{
 \item{data}{Numeric vector of observations}

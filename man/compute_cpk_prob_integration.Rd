@@ -12,7 +12,8 @@ compute_cpk_prob_integration(
   prior,
   metric = "Cpk",
   target = NULL,
-  cached_state = NULL
+  cached_state = NULL,
+  sigma_level = 3
 )
 }
 \arguments{

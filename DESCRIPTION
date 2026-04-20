@@ -1,13 +1,19 @@
 Package: qc
-Title: What the Package Does (One Line, Title Case)
+Title: Frequentist and Bayesian Tools for Quality Control
 Version: 0.0.0.9000
 Authors@R: c(
-    person("František", "Bartoš",     role = c("aut", "cre"),
-      email   = "f.bartos96@gmail.com", comment = c(ORCID = "0000-0002-0018-5573")),
-    person("Don", "van den Bergh",    role = c("aut"),
-      email = "d.vandenbergh@uva.nl",   comment = c(ORCID = "0000-0002-9838-7308"))
+    person("Don", "van den Bergh",    role = c("aut", "cre"),
+      email = "d.vandenbergh@uva.nl",   comment = c(ORCID = "0000-0002-9838-7308")),
+    person("František", "Bartoš",     role = c("aut"),
+      email   = "f.bartos96@gmail.com", comment = c(ORCID = "0000-0002-0018-5573"))
     )
-Description: What the package does (one paragraph).
+Description: Tools for statistical quality control in both frequentist and
+    Bayesian frameworks. The current release covers process capability
+    analysis, including the capability indices Cp, Cpk, Cpm, and Cpc, with
+    estimation via maximum likelihood and bootstrapping as well as fully
+    Bayesian inference using either Markov chain Monte Carlo (via 'Stan')
+    or numerical integration. Further quality control methods will be
+    added in future releases.
 License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
 Encoding: UTF-8

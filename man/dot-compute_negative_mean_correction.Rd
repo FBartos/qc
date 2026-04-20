@@ -7,7 +7,13 @@ For Cpu, Cpl, Cpk, the metric can be negative when mu is outside \eqn{[LSL, USL]
 This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
 \eqn{area * E[metric | metric > 0]} to get the full unconditional mean.}
 \usage{
-.compute_negative_mean_correction(metric, LSL, USL, bayestools_priors)
+.compute_negative_mean_correction(
+  metric,
+  LSL,
+  USL,
+  bayestools_priors,
+  sigma_level = 3
+)
 }
 \description{
 Compute negative-value mean correction for prior-only mode.

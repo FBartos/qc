@@ -180,7 +180,6 @@ testthat::test_that("integration method print and summary work", {
 })
 
 
-
 testthat::test_that("integration summary respects ci.level", {
 
   set.seed(1)
@@ -203,6 +202,8 @@ testthat::test_that("integration summary respects ci.level", {
   expect_equal(summary_95$lower, unname(expected_95[1, ]))
   expect_equal(summary_95$upper, unname(expected_95[2, ]))
 })
+
+
 testthat::test_that("integration method errors for t-distribution", {
 
   set.seed(1)
@@ -435,7 +436,7 @@ testthat::test_that("integration method speed advantage", {
   # Time MCMC method (with minimal iterations)
   time_mcmc <- system.time({
     fit_mcmc <- bpc(x, LSL = 2, target = 10, USL = 18, method = "mcmc",
-                    chains = 4, iter = 5000, warmup = 1000, silent = TRUE)
+                    chains = 4, iter = 6000, warmup = 2000, silent = TRUE)
   })["elapsed"]
 
   # Integration should be faster than even minimal MCMC
@@ -692,6 +693,8 @@ testthat::test_that("extract_ci_data works for both methods", {
   expect_true("dfArea" %in% names(ci_data))
   expect_equal(nrow(ci_data$dfCi), 2)
 })
+
+
 testthat::test_that("extract_ci_data respects ci_level for integration results", {
 
   set.seed(42)

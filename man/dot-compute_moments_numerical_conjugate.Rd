@@ -12,7 +12,8 @@
   LSL,
   USL,
   target,
-  metric
+  metric,
+  sigma_level = 3
 )
 }
 \description{

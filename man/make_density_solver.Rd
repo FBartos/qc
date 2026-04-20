@@ -4,7 +4,16 @@
 \alias{make_density_solver}
 \title{Create density solver for direct PDF computation via contour integration}
 \usage{
-make_density_solver(data, LSL, USL, prior, metric = "Cpk", target = NULL, ...)
+make_density_solver(
+  data,
+  LSL,
+  USL,
+  prior,
+  metric = "Cpk",
+  target = NULL,
+  sigma_level = 3,
+  ...
+)
 }
 \arguments{
 \item{data}{Numeric vector of observations}

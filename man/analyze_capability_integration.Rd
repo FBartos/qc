@@ -11,11 +11,12 @@ analyze_capability_integration(
   prior,
   metric = "Cpk",
   target = NULL,
-  n_grid = 128,
+  n_grid = 512L,
   cached_state = NULL,
   use_density_solver = TRUE,
   mc_samples = NULL,
-  divergence_info = NULL
+  divergence_info = NULL,
+  sigma_level = 3
 )
 }
 \arguments{

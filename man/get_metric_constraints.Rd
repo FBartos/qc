@@ -4,7 +4,7 @@
 \alias{get_metric_constraints}
 \title{Get constraint functions for a capability metric}
 \usage{
-get_metric_constraints(metric, c, LSL, USL, target)
+get_metric_constraints(metric, c, LSL, USL, target, sigma_level = 3)
 }
 \arguments{
 \item{metric}{One of "Cp", "Cpk", "Cpm", "Cpc", "Cpu", "Cpl"}

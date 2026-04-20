@@ -11,7 +11,8 @@
   metric,
   target = NULL,
   p_low = 0.001,
-  p_high = 0.999
+  p_high = 0.999,
+  sigma_level = 3
 )
 }
 \arguments{

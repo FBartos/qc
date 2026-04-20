@@ -12,11 +12,11 @@ A DESCRIPTION OF THE PACKAGE
 Stan Development Team (NA). RStan: the R interface to Stan. R package version 2.32.7. https://mc-stan.org
 }
 \author{
-\strong{Maintainer}: František Bartoš \email{f.bartos96@gmail.com} (\href{https://orcid.org/0000-0002-0018-5573}{ORCID})
+\strong{Maintainer}: Don van den Bergh \email{d.vandenbergh@uva.nl} (\href{https://orcid.org/0000-0002-9838-7308}{ORCID})
 
 Authors:
 \itemize{
-  \item Don van den Bergh \email{d.vandenbergh@uva.nl} (\href{https://orcid.org/0000-0002-9838-7308}{ORCID})
+  \item František Bartoš \email{f.bartos96@gmail.com} (\href{https://orcid.org/0000-0002-0018-5573}{ORCID})
 }
 
 }
