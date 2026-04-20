@@ -120,8 +120,13 @@ create_prior_unit_information <- function(x) {
   list(k_n = k_n, mu_n = mu_n, alpha_n = alpha_n, beta_n = beta_n)
 }
 
+.is_improper_conjugate_posterior <- function(k_n, alpha_n, beta_n) {
+  !is.finite(k_n) || !is.finite(alpha_n) || !is.finite(beta_n) ||
+    k_n <= 0 || alpha_n <= 0 || beta_n < 0
+}
+
 .is_degenerate_conjugate_posterior <- function(beta_n) {
-  is.finite(beta_n) && beta_n <= 0
+  is.finite(beta_n) && beta_n == 0
 }
 
 .scalar_almost_equal <- function(x, y) {

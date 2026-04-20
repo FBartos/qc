@@ -76,22 +76,14 @@ bpc <- function(
   BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
-  # Identification of improper priors
-  # 1. String "Jeffreys..."
-  # 2. Uniform unbounded? (BayesTools checks this usually)
-  is_improper_mu <- identical(prior_mu, "Jeffreys_mu")
-  is_improper_sigma <- identical(prior_sigma, "Jeffreys_sigma")
-
-  # When prior_mu is a PriorConjugate, the sigma prior is already encoded in
-  # the joint NIG structure, so the Jeffreys check on prior_sigma is not relevant.
-  if (sample_priors && !inherits(prior_mu, "PriorConjugate")) {
-    if (is_improper_mu) {
-      stop("Improper prior for mu (Jeffreys) cannot be used without data (or with sample_priors = TRUE).")
-    }
-    if (is_improper_sigma) {
-      stop("Improper prior for sigma (Jeffreys) cannot be used without data (or with sample_priors = TRUE).")
-    }
-  }
+  .validate_bpc_prior_configuration(
+    method = method,
+    distribution = distribution,
+    prior_mu = prior_mu,
+    prior_sigma = prior_sigma,
+    prior_nu = prior_nu,
+    sample_priors = sample_priors
+  )
 
 
   # Check method-distribution compatibility
@@ -163,6 +155,116 @@ bpc <- function(
 }
 
 ### internal functions ----
+.is_proper_prior_conjugate <- function(prior) {
+  inherits(prior, "PriorConjugate") &&
+    is.numeric(prior$k0) && length(prior$k0) == 1L && is.finite(prior$k0) &&
+    is.numeric(prior$alpha0) && length(prior$alpha0) == 1L && is.finite(prior$alpha0) &&
+    is.numeric(prior$beta0) && length(prior$beta0) == 1L && is.finite(prior$beta0) &&
+    prior$k0 > 0 && prior$alpha0 > 0 && prior$beta0 > 0
+}
+
+.uses_unbounded_uniform_prior <- function(prior) {
+  if (!inherits(prior, "prior") || !identical(prior[["distribution"]], "uniform")) {
+    return(FALSE)
+  }
+
+  params <- prior[["parameters"]]
+  truncation <- prior[["truncation"]]
+  lower <- max(params[["a"]] %||% -Inf, truncation[["lower"]] %||% -Inf)
+  upper <- min(params[["b"]] %||% Inf, truncation[["upper"]] %||% Inf)
+
+  !is.finite(lower) || !is.finite(upper)
+}
+
+.is_proper_prior_for_sampling <- function(prior) {
+  if (is.null(prior)) {
+    return(TRUE)
+  }
+
+  if (is.character(prior)) {
+    return(!prior %in% c("Jeffreys_mu", "Jeffreys_sigma", "uniform_nu"))
+  }
+
+  if (inherits(prior, "PriorConjugate")) {
+    return(.is_proper_prior_conjugate(prior))
+  }
+
+  if (.uses_unbounded_uniform_prior(prior)) {
+    return(FALSE)
+  }
+
+  TRUE
+}
+
+.format_prior_sampling_issue <- function(parameter_name, prior) {
+  if (inherits(prior, "PriorConjugate")) {
+    return(sprintf(
+      "`%s` uses an improper PriorConjugate (requires k0 > 0, alpha0 > 0, beta0 > 0)",
+      parameter_name
+    ))
+  }
+
+  if (.uses_unbounded_uniform_prior(prior)) {
+    return(sprintf("`%s` uses an unbounded uniform prior", parameter_name))
+  }
+
+  if (is.character(prior)) {
+    return(sprintf("`%s = \"%s\"` is improper", parameter_name, prior))
+  }
+
+  sprintf("`%s` is improper", parameter_name)
+}
+
+.validate_bpc_prior_configuration <- function(method, distribution,
+                                              prior_mu, prior_sigma, prior_nu,
+                                              sample_priors) {
+  issues <- character()
+
+  conjugate_args <- c(
+    if (inherits(prior_mu, "PriorConjugate")) "`prior_mu`",
+    if (inherits(prior_sigma, "PriorConjugate")) "`prior_sigma`"
+  )
+
+  if (method == "mcmc" && length(conjugate_args) > 0L) {
+    issues <- c(
+      issues,
+      sprintf(
+        "%s %s only supported with `method = \"integration\"`; use BayesTools priors for `method = \"mcmc\"`.",
+        paste(conjugate_args, collapse = " and "),
+        if (length(conjugate_args) == 1L) "is" else "are"
+      )
+    )
+  }
+
+  if (sample_priors) {
+    improper <- c(
+      if (!.is_proper_prior_for_sampling(prior_mu)) .format_prior_sampling_issue("prior_mu", prior_mu),
+      if (!inherits(prior_mu, "PriorConjugate") &&
+          !.is_proper_prior_for_sampling(prior_sigma)) .format_prior_sampling_issue("prior_sigma", prior_sigma),
+      if (distribution == "t" &&
+          !.is_proper_prior_for_sampling(prior_nu)) .format_prior_sampling_issue("prior_nu", prior_nu)
+    )
+
+    if (length(improper) > 0L) {
+      issues <- c(
+        issues,
+        paste0(
+          "Improper prior distributions cannot be sampled from with `sample_priors = TRUE`:",
+          " ",
+          paste(improper, collapse = "; "),
+          "."
+        )
+      )
+    }
+  }
+
+  if (length(issues) > 0L) {
+    stop(paste(issues, collapse = " "), call. = FALSE)
+  }
+
+  invisible(NULL)
+}
+
 .summary_statistics_unsupported_message <- function(distribution, allow_empty) {
   paste(
     sprintf("For `distribution = \"%s\"`, supply raw observations in `x`.", distribution),

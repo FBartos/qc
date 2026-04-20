@@ -79,3 +79,19 @@ test_that("extract_predictive_samples errors informatively for non-conjugate int
     regexp = "conjugate"
   )
 })
+
+test_that("extract_predictive_samples rejects improper conjugate prior-only states", {
+  fit <- list(
+    method = "integration",
+    integration_result = list(
+      prior = create_prior_conjugate(),
+      cached_state = list(n = 0L, x_bar = 0, sse = 0)
+    )
+  )
+  class(fit) <- "bpc"
+
+  expect_error(
+    extract_predictive_samples(fit, n_samples = 32L),
+    regexp = "improper conjugate prior/posterior"
+  )
+})
