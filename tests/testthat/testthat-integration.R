@@ -100,6 +100,29 @@ testthat::test_that("integration method print and summary work", {
 })
 
 
+
+testthat::test_that("integration summary respects ci.level", {
+
+  set.seed(1)
+  x <- rnorm(100, 10, 2)
+
+  fit <- bpc(x, LSL = 2, target = 10, USL = 18, method = "integration")
+
+  summary_95 <- summary(fit, ci.level = 0.95)$summary
+  summary_50 <- summary(fit, ci.level = 0.50)$summary
+
+  expect_false(isTRUE(all.equal(summary_95$lower, summary_50$lower)))
+  expect_false(isTRUE(all.equal(summary_95$upper, summary_50$upper)))
+  expect_true(all(summary_50$lower >= summary_95$lower))
+  expect_true(all(summary_50$upper <= summary_95$upper))
+
+  expected_95 <- vapply(fit$integration_result$results, function(result) {
+    result$stats[c("Q2.5", "Q97.5")]
+  }, numeric(2L))
+
+  expect_equal(summary_95$lower, unname(expected_95[1, ]))
+  expect_equal(summary_95$upper, unname(expected_95[2, ]))
+})
 testthat::test_that("integration method errors for t-distribution", {
 
   set.seed(1)
@@ -588,4 +611,60 @@ testthat::test_that("extract_ci_data works for both methods", {
   expect_true("dfCi" %in% names(ci_data))
   expect_true("dfArea" %in% names(ci_data))
   expect_equal(nrow(ci_data$dfCi), 2)
+})
+testthat::test_that("extract_ci_data respects ci_level for integration results", {
+
+  set.seed(42)
+  x <- rnorm(50, 10, 2)
+
+  fit_int <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+  dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
+  results <- fit_int$integration_result$results[c("Cp", "Cpk")]
+
+  ci_central_95 <- extract_ci_data(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    ci = "central",
+    ci_level = 0.95,
+    dfDensity = dfDensity,
+    stats_list = results
+  )$dfCi
+
+  ci_central_50 <- extract_ci_data(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    ci = "central",
+    ci_level = 0.50,
+    dfDensity = dfDensity,
+    stats_list = results
+  )$dfCi
+
+  expect_false(isTRUE(all.equal(ci_central_95$xmin, ci_central_50$xmin)))
+  expect_false(isTRUE(all.equal(ci_central_95$xmax, ci_central_50$xmax)))
+  expect_true(all(ci_central_50$xmin >= ci_central_95$xmin))
+  expect_true(all(ci_central_50$xmax <= ci_central_95$xmax))
+
+  ci_hpd_95 <- extract_ci_data(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    ci = "HPD",
+    ci_level = 0.95,
+    dfDensity = dfDensity,
+    stats_list = results
+  )$dfCi
+
+  ci_hpd_50 <- extract_ci_data(
+    obj = NULL,
+    what = c("Cp", "Cpk"),
+    ci = "HPD",
+    ci_level = 0.50,
+    dfDensity = dfDensity,
+    stats_list = results
+  )$dfCi
+
+  width_95 <- ci_hpd_95$xmax - ci_hpd_95$xmin
+  width_50 <- ci_hpd_50$xmax - ci_hpd_50$xmin
+
+  expect_false(isTRUE(all.equal(width_95, width_50)))
+  expect_true(all(width_50 <= width_95))
 })

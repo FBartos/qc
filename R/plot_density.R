@@ -144,9 +144,10 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 
     xValue <- if (!is.null(stats_list)) {
       # Integration method: use pre-computed stats
+      stats <- .integration_result_stats(stats_list[[name]])
       switch(point_estimate,
-             "mean"   = stats_list[[name]]["Mean"],
-             "median" = stats_list[[name]]["Median"],
+             "mean"   = stats["Mean"],
+             "median" = stats["Median"],
              "mode"   = subset_df$x[which.max(subset_df$density)],
              stop("Unknown point_estimate."))
     } else {
@@ -196,16 +197,17 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
 
   # Get CI bounds
   listOfCiEstimates <- setNames(lapply(what, function(name) {
+    subset_df <- dfDensity[dfDensity$metric == name, ]
+
     xValue <- if (!is.null(stats_list)) {
-      # Integration method: use pre-computed stats
-      if (ci == "central" && ci_level != 0.95) {
-        warning("For integration method, central CI uses pre-computed 95% quantiles. ",
-                "ci_level argument is ignored.")
-      }
-      switch(ci,
-             "central" = c(stats_list[[name]]["Q2.5"], stats_list[[name]]["Q97.5"]),
-             "HPD"     = c(stats_list[[name]]["HDI_Lo"], stats_list[[name]]["HDI_Hi"]),
-             stop("Unknown ci for integration method. Only 'central' and 'HPD' are supported."))
+      # Integration method: compute interval from stored result or density grid
+      .integration_interval_from_entry(
+        stats_list[[name]],
+        ci = ci,
+        ci_level = ci_level,
+        x = subset_df$x,
+        density = subset_df$density
+      )
     } else {
       # MCMC method: compute from samples
       h <- (1 - ci_level) / 2
@@ -882,7 +884,7 @@ plot_density_integration_results <- function(
   # Build stats list for integration method
   results <- integration_result$results
   stats_list <- setNames(lapply(what, function(name) {
-    results[[name]]$stats
+    results[[name]]
   }), what)
 
   # Extract point estimates (integration: pass stats_list for pre-computed values)

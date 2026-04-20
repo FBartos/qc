@@ -297,17 +297,21 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
     # Build summary from pre-computed stats
     metric_names <- names(int_result$results)
-    h <- (1 - ci.level) / 2
 
     summary <- do.call(rbind, lapply(metric_names, function(m) {
       stats <- int_result$results[[m]]$stats
+      interval <- .integration_interval_from_entry(
+        int_result$results[[m]],
+        ci = "central",
+        ci_level = ci.level
+      )
       data.frame(
         metric = m,
         mean = stats["Mean"],
         median = stats["Median"],
         sd = stats["SD"],
-        lower = stats["Q2.5"],
-        upper = stats["Q97.5"],
+        lower = interval[1],
+        upper = interval[2],
         row.names = NULL
       )
     }))
