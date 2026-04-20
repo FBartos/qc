@@ -28,6 +28,21 @@ test_that("constant-data conjugate posterior yields infinite interior capability
   expect_equal(pred, rep(5, 128))
 })
 
+test_that("degenerate +Inf integration summaries keep mass in the open upper tail", {
+  fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10, method = "integration")
+  ss <- summary(fit, interval_probability = c(1.00, 1.33, 1.50, 2.00))
+
+  expect_true(all(vapply(fit$integration_result$results, function(x) {
+    identical(x$degenerate$type, "pos_inf")
+  }, logical(1))))
+
+  expect_true(all(ss$interval_summary$`(2, Inf]` == 1))
+  expect_true(all(ss$interval_summary$`[-Inf,1]` == 0))
+  expect_true(all(ss$interval_summary$`(1,1.33]` == 0))
+  expect_true(all(ss$interval_summary$`(1.33,1.5]` == 0))
+  expect_true(all(ss$interval_summary$`(1.5,2]` == 0))
+})
+
 test_that("degenerate conjugate Cpm and Cpc collapse to finite point masses off target", {
   x <- rep(5, 10)
   LSL <- 0

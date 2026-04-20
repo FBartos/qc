@@ -105,6 +105,128 @@
   c(x[best_ci], x[best_ci + n_ci])
 }
 
+.integration_interval_probs_from_grid <- function(entry, interval_breaks) {
+  if (!is.list(entry) || is.null(entry$grid)) {
+    return(NULL)
+  }
+
+  g <- entry$grid
+  if (!is.data.frame(g) || !all(c("x", "density") %in% names(g)) || nrow(g) < 2L) {
+    return(NULL)
+  }
+
+  density <- g$density
+  if (!any(is.finite(density) & density > 0)) {
+    return(NULL)
+  }
+
+  area <- entry$area %||% 1
+  if (!is.finite(area)) {
+    area <- 1
+  }
+  area <- max(min(area, 1), 0)
+
+  n_g <- nrow(g)
+  dxx <- diff(g$x)
+  avg_dens <- (density[-n_g] + density[-1L]) / 2
+  cdf_cond <- c(0, cumsum(avg_dens * dxx))
+  total_mass <- cdf_cond[length(cdf_cond)]
+  if (!is.finite(total_mass) || total_mass <= 0) {
+    return(NULL)
+  }
+  cdf_cond <- cdf_cond / total_mass
+
+  n_intervals <- length(interval_breaks) - 1L
+  probs <- numeric(n_intervals)
+  grid_min <- min(g$x)
+  grid_max <- max(g$x)
+
+  for (j in seq_len(n_intervals)) {
+    lo <- interval_breaks[j]
+    hi <- interval_breaks[j + 1L]
+
+    lo_cdf <- if (is.finite(lo) && lo >= grid_min) {
+      (1 - area) + area * stats::approx(g$x, cdf_cond, xout = lo, rule = 2)$y
+    } else {
+      0
+    }
+
+    hi_cdf <- if (is.finite(hi) && hi <= grid_max) {
+      (1 - area) + area * stats::approx(g$x, cdf_cond, xout = hi, rule = 2)$y
+    } else {
+      1
+    }
+
+    probs[j] <- max(0, hi_cdf - lo_cdf)
+  }
+
+  total <- sum(probs)
+  if (total > 0) {
+    probs <- probs / total
+  }
+
+  probs
+}
+
+.integration_interval_probs_from_entry <- function(entry, interval_breaks,
+                                                   metric, prior, cached_state,
+                                                   LSL, USL, target,
+                                                   sigma_level = 3) {
+  n_intervals <- length(interval_breaks) - 1L
+
+  if (is.list(entry) && !is.null(entry$degenerate)) {
+    probs <- vapply(seq_len(n_intervals), function(j) {
+      .degenerate_metric_prob(entry$degenerate, interval_breaks[c(j, j + 1L)])
+    }, numeric(1))
+  } else if (is.list(entry) && !is.null(entry$samples)) {
+    bin_counts <- table(cut(entry$samples,
+                            breaks = interval_breaks, include.lowest = TRUE))
+    probs <- as.numeric(bin_counts) / sum(bin_counts)
+  } else {
+    grid_probs <- .integration_interval_probs_from_grid(entry, interval_breaks)
+
+    probs <- vapply(seq_len(n_intervals), function(j) {
+      lo <- interval_breaks[j]
+      hi <- interval_breaks[j + 1L]
+
+      tryCatch(
+        compute_cpk_prob_integration(
+          numeric(0), LSL, USL, c(lo, hi), prior,
+          metric = metric, target = target,
+          cached_state = cached_state,
+          sigma_level = sigma_level
+        ),
+        error = function(e) NA_real_
+      )
+    }, numeric(1))
+
+    use_integration <- !anyNA(probs)
+
+    # Placeholder grids for degenerate +/-Inf results carry no finite density
+    # information, so only use the grid when it contains actual mass.
+    if (use_integration && !is.null(grid_probs)) {
+      suspect <- any(grid_probs > 0.05 & probs < 0.001)
+      if (suspect) {
+        use_integration <- FALSE
+      }
+    } else if (!use_integration && is.null(grid_probs)) {
+      probs[is.na(probs)] <- 0
+      use_integration <- TRUE
+    }
+
+    if (!use_integration) {
+      probs <- grid_probs
+    }
+  }
+
+  total <- sum(probs)
+  if (total > 0) {
+    probs <- probs / total
+  }
+
+  probs
+}
+
 .integration_interval_from_entry <- function(entry, ci, ci_level, x = NULL, density = NULL) {
   if (is.list(entry) && !is.null(entry$degenerate)) {
     return(.degenerate_metric_interval(entry$degenerate, ci, ci_level))

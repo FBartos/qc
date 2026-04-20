@@ -380,80 +380,20 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
 
     # Compute interval probabilities for each metric
     interval_breaks <- c(-Inf, interval_probability, Inf)
-    n_intervals <- length(interval_probability) + 1
 
     interval_summary <- do.call(rbind, lapply(metric_names, function(m) {
       r <- int_result$results[[m]]
-
-      # If MC samples are available (prior-only mode), use direct binning
-      if (!is.null(r$samples)) {
-        bin_counts <- table(cut(r$samples,
-                                breaks = interval_breaks, include.lowest = TRUE))
-        probs <- as.numeric(bin_counts) / sum(bin_counts)
-      } else {
-        # Trapezoidal-rule CDF from the pre-computed density grid (fallback)
-        grid_probs <- NULL
-        if (!is.null(r$grid)) {
-          g <- r$grid
-          area <- r$area
-          if (is.null(area)) area <- 1
-          n_g <- nrow(g)
-          dxx <- diff(g$x)
-          avg_dens <- (g$density[-n_g] + g$density[-1]) / 2
-          cdf_cond <- c(0, cumsum(avg_dens * dxx))
-
-          grid_probs <- numeric(n_intervals)
-          for (j in seq_len(n_intervals)) {
-            lo <- interval_breaks[j]
-            hi <- interval_breaks[j + 1]
-            lo_cdf <- if (is.finite(lo) && lo >= min(g$x))
-              (1 - area) + area * stats::approx(g$x, cdf_cond, xout = lo, rule = 2)$y
-            else 0
-            hi_cdf <- if (is.finite(hi) && hi <= max(g$x))
-              (1 - area) + area * stats::approx(g$x, cdf_cond, xout = hi, rule = 2)$y
-            else 1
-            grid_probs[j] <- max(0, hi_cdf - lo_cdf)
-          }
-          gt <- sum(grid_probs)
-          if (gt > 0) grid_probs <- grid_probs / gt
-        }
-
-        # Try proper numerical integration on the density solver
-        probs <- numeric(n_intervals)
-        use_integration <- TRUE
-        for (j in seq_len(n_intervals)) {
-          lo <- interval_breaks[j]
-          hi <- interval_breaks[j + 1]
-          probs[j] <- tryCatch(
-            compute_cpk_prob_integration(
-              numeric(0), orig_LSL, orig_USL, c(lo, hi), prior,
-              metric = m, target = orig_target,
-              cached_state = cached_state,
-              sigma_level = metric_sigma
-            ),
-            error = function(e) NA_real_
-          )
-        }
-
-        # Validate: the density solver for Cpk can fail structurally for some
-        # priors (returning ~0 where the grid shows non-trivial mass)
-        if (anyNA(probs)) {
-          use_integration <- FALSE
-        } else if (!is.null(grid_probs)) {
-          suspect <- any(grid_probs > 0.05 & probs < 0.001)
-          if (suspect) use_integration <- FALSE
-        }
-
-        if (!use_integration) {
-          probs <- if (!is.null(grid_probs)) grid_probs else {
-            probs[is.na(probs)] <- 0
-            probs
-          }
-        }
-
-        total <- sum(probs)
-        if (total > 0) probs <- probs / total
-      }
+      probs <- .integration_interval_probs_from_entry(
+        entry = r,
+        interval_breaks = interval_breaks,
+        metric = m,
+        prior = prior,
+        cached_state = cached_state,
+        LSL = orig_LSL,
+        USL = orig_USL,
+        target = orig_target,
+        sigma_level = metric_sigma
+      )
 
       df <- as.data.frame(t(probs))
       names(df) <- levels(cut(0, breaks = interval_breaks, include.lowest = TRUE))
