@@ -21,7 +21,7 @@ build_density_plot(
   single_panel = FALSE,
   axes = "automatic",
   axes_custom = list(),
-  textsize = textsize,
+  textsize = 18,
   colorScheme = NULL,
   stripTextFontsize = NULL,
   show_regions = FALSE,
