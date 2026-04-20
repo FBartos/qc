@@ -71,18 +71,15 @@ extract_predictive_samples.bpc <- function(fit, n_samples = 10000L, ...) {
     )
   }
 
-  cs   <- ir$cached_state
-  post <- .nig_posterior(prior, n = cs$n, x_bar = cs$x_bar, SS = cs$sse)
+  posterior_info <- .compute_validated_conjugate_posterior(
+    prior,
+    data = numeric(0),
+    cached_state = ir$cached_state,
+    context = "The conjugate posterior predictive distribution"
+  )
+  post <- posterior_info$post
 
-  if (.is_improper_conjugate_posterior(post$k_n, post$alpha_n, post$beta_n)) {
-    stop(
-      "Predictive sampling is undefined for an improper conjugate prior/posterior. ",
-      "Use a proper PriorConjugate for prior-only sampling or refit with data that yields a proper posterior.",
-      call. = FALSE
-    )
-  }
-
-  if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+  if (posterior_info$is_degenerate) {
     return(rep(post$mu_n, n_samples))
   }
 

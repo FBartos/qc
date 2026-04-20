@@ -28,6 +28,47 @@ test_that("constant-data conjugate posterior yields infinite interior capability
   expect_equal(pred, rep(5, 128))
 })
 
+test_that("single-observation Jeffreys conjugate posteriors are rejected before degeneracy handling", {
+  x <- 1
+  LSL <- 0
+  USL <- 2
+  target <- 1
+  prior <- qc:::create_prior_conjugate()
+
+  expect_error(
+    qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cp", target = target),
+    regexp = "improper"
+  )
+
+  expect_error(
+    qc:::make_solver(x, LSL, USL, prior, metric = "Cp", target = target),
+    regexp = "improper"
+  )
+
+  expect_error(
+    qc:::make_density_solver(x, LSL, USL, prior, metric = "Cp", target = target),
+    regexp = "improper"
+  )
+
+  expect_error(
+    qc:::compute_cpk_prob_integration(
+      x, LSL, USL, c(0, 1), prior,
+      metric = "Cp", target = target
+    ),
+    regexp = "improper"
+  )
+
+  expect_error(
+    qc:::analyze_capability_integration(x, LSL, USL, prior, metric = "Cp", target = target),
+    regexp = "improper"
+  )
+
+  expect_error(
+    qc::bpc(x, LSL = LSL, target = target, USL = USL, method = "integration"),
+    regexp = "improper"
+  )
+})
+
 test_that("degenerate +Inf integration summaries keep mass in the open upper tail", {
   fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10, method = "integration")
   ss <- summary(fit, interval_probability = c(1.00, 1.33, 1.50, 2.00))

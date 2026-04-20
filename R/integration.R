@@ -129,6 +129,43 @@ create_prior_unit_information <- function(x) {
   is.finite(beta_n) && beta_n == 0
 }
 
+.format_conjugate_posterior_parameter <- function(x) {
+  format(signif(x, 6), trim = TRUE, scientific = FALSE)
+}
+
+.conjugate_posterior_error_message <- function(k_n, alpha_n, beta_n,
+                                               context = "The conjugate posterior") {
+  sprintf(
+    "%s is improper for the supplied data and prior (k_n = %s, alpha_n = %s, beta_n = %s).",
+    context,
+    .format_conjugate_posterior_parameter(k_n),
+    .format_conjugate_posterior_parameter(alpha_n),
+    .format_conjugate_posterior_parameter(beta_n)
+  )
+}
+
+.compute_validated_conjugate_posterior <- function(prior, data, cached_state = NULL,
+                                                   context = "The conjugate posterior") {
+  ss <- .extract_suff_stats(data, cached_state)
+  post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+
+  if (.is_improper_conjugate_posterior(post$k_n, post$alpha_n, post$beta_n)) {
+    stop(
+      .conjugate_posterior_error_message(
+        post$k_n, post$alpha_n, post$beta_n,
+        context = context
+      ),
+      call. = FALSE
+    )
+  }
+
+  list(
+    ss = ss,
+    post = post,
+    is_degenerate = .is_degenerate_conjugate_posterior(post$beta_n)
+  )
+}
+
 .scalar_almost_equal <- function(x, y) {
   tol <- sqrt(.Machine$double.eps) * max(1, abs(x), abs(y))
   abs(x - y) <= tol
@@ -760,8 +797,12 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
                                                    use_analytic = TRUE,
                                                    cached_state = NULL,
                                                    sigma_level = 3) {
-  ss  <- .extract_suff_stats(data, cached_state)
-  post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+  posterior_info <- .compute_validated_conjugate_posterior(
+    prior, data, cached_state,
+    context = "The conjugate posterior for metric computation"
+  )
+  ss <- posterior_info$ss
+  post <- posterior_info$post
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
   alpha_n <- post$alpha_n; beta_n <- post$beta_n
 
@@ -769,7 +810,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   mid <- (LSL + USL) / 2
   if (is.null(target)) target <- mid
 
-  if (.is_degenerate_conjugate_posterior(beta_n)) {
+  if (posterior_info$is_degenerate) {
     dist <- .degenerate_conjugate_metric_distribution(
       mu_n, k_n, LSL, USL, target, metric,
       sigma_level = sigma_level
@@ -964,6 +1005,16 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 .compute_moments_numerical_conjugate <- function(mu_n, k_n, alpha_n, beta_n,
                                                   LSL, USL, target, metric,
                                                   sigma_level = 3) {
+  if (.is_improper_conjugate_posterior(k_n, alpha_n, beta_n)) {
+    stop(
+      .conjugate_posterior_error_message(
+        k_n, alpha_n, beta_n,
+        context = "The conjugate posterior for numerical moment computation"
+      ),
+      call. = FALSE
+    )
+  }
+
   if (.is_degenerate_conjugate_posterior(beta_n)) {
     dist <- .degenerate_conjugate_metric_distribution(
       mu_n, k_n, LSL, USL, target, metric,
@@ -1336,14 +1387,18 @@ make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL,
 make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
                                         target = NULL, cached_state = NULL,
                                         sigma_level = 3, ...) {
-  ss   <- .extract_suff_stats(data, cached_state)
-  post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+  posterior_info <- .compute_validated_conjugate_posterior(
+    prior, data, cached_state,
+    context = "The conjugate posterior for survival-function computation"
+  )
+  ss <- posterior_info$ss
+  post <- posterior_info$post
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
   alpha_n <- post$alpha_n; beta_n <- post$beta_n
   df_p <- 2 * alpha_n
   tol <- USL - LSL
 
-  if (.is_degenerate_conjugate_posterior(beta_n)) {
+  if (posterior_info$is_degenerate) {
     dist <- .degenerate_conjugate_metric_distribution(
       mu_n, k_n, LSL, USL, target, metric,
       sigma_level = sigma_level
@@ -1581,15 +1636,19 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
                                                 metric = "Cpk", target = NULL,
                                                 cached_state = NULL,
                                                 sigma_level = 3, ...) {
-  ss   <- .extract_suff_stats(data, cached_state)
-  post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
+  posterior_info <- .compute_validated_conjugate_posterior(
+    prior, data, cached_state,
+    context = "The conjugate posterior for density computation"
+  )
+  ss <- posterior_info$ss
+  post <- posterior_info$post
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
   alpha_n <- post$alpha_n; beta_n <- post$beta_n
 
   M <- (LSL + USL) / 2
   tol <- USL - LSL
 
-  if (.is_degenerate_conjugate_posterior(beta_n)) {
+  if (posterior_info$is_degenerate) {
     dist <- .degenerate_conjugate_metric_distribution(
       mu_n, k_n, LSL, USL, target, metric,
       sigma_level = sigma_level
@@ -2784,9 +2843,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   }
 
   if (inherits(prior, "PriorConjugate")) {
-    ss <- .extract_suff_stats(data, cached_state)
-    post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
-    if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+    posterior_info <- .compute_validated_conjugate_posterior(
+      prior, data, cached_state,
+      context = "The conjugate posterior for interval probability computation"
+    )
+    post <- posterior_info$post
+    if (posterior_info$is_degenerate) {
       dist <- .degenerate_conjugate_metric_distribution(
         post$mu_n, post$k_n, LSL, USL, target, metric,
         sigma_level = sigma_level
@@ -3037,9 +3099,12 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   metric_can_be_negative <- .metric_can_be_negative(metric)
 
   if (inherits(prior, "PriorConjugate")) {
-    ss <- .extract_suff_stats(data, cached_state)
-    post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
-    if (.is_degenerate_conjugate_posterior(post$beta_n)) {
+    posterior_info <- .compute_validated_conjugate_posterior(
+      prior, data, cached_state,
+      context = "The conjugate posterior for density analysis"
+    )
+    post <- posterior_info$post
+    if (posterior_info$is_degenerate) {
       dist <- .degenerate_conjugate_metric_distribution(
         post$mu_n, post$k_n, LSL, USL, target, metric,
         sigma_level = sigma_level
@@ -3865,6 +3930,13 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   }
 
   n <- cached_state$n %||% 0L
+
+  if (is_conjugate) {
+    .compute_validated_conjugate_posterior(
+      prior, data, cached_state,
+      context = "The conjugate posterior for integration"
+    )
+  }
 
   # Analyze all metrics
   # Match order of MCMC results for consistency (Cp, Cpu, Cpl, Cpk, Cpc, Cpm)
