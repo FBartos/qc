@@ -219,6 +219,10 @@ create_prior_unit_information <- function(x) {
   )
 }
 
+.metric_can_be_negative <- function(metric) {
+  metric %in% c("Cpu", "Cpl", "Cpk")
+}
+
 .metric_sigma_limit_from_mu <- function(metric, mu, c, LSL, USL, target,
                                         sigma_level = 3) {
   tol <- USL - LSL
@@ -243,6 +247,103 @@ create_prior_unit_information <- function(x) {
   )
 }
 
+.metric_sigma_region_from_mu <- function(metric, mu, c, LSL, USL, target,
+                                         sigma_level = 3) {
+  lower <- rep(0, length(mu))
+  upper <- rep(Inf, length(mu))
+
+  if (metric %in% c("Cp", "Cpm", "Cpc")) {
+    if (c <= 0) {
+      return(list(lower = lower, upper = upper))
+    }
+    upper <- .metric_sigma_limit_from_mu(
+      metric, mu, c, LSL, USL, target,
+      sigma_level = sigma_level
+    )
+    upper[!is.finite(upper) | upper <= 0] <- -Inf
+    return(list(lower = lower, upper = upper))
+  }
+
+  numerator <- switch(
+    metric,
+    "Cpu" = USL - mu,
+    "Cpl" = mu - LSL,
+    "Cpk" = pmin(USL - mu, mu - LSL),
+    stop("Unknown metric: ", metric)
+  )
+
+  if (c > 0) {
+    upper <- numerator / (sigma_level * c)
+    upper[numerator <= 0 | !is.finite(upper) | upper <= 0] <- -Inf
+    return(list(lower = lower, upper = upper))
+  }
+
+  if (c < 0) {
+    full_region <- numerator >= 0
+    lower[full_region] <- 0
+    upper[full_region] <- Inf
+
+    needs_lower_bound <- !full_region
+    lower[needs_lower_bound] <- numerator[needs_lower_bound] / (sigma_level * c)
+    lower[needs_lower_bound & (!is.finite(lower) | lower <= 0)] <- Inf
+    upper[needs_lower_bound] <- Inf
+    return(list(lower = lower, upper = upper))
+  }
+
+  inside_support <- numerator > 0
+  lower[inside_support] <- 0
+  upper[inside_support] <- Inf
+  lower[!inside_support] <- Inf
+  upper[!inside_support] <- -Inf
+  list(lower = lower, upper = upper)
+}
+
+.sigma_interval_prob_inv_gamma <- function(lower, upper, shape, rate) {
+  prob <- numeric(length(lower))
+
+  full_region <- lower <= 0 & is.infinite(upper)
+  prob[full_region] <- 1
+
+  upper_only <- lower <= 0 & is.finite(upper) & upper > 0
+  if (any(upper_only)) {
+    prob[upper_only] <- stats::pgamma(
+      1 / upper[upper_only]^2,
+      shape = shape,
+      rate = rate[upper_only],
+      lower.tail = FALSE
+    )
+  }
+
+  lower_only <- is.finite(lower) & lower > 0 & is.infinite(upper)
+  if (any(lower_only)) {
+    prob[lower_only] <- stats::pgamma(
+      1 / lower[lower_only]^2,
+      shape = shape,
+      rate = rate[lower_only],
+      lower.tail = TRUE
+    )
+  }
+
+  finite_band <- is.finite(lower) & lower > 0 &
+    is.finite(upper) & upper > lower
+  if (any(finite_band)) {
+    prob[finite_band] <- stats::pgamma(
+      1 / lower[finite_band]^2,
+      shape = shape,
+      rate = rate[finite_band],
+      lower.tail = TRUE
+    ) - stats::pgamma(
+      1 / upper[finite_band]^2,
+      shape = shape,
+      rate = rate[finite_band],
+      lower.tail = TRUE
+    )
+  }
+
+  prob[!is.finite(prob) | prob < 0] <- 0
+  pmin(prob, 1)
+}
+
 # ==============================================================================
 # Metric Constraints
 # ==============================================================================
@@ -263,8 +364,12 @@ get_metric_constraints <- function(metric, c, LSL, USL, target,
 
   list(
     s_max_fn = function() {
-      if (metric %in% c("Cp", "Cpk", "Cpm", "Cpc"))
-        return(tol / ((2 * sigma_level) * c))
+      if (metric %in% c("Cp", "Cpm", "Cpc"))
+        return(if (c <= 0) Inf else tol / ((2 * sigma_level) * c))
+      if (metric == "Cpk")
+        return(if (c <= 0) Inf else tol / ((2 * sigma_level) * c))
+      if (metric %in% c("Cpu", "Cpl"))
+        return(Inf)
       return(Inf)
     },
     # Vectorized version: takes vector of sigma, returns list(lower, upper)
@@ -286,6 +391,9 @@ get_metric_constraints <- function(metric, c, LSL, USL, target,
                     upper = rep(Inf, n)))
       }
       if (metric == "Cpm") {
+        if (c <= 0) {
+          return(list(lower = rep(-Inf, n), upper = rep(Inf, n)))
+        }
         R <- tol / ((2 * sigma_level) * c)
         w <- sqrt(pmax(0, R^2 - s^2))
         lower <- target - w
@@ -296,6 +404,9 @@ get_metric_constraints <- function(metric, c, LSL, USL, target,
         return(list(lower = lower, upper = upper))
       }
       if (metric == "Cpc") {
+        if (c <= 0) {
+          return(list(lower = rep(-Inf, n), upper = rep(Inf, n)))
+        }
         w <- .cpc_mu_width_from_sigma(s, c, tol, sigma_level = sigma_level)
         lower <- target - w
         upper <- target + w
@@ -1006,7 +1117,6 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     x_U <- (USL - mu_n) * sqrt(k_n * alpha_n / beta_n)
     sqrt_k_n <- sqrt(k_n)
     return(function(c) {
-      if (c <= 0) return(1.0)
       suppressWarnings(stats::pt(x_U, df = df_p,
                                  ncp = sigma_level * c * sqrt_k_n))
     })
@@ -1015,7 +1125,6 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     x_L <- (mu_n - LSL) * sqrt(k_n * alpha_n / beta_n)
     sqrt_k_n <- sqrt(k_n)
     return(function(c) {
-      if (c <= 0) return(1.0)
       suppressWarnings(stats::pt(x_L, df = df_p,
                                  ncp = sigma_level * c * sqrt_k_n))
     })
@@ -1026,7 +1135,7 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   h_max_global <- stats::dchisq(y_mode, df_p, log = TRUE)
 
   function(c) {
-    if (c <= 0) return(1.0)
+    if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
 
     constr <- get_metric_constraints(metric, c, LSL, USL, target,
                                      sigma_level = sigma_level)
@@ -1095,7 +1204,7 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   n_eff <- if (prior$k0 == 0) n - 1 else n
 
   function(c) {
-    if (c <= 0) return(1.0)
+    if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
     constr <- get_metric_constraints(metric, c, LSL, USL, target,
                                      sigma_level = sigma_level)
     s_max <- constr$s_max_fn()
@@ -1154,7 +1263,7 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
 
   function(c) {
-    if (c <= 0) return(1.0)
+    if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
 
     integrand <- function(mu) {
       sse_mu <- sse + n * (mu - x_bar)^2
@@ -1165,23 +1274,17 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
         alpha_0_times_logbeta0 - alpha_n_eff * log(beta_n)
       log_prior_mu <- prior$log_dens_mu(mu)
 
-      sigma_limit <- .metric_sigma_limit_from_mu(
+      sigma_region <- .metric_sigma_region_from_mu(
         metric, mu, c, LSL, USL, target,
         sigma_level = sigma_level
       )
+      prob_sigma <- .sigma_interval_prob_inv_gamma(
+        sigma_region$lower, sigma_region$upper,
+        shape = alpha_n_eff, rate = beta_n
+      )
       log_prob_sigma <- rep(-Inf, length(mu))
-      inf_limit <- is.infinite(sigma_limit)
-      pos_limit <- is.finite(sigma_limit) & sigma_limit > 0
-
-      log_prob_sigma[inf_limit] <- 0
-      if (any(pos_limit)) {
-        prob_sigma <- 1 - stats::pgamma(
-          1 / sigma_limit[pos_limit]^2,
-          shape = alpha_n_eff,
-          rate = beta_n[pos_limit]
-        )
-        log_prob_sigma[pos_limit] <- log(pmax(prob_sigma, 1e-300))
-      }
+      pos_prob <- prob_sigma > 0
+      log_prob_sigma[pos_prob] <- log(prob_sigma[pos_prob])
 
       exp(log_marginal + log_prior_mu + log_prob_sigma)
     }
@@ -2178,7 +2281,7 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
 
   # Return closure
   function(c) {
-    if (c <= 0) return(1.0)
+    if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
     constr <- get_metric_constraints(metric, c, LSL, USL, target,
                                      sigma_level = sigma_level)
     num <- int_2d(constr$s_max_fn(), constr$mu_b_fn_vec)
@@ -2405,7 +2508,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                       inherits(prior, "PriorGeneric") ||
                       inherits(prior, "PriorSemiConjugateMu") ||
                       inherits(prior, "PriorSemiConjugateSigma")) &&
-                     metric %in% density_metrics
+                     metric %in% density_metrics &&
+                     !.metric_can_be_negative(metric)
 
   if (can_use_density) {
     # Use density solver PDF and integrate over bounds
@@ -2453,8 +2557,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     }
 
     # P(lower < Index < upper) = P(Index > lower) - P(Index > upper)
-    p_lower <- S(min(bounds))
-    p_upper <- S(max(bounds))
+    lower <- min(bounds)
+    upper <- max(bounds)
+    p_lower <- if (is.finite(lower)) S(lower) else 1
+    p_upper <- if (is.finite(upper)) S(upper) else 0
     return(p_lower - p_upper)
   }
 }
@@ -2637,6 +2743,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   has_bayestools_priors <- inherits(prior, "PriorGeneric") &&
                            !is.null(prior$bayestools_priors) &&
                            inherits(prior$bayestools_priors$sigma, "prior")
+  metric_can_be_negative <- .metric_can_be_negative(metric)
 
   if (is_prior_only && has_bayestools_priors) {
     # Fast path: compute grid bounds directly from sigma quantiles
@@ -2648,24 +2755,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     x_end <- bounds$x_end
   } else if (divergence_info$mean_divergent) {
     # Divergent mean: skip moment computation, use solver-based grid bounds
-    x_start <- 0
+    x_start <- if (metric_can_be_negative) -3 else 0
     x_end <- 3
-    try({
-      S_fn <- if (!is.null(cached_state)) {
-        make_solver(data, LSL, USL, prior, metric, target,
-                    sigma_level = sigma_level,
-                    cached_state = cached_state)
-      } else {
-        make_solver(data, LSL, USL, prior, metric, target,
-                    sigma_level = sigma_level)
-      }
-      for (try_limit in c(10, 20, 50, 100, 500, 1000)) {
-        if (S_fn(try_limit) < 0.001) {
-          x_end <- try_limit
-          break
-        }
-      }
-    }, silent = TRUE)
   } else {
     # Standard path: compute posterior moments for grid bounds
     moments <- compute_metric_moments(
@@ -2678,34 +2769,52 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     # Handle NaN moments by falling back to reasonable defaults
     if (is.na(moments$mean) || is.na(moments$sd) || moments$sd <= 0) {
       # Fallback: use a wide grid centered around 1.0
-      x_start <- 0
+      x_start <- if (metric_can_be_negative) -3 else 0
       x_end <- 3
     } else {
-      x_start <- max(0, moments$mean - 3 * moments$sd)
+      x_start <- moments$mean - 3 * moments$sd
+      if (!metric_can_be_negative) {
+        x_start <- max(0, x_start)
+      }
       x_end <- moments$mean + 3 * moments$sd
     }
+  }
 
-    # If bounds seem excessive (divergent mean), refine using quantiles via solver
-    if (x_end > 50) {
-       # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
-       try({
-         S_fn <- if (!is.null(cached_state)) {
-           make_solver(data, LSL, USL, prior, metric, target,
-                       sigma_level = sigma_level,
-                       cached_state = cached_state)
-         } else {
-           make_solver(data, LSL, USL, prior, metric, target,
-                       sigma_level = sigma_level)
-         }
-         # Search for upper bound where prob < 0.001
-         for (try_limit in c(10, 20, 50, 100, 1000)) {
-           if (S_fn(try_limit) < 0.001) {
-             x_end <- try_limit
-             break
-           }
-         }
-       }, silent = TRUE)
-    }
+  # Negative-support metrics need explicit lower-tail coverage because the
+  # direct density backend only covers c > 0. We use survival quantiles to
+  # capture the full support before building the grid.
+  if (metric_can_be_negative || divergence_info$mean_divergent || x_end > 50) {
+    try({
+      S_fn <- if (!is.null(cached_state)) {
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level,
+                    cached_state = cached_state)
+      } else {
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level)
+      }
+
+      if (metric_can_be_negative) {
+        x_start <- min(x_start, -1)
+        for (try_limit in c(-1, -2, -5, -10, -20, -50, -100, -500, -1000)) {
+          if (S_fn(try_limit) > 0.999) {
+            x_start <- try_limit
+            break
+          }
+        }
+      }
+
+      for (try_limit in c(1, 2, 5, 10, 20, 50, 100, 500, 1000)) {
+        if (S_fn(try_limit) < 0.001) {
+          x_end <- if (divergence_info$mean_divergent || x_end > 50) {
+            try_limit
+          } else {
+            max(x_end, try_limit)
+          }
+          break
+        }
+      }
+    }, silent = TRUE)
   }
 
   # Ensure valid grid (minimum width)
@@ -2782,7 +2891,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
                       inherits(prior, "PriorGeneric") ||
                       inherits(prior, "PriorSemiConjugateMu") ||
                       inherits(prior, "PriorSemiConjugateSigma")) &&
-                     metric %in% density_metrics
+                     metric %in% density_metrics &&
+                     !metric_can_be_negative
 
   if (can_use_density) {
     # Direct PDF computation via contour integration

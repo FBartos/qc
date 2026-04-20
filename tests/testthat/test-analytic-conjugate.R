@@ -58,7 +58,6 @@ testthat::test_that("analytic Cpu solver matches numerical integration", {
   h_max <- stats::dchisq(y_mode, df_p, log = TRUE)
 
   S_numerical <- function(c) {
-    if (c <= 0) return(1.0)
     constr <- qc:::get_metric_constraints("Cpu", c, LSL, USL, NULL)
     s_max <- constr$s_max_fn()
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
@@ -77,7 +76,7 @@ testthat::test_that("analytic Cpu solver matches numerical integration", {
     exp(h_max + log(res))
   }
 
-  c_vals <- seq(0.3, 2.5, by = 0.1)
+  c_vals <- seq(-1.5, 2.5, by = 0.1)
   for (c_val in c_vals) {
     expect_equal(S_analytic(c_val), S_numerical(c_val), tolerance = 1e-4,
                  info = sprintf("Cpu at c=%.1f", c_val))
@@ -100,7 +99,6 @@ testthat::test_that("analytic Cpl solver matches numerical integration", {
   h_max <- stats::dchisq(y_mode, df_p, log = TRUE)
 
   S_numerical <- function(c) {
-    if (c <= 0) return(1.0)
     constr <- qc:::get_metric_constraints("Cpl", c, LSL, USL, NULL)
     s_max <- constr$s_max_fn()
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
@@ -119,7 +117,7 @@ testthat::test_that("analytic Cpl solver matches numerical integration", {
     exp(h_max + log(res))
   }
 
-  c_vals <- seq(0.3, 2.5, by = 0.1)
+  c_vals <- seq(-1.5, 2.5, by = 0.1)
   for (c_val in c_vals) {
     expect_equal(S_analytic(c_val), S_numerical(c_val), tolerance = 1e-4,
                  info = sprintf("Cpl at c=%.1f", c_val))

@@ -332,6 +332,70 @@ testthat::test_that("integration interval probabilities agree with MCMC", {
 })
 
 
+testthat::test_that("integration preserves negative Cpu and Cpk support with data", {
+
+  set.seed(1)
+  x <- rnorm(100, mean = 20, sd = 1)
+  LSL <- 0
+  USL <- 10
+  target <- 5
+
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
+
+  cpu_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpu", target = target)
+  cpk_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpk", target = target)
+
+  expect_lt(unname(fit$metrics$Cpu["Mean"]), 0)
+  expect_lt(unname(fit$metrics$Cpk["Mean"]), 0)
+  expect_equal(unname(fit$metrics$Cpu["Mean"]), cpu_mom$mean, tolerance = 0.05)
+  expect_equal(unname(fit$metrics$Cpk["Mean"]), cpk_mom$mean, tolerance = 0.05)
+
+  prob_cpu_nonpos <- qc:::compute_cpk_prob_integration(
+    x, LSL, USL, c(-Inf, 0), prior,
+    metric = "Cpu", target = target,
+    cached_state = fit$integration_result$cached_state
+  )
+  prob_cpk_nonpos <- qc:::compute_cpk_prob_integration(
+    x, LSL, USL, c(-Inf, 0), prior,
+    metric = "Cpk", target = target,
+    cached_state = fit$integration_result$cached_state
+  )
+
+  expect_gt(prob_cpu_nonpos, 0.99)
+  expect_gt(prob_cpk_nonpos, 0.99)
+})
+
+
+testthat::test_that("integration preserves negative Cpl support with data", {
+
+  set.seed(2)
+  x <- rnorm(100, mean = -10, sd = 1)
+  LSL <- 0
+  USL <- 10
+  target <- 5
+
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
+
+  cpl_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpl", target = target)
+  cpk_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpk", target = target)
+
+  expect_lt(unname(fit$metrics$Cpl["Mean"]), 0)
+  expect_lt(unname(fit$metrics$Cpk["Mean"]), 0)
+  expect_equal(unname(fit$metrics$Cpl["Mean"]), cpl_mom$mean, tolerance = 0.05)
+  expect_equal(unname(fit$metrics$Cpk["Mean"]), cpk_mom$mean, tolerance = 0.05)
+
+  prob_cpl_nonpos <- qc:::compute_cpk_prob_integration(
+    x, LSL, USL, c(-Inf, 0), prior,
+    metric = "Cpl", target = target,
+    cached_state = fit$integration_result$cached_state
+  )
+
+  expect_gt(prob_cpl_nonpos, 0.99)
+})
+
+
 testthat::test_that("integration method with custom priors", {
 
   set.seed(1)
