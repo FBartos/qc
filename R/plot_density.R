@@ -60,13 +60,31 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
 
   # MCMC method: compute density from samples
   vctrs::vec_rbind(!!!lapply(what, function(name) {
-    density_estimate <- stats::density(obj[[name]])
-    tibble::tibble(
-      x = density_estimate$x,
-      density = density_estimate$y,
-      metric = factor(name)
-    )
+    .extract_density_from_samples(obj[[name]], metric = name, levels = what)
   }))
+}
+
+#' Extract density data from raw samples
+#' @param samples Numeric sample vector
+#' @param metric Metric name
+#' @param levels Factor levels for metric column
+#' @return A tibble with columns: x, density, metric
+#' @keywords internal
+.extract_density_from_samples <- function(samples, metric, levels) {
+  samples <- samples[is.finite(samples)]
+
+  if (length(samples) < 2L) {
+    stop("Cannot extract density for metric '", metric, "': ",
+         "need at least two finite sample values.")
+  }
+
+  density_estimate <- stats::density(samples)
+
+  tibble::tibble(
+    x = density_estimate$x,
+    density = density_estimate$y,
+    metric = factor(metric, levels = levels)
+  )
 }
 
 #' Extract density data from integration results
@@ -78,12 +96,28 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
   results <- integration_result$results
 
   vctrs::vec_rbind(!!!lapply(what, function(name) {
-    grid <- results[[name]]$grid
-    tibble::tibble(
-      x = grid$x,
-      density = grid$density,
-      metric = factor(name)
-    )
+    result <- results[[name]]
+    grid <- result$grid
+
+    if (!is.null(grid)) {
+      if (is.null(grid$x) || is.null(grid$density)) {
+        stop("Cannot extract integration density for metric '", name, "': ",
+             "grid must contain both 'x' and 'density' columns.")
+      }
+
+      return(tibble::tibble(
+        x = grid$x,
+        density = grid$density,
+        metric = factor(name, levels = what)
+      ))
+    }
+
+    if (!is.null(result$samples)) {
+      return(.extract_density_from_samples(result$samples, metric = name, levels = what))
+    }
+
+    stop("Cannot extract integration density for metric '", name, "': ",
+         "result has neither a density grid nor samples.")
   }))
 }
 

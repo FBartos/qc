@@ -418,6 +418,37 @@ testthat::test_that("plot_density works for integration method", {
 })
 
 
+testthat::test_that("plot_density handles sample-backed prior-only integration results", {
+
+  fit <- bpc(
+    NULL,
+    LSL = 2, target = 10, USL = 18,
+    method = "integration",
+    prior_mu = prior("normal", list(10, 5)),
+    prior_sigma = prior("gamma", list(2, 1)),
+    sample_priors = TRUE
+  )
+
+  df <- extract_density_data(fit, what = c("Cp", "Cpk"))
+  expect_s3_class(df, "tbl_df")
+  expect_equal(names(df), c("x", "density", "metric"))
+  expect_equal(unique(as.character(df$metric)), c("Cp", "Cpk"))
+  expect_true(all(is.finite(df$x)))
+  expect_true(all(is.finite(df$density)))
+
+  p <- plot_density(fit, what = c("Cp", "Cpk"))
+  expect_s3_class(p, "ggplot")
+  build_fit <- try(ggplot2::ggplot_build(p), silent = TRUE)
+  expect_false(inherits(build_fit, "try-error"))
+
+  ss <- summary(fit)
+  p_summary <- plot_density(ss, what = "Cp")
+  expect_s3_class(p_summary, "ggplot")
+  build_summary <- suppressMessages(try(ggplot2::ggplot_build(p_summary), silent = TRUE))
+  expect_false(inherits(build_summary, "try-error"))
+})
+
+
 testthat::test_that("extract_density_data works for integration method", {
 
   set.seed(42)
