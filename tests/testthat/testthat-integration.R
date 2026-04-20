@@ -352,12 +352,27 @@ testthat::test_that("integration summary recomputes with new specification limit
 
   # Get summary with new limits (wider tolerance)
   ss_new <- summary(fit, LSL = 2, target = 10, USL = 18)
+  fit_new <- bpc(x, LSL = 2, target = 10, USL = 18, method = "integration")
+  ss_refit <- summary(fit_new)
 
   # New limits are wider, so capability indices should be higher
   expect_true(ss_new$summary$mean[ss_new$summary$metric == "Cp"] >
               original_coef["Cp"])
   expect_true(ss_new$summary$mean[ss_new$summary$metric == "Cpk"] >
               original_coef["Cpk"])
+
+  expect_equal(attr(ss_new$metrics, "LSL"), 2)
+  expect_equal(attr(ss_new$metrics, "target"), 10)
+  expect_equal(attr(ss_new$metrics, "USL"), 18)
+
+  for (metric in names(ss_new$metrics)) {
+    summary_mean <- ss_new$summary$mean[ss_new$summary$metric == metric]
+    expect_equal(summary_mean, unname(ss_new$metrics[[metric]]["Mean"]), tolerance = 1e-8,
+                 info = sprintf("%s: summary=%f, metrics=%f",
+                               metric, summary_mean, ss_new$metrics[[metric]]["Mean"]))
+  }
+
+  expect_equal(ss_new$interval_summary, ss_refit$interval_summary, tolerance = 1e-6)
 
   # Get summary with original limits (should match original coefficients)
   ss_orig <- summary(fit, LSL = 4, target = 10, USL = 16)

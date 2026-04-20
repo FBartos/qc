@@ -293,6 +293,8 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
       int_result <- object$integration_result
     }
 
+    metrics <- int_result$metrics
+
     # Build summary from pre-computed stats
     metric_names <- names(int_result$results)
     h <- (1 - ci.level) / 2
@@ -316,9 +318,9 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     prior <- int_result$prior
     cached_state <- int_result$cached_state
 
-    orig_LSL    <- attr(object$metrics, "LSL")
-    orig_USL    <- attr(object$metrics, "USL")
-    orig_target <- attr(object$metrics, "target")
+    orig_LSL    <- attr(metrics, "LSL")
+    orig_USL    <- attr(metrics, "USL")
+    orig_target <- attr(metrics, "target")
 
     # Compute interval probabilities for each metric
     interval_breaks <- c(-Inf, interval_probability, Inf)
@@ -429,7 +431,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
       call               = object$call,
       summary            = summary,
       interval_summary   = interval_summary,
-      metrics            = object$metrics,
+      metrics            = metrics,
       integration_result = int_result,
       divergence_diagnostics = divergence_diagnostics
     )
