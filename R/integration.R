@@ -127,6 +127,96 @@ create_prior_unit_information <- function(x) {
   list(k_n = k_n, mu_n = mu_n, sse_n = sse_n)
 }
 
+.cpc_lookup <- local({
+  z <- seq(0, 12, length.out = 4097L)
+  g <- sqrt(2 / pi) * exp(-0.5 * z^2) + z * (2 * stats::pnorm(z) - 1)
+  r <- z / g
+  r[1L] <- 0
+  list(
+    z = z,
+    g = g,
+    r = r,
+    g0 = g[1L],
+    g_max = g[length(g)]
+  )
+})
+
+.cpc_g <- function(z) {
+  sqrt(2 / pi) * exp(-0.5 * z^2) + z * (2 * stats::pnorm(z) - 1)
+}
+
+.cpc_E_abs_dev_normal <- function(mu, sigma, target) {
+  delta <- abs(mu - target)
+  z <- delta / sigma
+  sigma * sqrt(2 / pi) * exp(-0.5 * z^2) +
+    delta * (1 - 2 * stats::pnorm(-z))
+}
+
+.cpc_mu_width_from_sigma <- function(sigma, c, tol, sigma_level = 3) {
+  A <- tol / ((2 * sigma_level) * sqrt(pi / 2))
+  K <- A / (c * sigma)
+  width <- rep(NA_real_, length(K))
+  feasible <- is.finite(K) & K >= .cpc_lookup$g0
+  if (!any(feasible)) return(width)
+
+  z <- numeric(sum(feasible))
+  Kf <- K[feasible]
+  use_interp <- Kf <= .cpc_lookup$g_max
+  if (any(use_interp)) {
+    z[use_interp] <- stats::approx(
+      x = .cpc_lookup$g,
+      y = .cpc_lookup$z,
+      xout = Kf[use_interp],
+      ties = "ordered",
+      rule = 2
+    )$y
+  }
+  if (any(!use_interp)) {
+    z[!use_interp] <- Kf[!use_interp]
+  }
+
+  width[feasible] <- sigma[feasible] * z
+  width
+}
+
+.cpc_sigma_limit_from_delta <- function(delta, c, tol, sigma_level = 3) {
+  delta <- abs(delta)
+  sigma_max <- tol / ((2 * sigma_level) * c)
+  A <- tol / ((2 * sigma_level) * sqrt(pi / 2))
+
+  limit <- numeric(length(delta))
+  zero_delta <- delta == 0
+  limit[zero_delta] <- sigma_max
+
+  q <- delta * c / A
+  feasible <- !zero_delta & is.finite(q) & q < 1
+  if (any(feasible)) {
+    qf <- q[feasible]
+    z <- stats::approx(
+      x = .cpc_lookup$r,
+      y = .cpc_lookup$z,
+      xout = qf,
+      ties = "ordered",
+      rule = 2
+    )$y
+    limit[feasible] <- delta[feasible] / z
+  }
+
+  pmin(limit, sigma_max)
+}
+
+.cpc_contour_from_z <- function(z, c, tol, target, sigma_level = 3) {
+  g_z <- .cpc_g(z)
+  sigma <- tol / ((2 * sigma_level) * sqrt(pi / 2) * c * g_z)
+  delta <- sigma * z
+  list(
+    sigma = sigma,
+    mu_lower = target - delta,
+    mu_upper = target + delta,
+    log_jacobian = 2 * log(sigma) - log(c)
+  )
+}
+
 # ==============================================================================
 # Metric Constraints
 # ==============================================================================
@@ -169,13 +259,21 @@ get_metric_constraints <- function(metric, c, LSL, USL, target,
         return(list(lower = LSL + sigma_level * c * s,
                     upper = rep(Inf, n)))
       }
-      if (metric %in% c("Cpm", "Cpc")) {
-        T_val <- if (metric == "Cpc") mid else target
+      if (metric == "Cpm") {
         R <- tol / ((2 * sigma_level) * c)
         w <- sqrt(pmax(0, R^2 - s^2))
-        lower <- T_val - w
-        upper <- T_val + w
+        lower <- target - w
+        upper <- target + w
         invalid <- s >= R
+        lower[invalid] <- 0
+        upper[invalid] <- -1
+        return(list(lower = lower, upper = upper))
+      }
+      if (metric == "Cpc") {
+        w <- .cpc_mu_width_from_sigma(s, c, tol, sigma_level = sigma_level)
+        lower <- target - w
+        upper <- target + w
+        invalid <- !is.finite(w)
         lower[invalid] <- 0
         upper[invalid] <- -1
         return(list(lower = lower, upper = upper))
@@ -211,7 +309,8 @@ compute_metric_value <- function(mu, sigma, LSL, USL, target, metric,
     "Cpk" = pmin((USL - mu) / (sigma_level * sigma),
                  (mu - LSL) / (sigma_level * sigma)),
     "Cpm" = tol / ((2 * sigma_level) * sqrt(sigma^2 + (mu - target)^2)),
-    "Cpc" = tol / ((2 * sigma_level) * sqrt(sigma^2 + (mu - mid)^2)),
+    "Cpc" = tol / ((2 * sigma_level) * sqrt(pi / 2) *
+                     .cpc_E_abs_dev_normal(mu, sigma, target)),
     stop("Unknown metric: ", metric)
   )
 }
@@ -406,11 +505,10 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
-  if (metric %in% c("Cpm", "Cpc")) {
+  if (metric == "Cpm") {
     # Cpm = tol / (2 * sigma_level * sqrt(sigma^2 + (mu - T)^2))
     # No closed form - use 1D numerical integration over sigma (via chi-square)
-    T_val <- if (metric == "Cpc") mid else target
-    delta_T <- mu_n - T_val
+    delta_T <- mu_n - target
 
     # Use bounded integration to avoid divergence
     # Chi-square y has most mass near df_p, so integrate from small epsilon to large upper bound
@@ -445,6 +543,50 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     E_inv <- stats::integrate(integrand_cpm2, 1e-6, y_upper,
                        rel.tol = 1e-4, subdivisions = 200)$value
     E2 <- (tol / (2 * sigma_level))^2 * E_inv
+
+    return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
+  }
+
+  if (metric == "Cpc") {
+    y_upper <- max(100, df_p * 10)
+
+    gh_nodes <- sqrt(2) * c(
+      -3.190994, -2.266581, -1.468554, -0.723551, 0,
+       0.723551,  1.468554,  2.266581,  3.190994
+    )
+    gh_wts <- c(
+      3.961e-05, 4.944e-03, 8.847e-02, 4.326e-01, 7.202e-01,
+      4.326e-01, 8.847e-02, 4.944e-03, 3.961e-05
+    )
+    gh_wts <- gh_wts / sum(gh_wts)
+    n_gh <- length(gh_nodes)
+
+    integrand_cpc <- function(y, power) {
+      sigma <- sqrt(2 * beta_n / y)
+      tau <- sigma / sqrt(k_n)
+      mu_mat <- tcrossprod(tau, gh_nodes) + mu_n
+      sigma_rep <- rep(sigma, times = n_gh)
+      metric_vals <- compute_metric_value(
+        as.vector(mu_mat), sigma_rep, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )
+      metric_mat <- matrix(metric_vals, nrow = length(sigma), ncol = n_gh)
+      inner <- drop((metric_mat^power) %*% gh_wts)
+      inner * stats::dchisq(y, df_p)
+    }
+
+    E1 <- stats::integrate(
+      function(y) integrand_cpc(y, 1),
+      1e-6, y_upper,
+      rel.tol = 1e-4,
+      subdivisions = 200
+    )$value
+    E2 <- stats::integrate(
+      function(y) integrand_cpc(y, 2),
+      1e-6, y_upper,
+      rel.tol = 1e-4,
+      subdivisions = 200
+    )$value
 
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
@@ -1143,9 +1285,8 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric %in% c("Cpm", "Cpc")) {
-    T_val <- if (metric == "Cpc") M else target
-    if (is.null(T_val)) stop("Target required for Cpm")
+  if (metric == "Cpm") {
+    if (is.null(target)) stop("Target required for Cpm")
 
     n_theta <- 1024L
     theta_grid <- seq(1e-8, pi - 1e-8, length.out = n_theta)
@@ -1161,7 +1302,7 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
       valid <- sigma_v > 1e-10
       if (!any(valid)) return(0)
       sv <- sigma_v[valid]
-      mu_v <- T_val + R * cos(theta_grid[valid])
+      mu_v <- target + R * cos(theta_grid[valid])
       sd_mu <- sv / sqrt(k_n)
 
       log_p_sigma <- -(2 * alpha_n + 1) * log(sv) - beta_n / sv^2
@@ -1169,6 +1310,37 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
       vals <- exp(log_p_sigma + log_p_mu + log_jacobian - log_Z_sigma)
       vals[!is.finite(vals)] <- 0
       sum(vals) * d_theta
+    })
+  }
+
+  if (metric == "Cpc") {
+    if (is.null(target)) target <- M
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(z) {
+        contour <- .cpc_contour_from_z(
+          z, c, tol, target,
+          sigma_level = sigma_level
+        )
+        sd_mu <- contour$sigma / sqrt(k_n)
+        log_p_sigma <- -(2 * alpha_n + 1) * log(contour$sigma) -
+          beta_n / contour$sigma^2
+        log_p_mu_L <- stats::dnorm(contour$mu_lower, mu_n, sd_mu, log = TRUE)
+        log_p_mu_U <- stats::dnorm(contour$mu_upper, mu_n, sd_mu, log = TRUE)
+
+        vals <- exp(log_p_sigma + log_p_mu_L + contour$log_jacobian - log_Z_sigma) +
+          exp(log_p_sigma + log_p_mu_U + contour$log_jacobian - log_Z_sigma)
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      stats::integrate(
+        integrand, 0, 20,
+        rel.tol = 1e-5,
+        subdivisions = 400
+      )$value
     })
   }
 
@@ -1290,9 +1462,8 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric %in% c("Cpm", "Cpc")) {
-    T_val <- if (metric == "Cpc") M else target
-    if (is.null(T_val)) stop("Target required for Cpm")
+  if (metric == "Cpm") {
+    if (is.null(target)) stop("Target required for Cpm")
 
     n_theta <- 1024L
     theta_grid <- seq(1e-8, pi - 1e-8, length.out = n_theta)
@@ -1307,7 +1478,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       log_jacobian <- 2 * log(R) - log(c)
 
       sigma_v <- R * sin(theta_grid)
-      mu_v <- T_val + R * cos(theta_grid)
+      mu_v <- target + R * cos(theta_grid)
       sd_mu <- sigma_v / sqrt(k_n)
 
       lps <- log_p_sigma(sigma_v)
@@ -1316,6 +1487,36 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       vals <- exp(lps + log_p_mu + log_jacobian - log_Z)
       vals[!is.finite(vals)] <- 0
       sum(vals) * d_theta
+    })
+  }
+
+  if (metric == "Cpc") {
+    if (is.null(target)) target <- M
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(z) {
+        contour <- .cpc_contour_from_z(
+          z, c, tol, target,
+          sigma_level = sigma_level
+        )
+        sd_mu <- contour$sigma / sqrt(k_n)
+        lps <- log_p_sigma(contour$sigma)
+        log_p_mu_L <- stats::dnorm(contour$mu_lower, mu_n, sd_mu, log = TRUE)
+        log_p_mu_U <- stats::dnorm(contour$mu_upper, mu_n, sd_mu, log = TRUE)
+
+        vals <- exp(lps + log_p_mu_L + contour$log_jacobian - log_Z) +
+          exp(lps + log_p_mu_U + contour$log_jacobian - log_Z)
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      stats::integrate(
+        integrand, 0, 20,
+        rel.tol = 1e-5,
+        subdivisions = 400
+      )$value
     })
   }
 
@@ -1479,10 +1680,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     })
   }
 
-  # Cpm/Cpc: Semicircular contours
-  if (metric %in% c("Cpm", "Cpc")) {
-    T_val <- if (metric == "Cpc") M else target
-    if (is.null(T_val)) stop("Target required for Cpm")
+  if (metric == "Cpm") {
+    if (is.null(target)) stop("Target required for Cpm")
 
     n_theta <- 1024L
     theta_grid <- seq(1e-8, pi - 1e-8, length.out = n_theta)
@@ -1497,7 +1696,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       log_jacobian <- 2 * log(R) - log(c)
 
       sigma_v <- R * sin(theta_grid)
-      mu_v <- T_val + R * cos(theta_grid)
+      mu_v <- target + R * cos(theta_grid)
 
       sse_mu <- sse + n * (mu_v - x_bar)^2
       beta_n <- beta0 + sse_mu / 2
@@ -1507,6 +1706,44 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       vals <- exp(log_pm + log_sk + log_jacobian - log_Z)
       vals[!is.finite(vals)] <- 0
       sum(vals) * d_theta
+    })
+  }
+
+  if (metric == "Cpc") {
+    if (is.null(target)) target <- M
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(z) {
+        contour <- .cpc_contour_from_z(
+          z, c, tol, target,
+          sigma_level = sigma_level
+        )
+
+        sse_L <- sse + n * (contour$mu_lower - x_bar)^2
+        sse_U <- sse + n * (contour$mu_upper - x_bar)^2
+        beta_n_L <- beta0 + sse_L / 2
+        beta_n_U <- beta0 + sse_U / 2
+
+        log_sk_L <- log_C - (2 * alpha_n_eff + 1) * log(contour$sigma) -
+          beta_n_L / contour$sigma^2
+        log_sk_U <- log_C - (2 * alpha_n_eff + 1) * log(contour$sigma) -
+          beta_n_U / contour$sigma^2
+        log_pm_L <- prior$log_dens_mu(contour$mu_lower)
+        log_pm_U <- prior$log_dens_mu(contour$mu_upper)
+
+        vals <- exp(log_pm_L + log_sk_L + contour$log_jacobian - log_Z) +
+          exp(log_pm_U + log_sk_U + contour$log_jacobian - log_Z)
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      stats::integrate(
+        integrand, 0, 20,
+        rel.tol = 1e-5,
+        subdivisions = 400
+      )$value
     })
   }
 
@@ -1717,10 +1954,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     })
   }
 
-  # Cpm/Cpc: Semicircular contours
-  if (metric %in% c("Cpm", "Cpc")) {
-    T_val <- if (metric == "Cpc") M else target
-    if (is.null(T_val)) stop("Target required for Cpm")
+  if (metric == "Cpm") {
+    if (is.null(target)) stop("Target required for Cpm")
 
     return(function(c) {
       if (c <= 0) return(0)
@@ -1743,7 +1978,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         if (!any(valid)) return(result)
 
         sigma_v <- sigma_v[valid]
-        mu_v <- T_val + R * cos(theta[valid])
+        mu_v <- target + R * cos(theta[valid])
 
         # Log joint posterior
         log_p <- log_post_vec(mu_v, sigma_v)
@@ -1756,6 +1991,34 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       }
 
       stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
+    })
+  }
+
+  if (metric == "Cpc") {
+    if (is.null(target)) target <- M
+
+    return(function(c) {
+      if (c <= 0) return(0)
+
+      integrand <- function(z) {
+        contour <- .cpc_contour_from_z(
+          z, c, tol, target,
+          sigma_level = sigma_level
+        )
+        log_p_L <- log_post_vec(contour$mu_lower, contour$sigma)
+        log_p_U <- log_post_vec(contour$mu_upper, contour$sigma)
+
+        vals <- exp(log_p_L + contour$log_jacobian - h_max) / Z +
+          exp(log_p_U + contour$log_jacobian - h_max) / Z
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      stats::integrate(
+        integrand, 0, 20,
+        rel.tol = 1e-5,
+        subdivisions = 400
+      )$value
     })
   }
 
@@ -3094,4 +3357,3 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     divergence = divergence_map
   )
 }
-

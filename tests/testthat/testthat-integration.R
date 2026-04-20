@@ -87,6 +87,56 @@ testthat::test_that("density solver vs survival function methods agree", {
 })
 
 
+testthat::test_that("Cpc depends on target off the midpoint", {
+
+  set.seed(42)
+  x <- rnorm(30, mean = 10, sd = 1)
+  LSL <- 4
+  USL <- 16
+  prior <- qc:::create_prior_conjugate()
+
+  density_t10 <- qc:::analyze_capability_integration(
+    x, LSL, USL, prior,
+    metric = "Cpc",
+    target = 10,
+    use_density_solver = TRUE
+  )
+  density_t11 <- qc:::analyze_capability_integration(
+    x, LSL, USL, prior,
+    metric = "Cpc",
+    target = 11,
+    use_density_solver = TRUE
+  )
+  survival_t10 <- qc:::analyze_capability_integration(
+    x, LSL, USL, prior,
+    metric = "Cpc",
+    target = 10,
+    use_density_solver = FALSE
+  )
+  survival_t11 <- qc:::analyze_capability_integration(
+    x, LSL, USL, prior,
+    metric = "Cpc",
+    target = 11,
+    use_density_solver = FALSE
+  )
+
+  expect_gt(abs(density_t10$stats["Mean"] - density_t11$stats["Mean"]), 0.10)
+  expect_gt(abs(survival_t10$stats["Mean"] - survival_t11$stats["Mean"]), 0.10)
+
+  density_vs_survival <- abs(density_t11$stats["Mean"] - survival_t11$stats["Mean"])
+  rel_diff <- density_vs_survival / max(abs(survival_t11$stats["Mean"]), 0.01)
+  expect_true(
+    rel_diff < 0.05 || density_vs_survival < 0.02,
+    info = sprintf(
+      "Cpc target=11: density=%.4f, survival=%.4f, diff=%.4f",
+      density_t11$stats["Mean"],
+      survival_t11$stats["Mean"],
+      density_vs_survival
+    )
+  )
+})
+
+
 testthat::test_that("density solver produces normalized PDFs", {
 
   set.seed(42)
