@@ -87,6 +87,53 @@ test_that("degenerate conjugate Cpm and Cpc collapse to finite point masses off 
   )
 })
 
+test_that("extract_point_estimates keeps compatibility with stats-only degenerate entries", {
+  cpm_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+  cpm_result <- cpm_fit$integration_result$results$Cpm
+  cpm_density <- qc::extract_density_data(cpm_fit, what = "Cpm")
+  expected_cpm <- (10 - 0) / ((2 * 3) * abs(5 - 3))
+
+  cpm_mode_full <- qc::extract_point_estimates(
+    obj = NULL,
+    what = "Cpm",
+    point_estimate = "mode",
+    dfDensity = cpm_density,
+    stats_list = list(Cpm = cpm_result)
+  )
+  cpm_mode_stats <- qc::extract_point_estimates(
+    obj = NULL,
+    what = "Cpm",
+    point_estimate = "mode",
+    dfDensity = cpm_density,
+    stats_list = list(Cpm = cpm_result$stats)
+  )
+
+  expect_equal(cpm_mode_full$x, expected_cpm)
+  expect_equal(cpm_mode_stats$x, expected_cpm)
+
+  cpu_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10, method = "integration")
+  cpu_result <- cpu_fit$integration_result$results$Cpu
+  cpu_density <- qc::extract_density_data(cpu_fit, what = "Cpu")
+
+  cpu_mode_full <- qc::extract_point_estimates(
+    obj = NULL,
+    what = "Cpu",
+    point_estimate = "mode",
+    dfDensity = cpu_density,
+    stats_list = list(Cpu = cpu_result)
+  )
+  cpu_mode_stats <- qc::extract_point_estimates(
+    obj = NULL,
+    what = "Cpu",
+    point_estimate = "mode",
+    dfDensity = cpu_density,
+    stats_list = list(Cpu = cpu_result$stats)
+  )
+
+  expect_equal(nrow(cpu_mode_full), 0)
+  expect_equal(nrow(cpu_mode_stats), 0)
+})
+
 test_that("degenerate conjugate boundary case yields exact normal limit for Cpu and Cpk", {
   x <- rep(10, 10)
   LSL <- 0

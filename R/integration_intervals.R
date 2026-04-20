@@ -6,6 +6,57 @@
   x
 }
 
+.integration_result_degenerate <- function(x) {
+  if (is.list(x) && !is.null(x$degenerate)) {
+    return(x$degenerate)
+  }
+
+  NULL
+}
+
+.integration_result_mode <- function(entry, x = NULL, density = NULL) {
+  degenerate <- .integration_result_degenerate(entry)
+  if (!is.null(degenerate)) {
+    return(switch(degenerate$type,
+      "point" = degenerate$value,
+      "normal" = degenerate$mean,
+      "pos_inf" = Inf,
+      "neg_inf" = -Inf,
+      stop("Unknown degenerate metric distribution type: ", degenerate$type)
+    ))
+  }
+
+  stats <- .integration_result_stats(entry)
+  if (!is.null(stats)) {
+    mean_val <- unname(stats["Mean"])
+    median_val <- unname(stats["Median"])
+    sd_val <- unname(stats["SD"])
+
+    if (length(median_val) == 1L && !is.na(median_val) && !is.finite(median_val)) {
+      return(median_val)
+    }
+
+    if (length(mean_val) == 1L && !is.na(mean_val) && !is.finite(mean_val)) {
+      return(mean_val)
+    }
+
+    if (length(sd_val) == 1L && is.finite(sd_val) && sd_val == 0 &&
+        length(median_val) == 1L && !is.na(median_val)) {
+      return(median_val)
+    }
+  }
+
+  if (!is.null(x) && !is.null(density) && any(is.finite(density) & density > 0)) {
+    return(x[which.max(density)])
+  }
+
+  if (!is.null(stats)) {
+    return(unname(stats["Median"]))
+  }
+
+  NA_real_
+}
+
 .integration_grid_cell_widths <- function(x) {
   n <- length(x)
 

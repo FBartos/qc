@@ -758,6 +758,30 @@ testthat::test_that("plot_density works for integration method", {
 })
 
 
+testthat::test_that("plot_density does not recycle finite point labels onto infinite integration facets", {
+
+  metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
+  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+
+  p <- plot_density(fit, what = metrics, point_estimate = "mean", ci = "none")
+  layers <- p[["layers"]]
+  text_idx <- which(vapply(layers, function(layer) inherits(layer[["geom"]], "GeomRichText"), logical(1)))
+
+  expect_length(text_idx, 1)
+
+  text_data <- layers[[text_idx]][["data"]]
+  expected_cpc <- (10 - 0) / ((2 * 3) * sqrt(pi / 2) * abs(5 - 3))
+  expected_cpm <- (10 - 0) / ((2 * 3) * abs(5 - 3))
+
+  expect_equal(levels(text_data$metric), metrics)
+  expect_equal(as.character(text_data$metric), c("Cpc", "Cpm"))
+  expect_equal(
+    text_data$labels,
+    c(sprintf("Mean = %.3f", expected_cpc), sprintf("Mean = %.3f", expected_cpm))
+  )
+})
+
+
 testthat::test_that("plot_density handles sample-backed prior-only integration results", {
 
   fit <- bpc(
@@ -894,6 +918,36 @@ testthat::test_that("extract_point_estimates works for both methods", {
     stats_list = stats_list
   )
   expect_equal(nrow(dfMode), 1)
+
+  dfModeFromEntries <- extract_point_estimates(
+    obj = NULL,
+    what = c("Cp"),
+    point_estimate = "mode",
+    dfDensity = dfDensity,
+    stats_list = list(Cp = results$Cp)
+  )
+  expect_equal(nrow(dfModeFromEntries), 1)
+  expect_equal(dfMode$x, dfModeFromEntries$x)
+})
+
+
+testthat::test_that("extract_point_estimates preserves metric levels when infinite integration estimates are skipped", {
+
+  metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
+  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+  dfDensity <- extract_density_data(fit, what = metrics)
+  stats_list <- setNames(lapply(metrics, function(name) fit$integration_result$results[[name]]), metrics)
+
+  dfPoints <- extract_point_estimates(
+    obj = NULL,
+    what = metrics,
+    point_estimate = "mean",
+    dfDensity = dfDensity,
+    stats_list = stats_list
+  )
+
+  expect_equal(levels(dfPoints$metric), metrics)
+  expect_equal(as.character(dfPoints$metric), c("Cpc", "Cpm"))
 })
 
 

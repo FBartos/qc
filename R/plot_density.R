@@ -127,7 +127,8 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
 #' @param what Character vector of metrics
 #' @param point_estimate Type of point estimate ("mean", "median", "mode", "none")
 #' @param dfDensity Density data tibble from extract_density_data
-#' @param stats_list Optional list of pre-computed stats (for integration method)
+#' @param stats_list Optional list of pre-computed stats or integration result entries
+#'   (for integration method)
 #' @return A tibble with columns: x, y, metric, or NULL if point_estimate is "none"
 #' @export
 extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_list = NULL) {
@@ -149,18 +150,7 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
       switch(point_estimate,
              "mean"   = stats["Mean"],
              "median" = stats["Median"],
-             "mode"   = {
-               if (!is.null(entry$degenerate)) {
-                 switch(entry$degenerate$type,
-                        "point" = entry$degenerate$value,
-                        "normal" = entry$degenerate$mean,
-                        "pos_inf" = Inf,
-                        "neg_inf" = -Inf,
-                        subset_df$x[which.max(subset_df$density)])
-               } else {
-                 subset_df$x[which.max(subset_df$density)]
-               }
-             },
+             "mode"   = .integration_result_mode(entry, x = subset_df$x, density = subset_df$density),
              stop("Unknown point_estimate."))
     } else {
       # MCMC method: compute from samples
@@ -172,14 +162,14 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
     }
 
     # Skip infinite point estimates (analytically divergent moments)
-    if (!is.finite(xValue))
+    if (!isTRUE(is.finite(xValue)))
       return(tibble::tibble(x = numeric(0), y = numeric(0),
-                            metric = factor(character(0), levels = levels(factor(what)))))
+                            metric = factor(character(0), levels = what)))
 
     tibble::tibble(
       x = unname(xValue),
       y = listOfFuns[[name]](xValue),
-      metric = factor(name)
+      metric = factor(name, levels = what)
     )
   }))
 }
@@ -191,7 +181,8 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 #' @param ci Type of CI ("central", "HPD", "custom", "none")
 #' @param ci_level CI level (default 0.95)
 #' @param dfDensity Density data tibble
-#' @param stats_list Optional list of pre-computed stats (for integration method)
+#' @param stats_list Optional list of pre-computed stats or integration result entries
+#'   (for integration method)
 #' @param ci_custom_left Custom CI left bound
 #' @param ci_custom_right Custom CI right bound
 #' @return A list with dfCi (bounds tibble) and dfArea (filled area tibble), or NULL if ci is "none"
@@ -230,7 +221,7 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
              "support" = stop("Support intervals are not implemented yet."),
              stop("Unknown ci."))
     }
-    tibble::tibble(x = unname(xValue), metric = factor(name))
+    tibble::tibble(x = unname(xValue), metric = factor(name, levels = what))
   }), what)
 
   # Build dfCi (bounds for error bars)
@@ -238,7 +229,7 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
   dfCi <- tibble::tibble(
     xmin = dfCi0$x[seq(1, nrow(dfCi0), by = 2)],
     xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
-    metric = dfCi0$metric[seq(1, nrow(dfCi0), by = 2)]
+    metric = factor(as.character(dfCi0$metric[seq(1, nrow(dfCi0), by = 2)]), levels = what)
   )
 
   # Build dfArea (filled polygon under curve)
@@ -248,12 +239,12 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
       return(tibble::tibble(
         x = numeric(0),
         y = numeric(0),
-        metric = factor(character(0), levels = levels(factor(what)))
+        metric = factor(character(0), levels = what)
       ))
     }
     xValues <- seq(min(est$x), max(est$x), length.out = 256)
     yValues <- listOfFuns[[name]](xValues)
-    tibble::tibble(x = xValues, y = yValues, metric = factor(name))
+    tibble::tibble(x = xValues, y = yValues, metric = factor(name, levels = what))
   }))
 
   list(dfCi = dfCi, dfArea = dfArea)
@@ -506,9 +497,9 @@ build_density_plot <- function(
     } else {
       NA_real_
     }
-    metric_levels <- unique(dfLines$metric)
+    metric_levels <- what[what %in% unique(as.character(dfLines$metric))]
     df_text <- tibble::tibble(
-      metric = metric_levels,
+      metric = factor(metric_levels, levels = what),
       y = vapply(metric_levels, function(metric_name) {
         max(dfLines$y[dfLines$metric == metric_name]) * ci_mult
       }, numeric(1)),
@@ -521,39 +512,50 @@ build_density_plot <- function(
       }, numeric(1))
     )
 
-    labels <- character(nrow(df_text))
+    point_labels <- rep("", nrow(df_text))
+    ci_labels <- rep("", nrow(df_text))
 
-    if (show_point_text && !is.null(dfPoints)) {
+    if (show_point_text && !is.null(dfPoints) && nrow(dfPoints) > 0L) {
       point_estimate_name <- switch(point_estimate,
                                     "mean"   = gettext("Mean"),
                                     "median" = gettext("Median"),
                                     "mode"   = gettext("Mode"),
                                     "")
-      labels <- sprintf("%s = %.3f", point_estimate_name, dfPoints$x)
+      point_lookup <- sprintf("%s = %.3f", point_estimate_name, dfPoints$x)
+      names(point_lookup) <- as.character(dfPoints$metric)
+      point_labels <- unname(point_lookup[metric_levels])
+      point_labels[is.na(point_labels)] <- ""
     }
 
-    if (show_ci_text && !is.null(dfCi)) {
-      ci_txt <- switch(ci,
-                       "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                       "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                       "custom"  = sprintf("Custom CI [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
-                       "")
-
-      if (all(labels == ""))
-        labels <- ci_txt
-      else
-        labels <- paste0(labels, "; ", ci_txt)
+    if (show_ci_text && !is.null(dfCi) && nrow(dfCi) > 0L) {
+      ci_lookup <- switch(ci,
+                          "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
+                          "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
+                          "custom"  = sprintf("Custom CI [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
+                          "")
+      names(ci_lookup) <- as.character(dfCi$metric)
+      ci_labels <- unname(ci_lookup[metric_levels])
+      ci_labels[is.na(ci_labels)] <- ""
     }
+
+    labels <- point_labels
+    has_point <- nzchar(labels)
+    has_ci <- nzchar(ci_labels)
+    labels[!has_point & has_ci] <- ci_labels[!has_point & has_ci]
+    labels[has_point & has_ci] <- paste0(labels[has_point & has_ci], "; ", ci_labels[has_point & has_ci])
 
     df_text$labels <- labels
+    df_text <- df_text[nzchar(df_text$labels), , drop = FALSE]
 
-    layer_text <- ggtext::geom_richtext(
-      data = df_text,
-      mapping = ggplot2::aes(x = x, y = y, label = labels, group = metric),
-      fill = NA, label.color = NA,
-      size = textsize,
-      nudge_y = 0.05 * max(dfLines$y)
-    )
+    if (nrow(df_text) > 0L) {
+      layer_text <- ggtext::geom_richtext(
+        data = df_text,
+        mapping = ggplot2::aes(x = x, y = y, label = labels, group = metric),
+        fill = NA, label.color = NA,
+        size = textsize,
+        nudge_y = 0.05 * max(dfLines$y)
+      )
+    }
   }
 
   # Scales and facets
