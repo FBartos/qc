@@ -303,7 +303,7 @@ default_region_cutoffs <- function() {
   split_df <- split(dfLines, dfLines$metric)
 
   processed <- lapply(split_df, function(d) {
-    y_cut <- stats::approx(d$x, d$y, xout = cutoffs)$y
+    y_cut <- stats::approx(d$x, d$y, xout = cutoffs, rule = 2)$y
 
     cut_df <- d[rep(1L, 2L * length(cutoffs)), ]
     cut_df$x <- rep(cutoffs, each = 2L)
