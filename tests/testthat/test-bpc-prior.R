@@ -83,3 +83,20 @@ test_that("mcmc rejects PriorConjugate inputs up front", {
     regexp = "only supported with `method = \"integration\"`"
   )
 })
+
+test_that("integration rejects a separate prior_sigma when prior_mu is a full PriorConjugate", {
+  skip_if_not_installed("BayesTools")
+
+  x <- rnorm(10, 0, 1)
+
+  expect_error(
+    bpc(
+      x,
+      LSL = -1, USL = 1, target = 0,
+      prior_mu = create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1),
+      prior_sigma = BayesTools::prior("gamma", list(2, 1)),
+      method = "integration"
+    ),
+    regexp = "already contains the sigma prior"
+  )
+})

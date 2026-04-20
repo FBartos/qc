@@ -215,6 +215,10 @@ bpc <- function(
   sprintf("`%s` is improper", parameter_name)
 }
 
+.is_default_prior_sigma_placeholder <- function(prior_sigma) {
+  is.null(prior_sigma) || identical(prior_sigma, "Jeffreys_sigma")
+}
+
 .validate_bpc_prior_configuration <- function(method, distribution,
                                               prior_mu, prior_sigma, prior_nu,
                                               sample_priors) {
@@ -233,6 +237,14 @@ bpc <- function(
         paste(conjugate_args, collapse = " and "),
         if (length(conjugate_args) == 1L) "is" else "are"
       )
+    )
+  }
+
+  if (inherits(prior_mu, "PriorConjugate") &&
+      !.is_default_prior_sigma_placeholder(prior_sigma)) {
+    issues <- c(
+      issues,
+      "`prior_mu` is a full PriorConjugate and already contains the sigma prior; leave `prior_sigma` at its default placeholder."
     )
   }
 

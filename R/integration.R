@@ -4055,6 +4055,14 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     cached_state <- NULL
   }
 
+  if (inherits(prior_mu, "PriorConjugate") &&
+      !.is_default_prior_sigma_placeholder(prior_sigma)) {
+    stop(
+      "`prior_mu` is a full PriorConjugate and already contains the sigma prior; leave `prior_sigma` at its default placeholder.",
+      call. = FALSE
+    )
+  }
+
   # Convert priors to integration format (4-case classification).
   # A PriorConjugate passed as prior_mu (e.g. from create_prior_unit_information)
   # is already in integration format and does not need conversion.
