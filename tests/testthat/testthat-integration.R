@@ -418,6 +418,34 @@ testthat::test_that("integration preserves negative Cpl support with data", {
 })
 
 
+testthat::test_that("integration tail probabilities keep open upper bounds", {
+
+  x <- rep(50, 30) + seq(-0.05, 0.05, length.out = 30)
+  LSL <- 48
+  USL <- 52
+  target <- 50
+
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
+  cached_state <- fit$integration_result$cached_state
+
+  prob_gt_10 <- qc:::compute_cpk_prob_integration(
+    x, LSL, USL, c(10, Inf), prior,
+    metric = "Cp", target = target,
+    cached_state = cached_state
+  )
+  S_cp <- qc:::make_solver(
+    x, LSL, USL, prior,
+    metric = "Cp", target = target,
+    cached_state = cached_state
+  )
+
+  expect_gt(unname(fit$coefficients["Cp"]), 20)
+  expect_gt(prob_gt_10, 0.99)
+  expect_equal(prob_gt_10, S_cp(10), tolerance = 1e-6)
+})
+
+
 testthat::test_that("integration method with custom priors", {
 
   set.seed(1)

@@ -2764,6 +2764,15 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                           metric = "Cpk", target = NULL,
                                           cached_state = NULL,
                                           sigma_level = 3) {
+  lower_bound <- min(bounds)
+  upper_bound <- max(bounds)
+
+  interval_prob_from_survival <- function(S) {
+    p_lower <- if (is.finite(lower_bound)) S(lower_bound) else 1
+    p_upper <- if (is.finite(upper_bound)) S(upper_bound) else 0
+    min(max(p_lower - p_upper, 0), 1)
+  }
+
   if (inherits(prior, "PriorConjugate")) {
     ss <- .extract_suff_stats(data, cached_state)
     post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
@@ -2794,9 +2803,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                   cached_state = cached_state)
     pdf_vec <- function(x) vapply(x, pdf_fn, numeric(1L))
 
-    # Clip infinite bounds: capability indices are >= 0 and rarely exceed 10
-    lower <- max(min(bounds), 0)
-    upper <- if (is.finite(max(bounds))) max(bounds) else 10
+    # Capability indices on this path have support on [0, Inf).
+    lower <- max(lower_bound, 0)
+    upper <- upper_bound
+    if (upper <= lower) return(0)
 
     prob <- tryCatch(
       stats::integrate(pdf_vec, lower, upper, rel.tol = 1e-4)$value,
@@ -2815,9 +2825,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                     sigma_level = sigma_level)
     }, error = function(e) NULL)
     if (!is.null(S)) {
-      p_lower <- tryCatch(S(lower), error = function(e) NA_real_)
-      p_upper <- tryCatch(S(upper), error = function(e) NA_real_)
-      if (!is.na(p_lower) && !is.na(p_upper)) return(p_lower - p_upper)
+      prob <- tryCatch(interval_prob_from_survival(S), error = function(e) NA_real_)
+      if (!is.na(prob)) return(prob)
     }
     return(NA_real_)
 
@@ -2833,11 +2842,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     }
 
     # P(lower < Index < upper) = P(Index > lower) - P(Index > upper)
-    lower <- min(bounds)
-    upper <- max(bounds)
-    p_lower <- if (is.finite(lower)) S(lower) else 1
-    p_upper <- if (is.finite(upper)) S(upper) else 0
-    return(p_lower - p_upper)
+    return(interval_prob_from_survival(S))
   }
 }
 
