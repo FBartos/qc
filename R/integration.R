@@ -1517,6 +1517,12 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     -n_eff * log(sigma_v) - sse_n / (2 * sigma_v^2) + prior$log_dens_sigma(sigma_v)
   }
 
+  sigma_support <- list(lower = 0, upper = Inf)
+  bt_priors <- prior$bayestools_priors
+  if (!is.null(bt_priors) && inherits(bt_priors$sigma, "prior")) {
+    sigma_support <- .extract_prior_bounds(bt_priors$sigma)
+  }
+
   # Precompute fine sigma grid for numerical integration.
   # stats::integrate can miss the narrow peak in the contour integrand
   # (width ~ sigma / (3*c*sqrt(n))) when the integration range is wide.
@@ -1592,7 +1598,11 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       if (c <= 0) return(0)
 
       sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0 || sigma_c > uni_s) return(0)
+      if (sigma_c <= 0 ||
+          sigma_c < sigma_support$lower ||
+          sigma_c > sigma_support$upper) {
+        return(0)
+      }
 
       lps <- log_p_sigma(sigma_c)
       log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)

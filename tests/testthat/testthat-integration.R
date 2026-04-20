@@ -181,6 +181,28 @@ testthat::test_that("density solver produces normalized PDFs", {
 })
 
 
+testthat::test_that("integration handles semi-conjugate mu priors with Cp density", {
+
+  set.seed(1)
+  x <- rnorm(30, mean = 10, sd = 2)
+
+  fit <- bpc(
+    x,
+    LSL = 2, target = 10, USL = 18,
+    method = "integration",
+    prior_mu = "Jeffreys_mu",
+    prior_sigma = BayesTools::prior("gamma", list(2, 1))
+  )
+
+  expect_s3_class(fit, "bpc")
+
+  ss <- summary(fit)
+  expect_s3_class(ss, "bpc_summary")
+  expect_true("Cp" %in% ss$summary$metric)
+  expect_true(all(is.finite(ss$summary$mean)))
+})
+
+
 testthat::test_that("integration method print and summary work", {
 
   set.seed(1)
