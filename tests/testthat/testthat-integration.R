@@ -203,6 +203,106 @@ testthat::test_that("integration handles semi-conjugate mu priors with Cp densit
 })
 
 
+testthat::test_that("semi-conjugate survival solvers agree with density mass", {
+  skip_if_not_installed("BayesTools")
+
+  set.seed(123)
+  x <- rnorm(30, mean = 10, sd = 2)
+  LSL <- 2
+  USL <- 18
+  target <- 10
+  bounds <- c(0.5, 1.5)
+
+  prior_cases <- list(
+    semi_mu = qc:::.bayestools_to_integration_prior(
+      "Jeffreys_mu",
+      BayesTools::prior("gamma", list(2, 1))
+    )$prior,
+    semi_sigma = qc:::.bayestools_to_integration_prior(
+      BayesTools::prior("normal", list(10, 5)),
+      "Jeffreys_sigma"
+    )$prior
+  )
+
+  for (case_name in names(prior_cases)) {
+    prior <- prior_cases[[case_name]]
+    for (metric in c("Cpu", "Cpl", "Cpk")) {
+      S <- qc:::make_solver(x, LSL, USL, prior, metric = metric, target = target)
+      pdf_fn <- qc:::make_density_solver(x, LSL, USL, prior,
+                                         metric = metric, target = target)
+      ref_mass <- integrate(
+        Vectorize(pdf_fn),
+        bounds[1], bounds[2],
+        rel.tol = 1e-4,
+        subdivisions = if (metric == "Cpk") 1000 else 200
+      )$value
+      solver_mass <- S(bounds[1]) - S(bounds[2])
+
+      expect_equal(
+        solver_mass,
+        ref_mass,
+        tolerance = 0.02,
+        info = sprintf(
+          "%s/%s: solver=%.6f ref=%.6f",
+          case_name, metric, solver_mass, ref_mass
+        )
+      )
+    }
+  }
+})
+
+
+testthat::test_that("semi-conjugate positive interval probabilities match density mass", {
+  skip_if_not_installed("BayesTools")
+
+  set.seed(123)
+  x <- rnorm(30, mean = 10, sd = 2)
+  LSL <- 2
+  USL <- 18
+  target <- 10
+  bounds <- c(0.5, 1.5)
+
+  prior_cases <- list(
+    semi_mu = qc:::.bayestools_to_integration_prior(
+      "Jeffreys_mu",
+      BayesTools::prior("gamma", list(2, 1))
+    )$prior,
+    semi_sigma = qc:::.bayestools_to_integration_prior(
+      BayesTools::prior("normal", list(10, 5)),
+      "Jeffreys_sigma"
+    )$prior
+  )
+
+  for (case_name in names(prior_cases)) {
+    prior <- prior_cases[[case_name]]
+    for (metric in c("Cpu", "Cpl", "Cpk")) {
+      pdf_fn <- qc:::make_density_solver(x, LSL, USL, prior,
+                                         metric = metric, target = target)
+      ref_mass <- integrate(
+        Vectorize(pdf_fn),
+        bounds[1], bounds[2],
+        rel.tol = 1e-4,
+        subdivisions = if (metric == "Cpk") 1000 else 200
+      )$value
+      interval_prob <- qc:::compute_cpk_prob_integration(
+        x, LSL, USL, bounds, prior,
+        metric = metric, target = target
+      )
+
+      expect_equal(
+        interval_prob,
+        ref_mass,
+        tolerance = 0.02,
+        info = sprintf(
+          "%s/%s: interval=%.6f ref=%.6f",
+          case_name, metric, interval_prob, ref_mass
+        )
+      )
+    }
+  }
+})
+
+
 testthat::test_that("integration method print and summary work", {
 
   set.seed(1)

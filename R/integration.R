@@ -1445,6 +1445,8 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   k_n <- smp$k_n; mu_n <- smp$mu_n; sse_n <- smp$sse_n
 
   n_eff <- if (prior$k0 == 0) n - 1 else n
+  # make_solver() must return a survival probability, not raw posterior mass.
+  log_Z <- .compute_semi_mu_log_Z(n_eff, sse_n, prior$log_dens_sigma)
 
   function(c) {
     if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
@@ -1470,15 +1472,14 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
                              log_diff_exp(stats::pnorm(z_U, log.p = TRUE),
                                           stats::pnorm(z_L, log.p = TRUE)))
 
-      exp(log_lik + log_prior_sigma + log_prob_mu)
+      exp(log_lik + log_prior_sigma + log_prob_mu - log_Z)
     }
 
-    # Integration bounds for sigma
-    sigma_upper <- if (is.infinite(s_max)) 20 * sqrt(sse_n / max(n, 1)) else s_max
-    sigma_upper <- max(sigma_upper, 1e-6)
+    sigma_upper <- if (is.infinite(s_max)) Inf else max(s_max, 1e-6)
 
-    stats::integrate(integrand, 1e-10, sigma_upper,
-                     rel.tol = 1e-5, subdivisions = 200)$value
+    prob <- stats::integrate(integrand, 1e-10, sigma_upper,
+                             rel.tol = 1e-5, subdivisions = 200)$value
+    min(max(prob, 0), 1)
   }
 }
 
@@ -1504,6 +1505,10 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   beta0 <- prior$beta0
   alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
   jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
+  # Normalize to the same posterior mass used by the density solver.
+  log_Z <- .compute_semi_sigma_log_Z(n, x_bar, sse, alpha0, beta0,
+                                     prior$log_dens_mu, jeffreys_adj)
+  mu_window <- 20 * sqrt(sse / max(n, 1))
 
   function(c) {
     if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
@@ -1529,15 +1534,15 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       pos_prob <- prob_sigma > 0
       log_prob_sigma[pos_prob] <- log(prob_sigma[pos_prob])
 
-      exp(log_marginal + log_prior_mu + log_prob_sigma)
+      exp(log_marginal + log_prior_mu + log_prob_sigma - log_Z)
     }
 
-    mu_sd <- sqrt(sse / max(n - 1, 1))
-    mu_low <- x_bar - 10 * mu_sd
-    mu_high <- x_bar + 10 * mu_sd
+    mu_low <- x_bar - mu_window
+    mu_high <- x_bar + mu_window
 
-    stats::integrate(integrand, mu_low, mu_high,
-                     rel.tol = 1e-5, subdivisions = 200)$value
+    prob <- stats::integrate(integrand, mu_low, mu_high,
+                             rel.tol = 1e-5, subdivisions = 200)$value
+    min(max(prob, 0), 1)
   }
 }
 
