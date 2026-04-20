@@ -454,7 +454,7 @@ build_density_plot <- function(
   if (!is.null(dfPoints)) {
     layer_points <- ggplot2::geom_point(
       data = dfPoints,
-      mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric, fill = metric),
+      mapping = ggplot2::aes(x = x, y = y, group = metric, color = metric),
       size = 4,
       inherit.aes = FALSE
     )
@@ -469,7 +469,8 @@ build_density_plot <- function(
 
     layer_area <- ggplot2::geom_area(
       data = dfArea,
-      mapping = ggplot2::aes(x = x, y = y, group = metric, fill = metric),
+      mapping = ggplot2::aes(x = x, y = y, group = metric),
+      fill = ci_fill,
       color = NA,
       alpha = ci_fill_alpha,
       inherit.aes = FALSE,
@@ -630,15 +631,13 @@ build_density_plot <- function(
       values = region_colors,
       breaks = names(region_colors)
     )
-  } else {
-    plt <- plt + ggplot2::scale_fill_manual(values = plotColors)
   }
 
   plt <- plt +
     ggplot2::labs(
       group = "Capability Metric",
       color = "Capability Metric",
-      fill = if (show_regions) NULL else "Capability Metric",
+      fill = NULL,
       x = "Value",
       y = "Density"
     ) +
