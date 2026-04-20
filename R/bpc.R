@@ -103,18 +103,22 @@ bpc <- function(
   object$prior_sigma <- prior_sigma
   object$sigma <- sigma
 
+  prepared_data <- .bpc_prepare_data(
+    x = x,
+    mean = dots$mean,
+    sd = dots$sd,
+    N = dots$N,
+    allow_empty = sample_priors
+  )
+
   # Dispatch based on method
   if (method == "integration") {
 
-    # Integration method: bypass Stan, use numerical integration
-    # Remove NAs from data
-    x <- na.omit(x)
-
-    # Fit using integration
     int_result <- .bpc_fit_integration(
-      data = x, LSL = LSL, USL = USL, target = target,
+      data = prepared_data$raw_data, LSL = LSL, USL = USL, target = target,
       prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma,
-      sample_priors = sample_priors
+      sample_priors = sample_priors,
+      cached_state = prepared_data$cached_state
     )
 
     object$integration_result <- int_result
@@ -127,8 +131,7 @@ bpc <- function(
   } else {
     # MCMC method: use Stan
 
-    # prepare data
-    object$stan_data   <- .bpc_data(x = x, mean = dots$mean, sd = dots$sd, N = dots$N)
+    object$stan_data <- prepared_data$stan_data
 
     # prepare priors
     object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu, sample_priors = sample_priors)
@@ -156,44 +159,87 @@ bpc <- function(
 }
 
 ### internal functions ----
-.bpc_data   <- function(x = NULL, mean = NULL, sd = NULL, N = NULL) {
+.bpc_prepare_data <- function(x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
 
-  # use raw data if supplied, otherwise use summary statistics
   if (!is.null(x)) {
-
-    # check input
     BayesTools::check_real(x, name = "x", check_length = 0)
+    x <- stats::na.omit(x)
+    n <- length(x)
+    x_bar <- if (n > 0L) mean(x) else 0
+    sse <- if (n > 0L) sum((x - x_bar)^2) else 0
 
-    # remove NAs
-    x <- na.omit(x)
-
-    # return stan formatted data
     return(list(
-      x = as.array(x),
-      N = length(x),
-
-      is_ss   = 0,
-      ss_mean = numeric(),
-      ss_sd   = numeric()
-    ))
-
-  } else {
-
-    # check input
-    BayesTools::check_real(mean, name = "mean", check_length = 1, allow_NA = FALSE)
-    BayesTools::check_real(sd,   name = "sd",   check_length = 1, allow_NA = FALSE)
-    BayesTools::check_integer(N, name = "N",    check_length = 1, allow_NA = FALSE)
-
-    # return stan formatted data
-    return(list(
-      x = numeric(),
-      N = N,
-
-      is_ss   = 0,
-      ss_mean = mean,
-      ss_sd   = sd
+      raw_data = as.numeric(x),
+      stan_data = list(
+        x = as.array(x),
+        N = n,
+        is_ss = 0L,
+        ss_mean = numeric(),
+        ss_sd = numeric()
+      ),
+      cached_state = list(
+        n = n,
+        x_bar = x_bar,
+        sse = sse
+      )
     ))
   }
+
+  has_summary <- !is.null(mean) || !is.null(sd) || !is.null(N)
+  if (!has_summary) {
+    if (!allow_empty) {
+      stop("When 'x' is NULL, supply all of 'mean', 'sd', and 'N'.", call. = FALSE)
+    }
+
+    return(list(
+      raw_data = numeric(),
+      stan_data = list(
+        x = numeric(),
+        N = 0L,
+        is_ss = 0L,
+        ss_mean = numeric(),
+        ss_sd = numeric()
+      ),
+      cached_state = list(
+        n = 0L,
+        x_bar = 0,
+        sse = 0
+      )
+    ))
+  }
+
+  if (is.null(mean) || is.null(sd) || is.null(N)) {
+    stop("When 'x' is NULL, supply all of 'mean', 'sd', and 'N'.", call. = FALSE)
+  }
+
+  BayesTools::check_real(mean, name = "mean", check_length = 1, allow_NA = FALSE)
+  BayesTools::check_real(sd,   name = "sd",   check_length = 1, lower = 0, allow_NA = FALSE)
+  BayesTools::check_int(N,     name = "N",    check_length = 1, lower = 1, allow_NA = FALSE)
+
+  N <- as.integer(N)
+  if (N == 1L && sd != 0) {
+    stop("When 'N' is 1, 'sd' must be 0.", call. = FALSE)
+  }
+
+  list(
+    raw_data = numeric(),
+    stan_data = list(
+      x = numeric(),
+      N = N,
+      is_ss = 1L,
+      ss_mean = as.array(c(mean)),
+      ss_sd = as.array(c(sd))
+    ),
+    cached_state = list(
+      n = N,
+      x_bar = mean,
+      sse = if (N > 1L) (N - 1L) * sd^2 else 0
+    )
+  )
+}
+
+.bpc_data   <- function(x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
+  .bpc_prepare_data(x = x, mean = mean, sd = sd, N = N, allow_empty = allow_empty)$stan_data
 }
 .bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL, sample_priors = FALSE) {
 

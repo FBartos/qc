@@ -2196,16 +2196,26 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
 #' @param prior PriorGeneric object
 #' @return cached_state object to pass to make_solver
 #' @keywords internal
-precompute_generic_state <- function(data, prior) {
-  n <- length(data)
+precompute_generic_state <- function(data, prior, cached_state = NULL) {
+  if (!is.null(cached_state)) {
+    n <- cached_state$n %||% 0L
+    x_bar <- cached_state$x_bar %||% 0
+    sse <- cached_state$sse %||% 0
+  } else {
+    n <- length(data)
+    if (n > 0) {
+      x_bar <- mean(data)
+      sse <- sum((data - x_bar)^2)
+    } else {
+      x_bar <- 0
+      sse <- 0
+    }
+  }
+
   if (n > 0) {
-    x_bar <- mean(data)
-    sse <- sum((data - x_bar)^2)
-    init_sd <- sqrt(sse / (n - 1))
+    init_sd <- max(sqrt(sse / max(n - 1, 1)), 1e-6)
     init_mu <- x_bar
   } else {
-    x_bar <- 0
-    sse <- 0
     bt <- prior$bayestools_priors
     if (!is.null(bt)) {
       mu_init  <- .extract_prior_init(bt$mu)
@@ -3400,6 +3410,7 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   # If we set data to empty, n=0, and the posterior parameters equal prior parameters.
   if (sample_priors) {
     data <- numeric(0)
+    cached_state <- NULL
   }
 
   # Convert priors to integration format (4-case classification).
@@ -3430,6 +3441,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     } else {
       cached_state <- list(n = n, x_bar = x_bar, sse = sse)
     }
+  } else if (case == 4L && is.null(cached_state$log_post_vec)) {
+    cached_state <- precompute_generic_state(data, prior, cached_state = cached_state)
   }
 
   n <- cached_state$n %||% 0L

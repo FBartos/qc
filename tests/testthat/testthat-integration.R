@@ -20,6 +20,28 @@ testthat::test_that("integration method returns valid bpc object", {
 })
 
 
+testthat::test_that("integration method uses the summary-statistics path", {
+
+  set.seed(123)
+  x <- rnorm(30, mean = 5, sd = 1)
+
+  fit_raw <- bpc(x, LSL = 2, target = 5, USL = 8, method = "integration")
+  fit_ss <- bpc(
+    NULL,
+    LSL = 2, target = 5, USL = 8,
+    mean = mean(x), sd = stats::sd(x), N = length(x),
+    method = "integration"
+  )
+
+  expect_equal(fit_ss$coefficients, fit_raw$coefficients, tolerance = 1e-10)
+  expect_equal(
+    fit_ss$integration_result$cached_state[c("n", "x_bar", "sse")],
+    fit_raw$integration_result$cached_state[c("n", "x_bar", "sse")],
+    tolerance = 1e-10
+  )
+})
+
+
 testthat::test_that("integration method respects sigma scaling", {
 
   set.seed(123)

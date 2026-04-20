@@ -41,6 +41,37 @@ testthat::test_that("fit control", {
 })
 
 
+testthat::test_that("summary-statistics inputs are marked correctly for Stan", {
+
+  prepared <- qc:::.bpc_data(x = NULL, mean = 5, sd = 2, N = 30)
+
+  expect_equal(prepared$is_ss, 1L)
+  expect_equal(prepared$N, 30L)
+  expect_equal(prepared$ss_mean, as.array(c(5)))
+  expect_equal(prepared$ss_sd, as.array(c(2)))
+  expect_length(prepared$x, 0)
+})
+
+
+testthat::test_that("MCMC accepts summary-statistics inputs", {
+
+  set.seed(1)
+  x <- rnorm(20, mean = 5, sd = 1)
+
+  fit <- bpc(
+    NULL,
+    LSL = 2, target = 5, USL = 8,
+    mean = mean(x), sd = stats::sd(x), N = length(x),
+    method = "mcmc",
+    chains = 1, iter = 200, warmup = 100, cores = 1,
+    silent = TRUE, seed = 1
+  )
+
+  expect_s3_class(fit, "bpc")
+  expect_true(all(is.finite(fit$coefficients[c("Cp", "Cpk")])))
+})
+
+
 testthat::test_that("fit with t-distribution", {
 
   set.seed(1)
