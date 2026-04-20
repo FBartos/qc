@@ -30,6 +30,8 @@ Imports:
     rstantools (>= 2.4.0),
     BayesTools,
     cubature,
+    tibble,
+    vctrs,
     gsl,
     HDInterval,
     ggplot2,

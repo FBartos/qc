@@ -487,13 +487,20 @@ build_density_plot <- function(
     } else {
       NA_real_
     }
-    df_text <- dfLines |>
-      dplyr::group_by(metric) |>
-      dplyr::summarize(
-        y = max(y) * ci_mult,
-        x = if (is.na(x_center)) stats::median(x) else x_center,
-        .groups = "drop"
-      )
+    metric_levels <- unique(dfLines$metric)
+    df_text <- tibble::tibble(
+      metric = metric_levels,
+      y = vapply(metric_levels, function(metric_name) {
+        max(dfLines$y[dfLines$metric == metric_name]) * ci_mult
+      }, numeric(1)),
+      x = vapply(metric_levels, function(metric_name) {
+        if (is.na(x_center)) {
+          stats::median(dfLines$x[dfLines$metric == metric_name])
+        } else {
+          x_center
+        }
+      }, numeric(1))
+    )
 
     labels <- character(nrow(df_text))
 

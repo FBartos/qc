@@ -12,7 +12,7 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
   x <- rnorm(30, mean = 10, sd = 2)
 
   # Define prior families for mu
-  mu_priors <- rlang::list2(
+  mu_priors <- list(
     "Jeffreys" = "Jeffreys_mu",
     "Normal" = prior("normal", list(10, 5)),
     "Normal_truncated" = prior("normal", list(10, 5), list(5, 15)),
@@ -21,7 +21,7 @@ testthat::test_that("integration matches MCMC for all prior combinations", {
   )
 
   # Define prior families for sigma
-  sigma_priors <- rlang::list2(
+  sigma_priors <- list(
     "Jeffreys" = "Jeffreys_sigma",
     "InvGamma" = prior("invgamma", list(2, 1)),   # shape=2, scale=1
     "Gamma" = prior("gamma", list(2, 1)),         # shape=2, rate=1
