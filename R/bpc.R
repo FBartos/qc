@@ -22,7 +22,10 @@
 #' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
 #' @param force_normal whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE
 #' @param sample_priors whether samples should be obtained from the prior distribution only (cannot be combined with improper prior distributions)
-#' @param ...
+#' @param ... additional arguments. When \code{x} is \code{NULL}, \code{mean},
+#' \code{sd}, and \code{N} can be supplied instead of raw observations for
+#' \code{distribution = "normal"}. The Student-t model requires raw
+#' observations in \code{x}.
 #'
 #' @export
 bpc <- function(
@@ -104,6 +107,7 @@ bpc <- function(
   object$sigma <- sigma
 
   prepared_data <- .bpc_prepare_data(
+    distribution = distribution,
     x = x,
     mean = dots$mean,
     sd = dots$sd,
@@ -159,7 +163,19 @@ bpc <- function(
 }
 
 ### internal functions ----
-.bpc_prepare_data <- function(x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
+.summary_statistics_unsupported_message <- function(distribution, allow_empty) {
+  paste(
+    sprintf("For `distribution = \"%s\"`, supply raw observations in `x`.", distribution),
+    "Summary-statistics inputs (`mean`, `sd`, and `N`) are only supported for `distribution = \"normal\"`.",
+    if (allow_empty) {
+      sprintf("For prior-only sampling with `distribution = \"%s\"`, omit `mean`, `sd`, and `N`.", distribution)
+    } else {
+      sprintf("The %s likelihood cannot be reconstructed from `mean`, `sd`, and `N` alone.", if (distribution == "t") "Student-t" else distribution)
+    }
+  )
+}
+
+.bpc_prepare_data <- function(distribution = "normal", x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
 
   if (!is.null(x)) {
     BayesTools::check_real(x, name = "x", check_length = 0)
@@ -188,7 +204,11 @@ bpc <- function(
   has_summary <- !is.null(mean) || !is.null(sd) || !is.null(N)
   if (!has_summary) {
     if (!allow_empty) {
-      stop("When 'x' is NULL, supply all of 'mean', 'sd', and 'N'.", call. = FALSE)
+      if (distribution == "normal") {
+        stop("When 'x' is NULL, supply all of 'mean', 'sd', and 'N'.", call. = FALSE)
+      }
+
+      stop(.summary_statistics_unsupported_message(distribution, allow_empty = FALSE), call. = FALSE)
     }
 
     return(list(
@@ -206,6 +226,10 @@ bpc <- function(
         sse = 0
       )
     ))
+  }
+
+  if (distribution != "normal") {
+    stop(.summary_statistics_unsupported_message(distribution, allow_empty), call. = FALSE)
   }
 
   if (is.null(mean) || is.null(sd) || is.null(N)) {
@@ -238,8 +262,8 @@ bpc <- function(
   )
 }
 
-.bpc_data   <- function(x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
-  .bpc_prepare_data(x = x, mean = mean, sd = sd, N = N, allow_empty = allow_empty)$stan_data
+.bpc_data   <- function(distribution = "normal", x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
+  .bpc_prepare_data(distribution = distribution, x = x, mean = mean, sd = sd, N = N, allow_empty = allow_empty)$stan_data
 }
 .bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL, sample_priors = FALSE) {
 

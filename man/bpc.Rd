@@ -75,7 +75,10 @@ bpc(
 
 \item{force_normal}{whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE}
 
-\item{...}{}
+\item{...}{additional arguments. When \code{x} is \code{NULL}, \code{mean},
+\code{sd}, and \code{N} can be supplied instead of raw observations for
+\code{distribution = "normal"}. The Student-t model requires raw
+observations in \code{x}.}
 }
 \description{
 Bayesian Process Capability

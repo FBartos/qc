@@ -72,6 +72,37 @@ testthat::test_that("MCMC accepts summary-statistics inputs", {
 })
 
 
+testthat::test_that("t-distribution rejects summary-statistics inputs up front", {
+
+  expect_error(
+    bpc(
+      NULL,
+      LSL = -3, target = 0, USL = 3,
+      distribution = "t",
+      mean = 0, sd = 1, N = 20,
+      prior_nu = prior("exponential", list(1 / 30), list(2, Inf)),
+      method = "mcmc",
+      chains = 1, iter = 100, warmup = 50, cores = 1,
+      silent = TRUE, seed = 1
+    ),
+    regexp = "Summary-statistics inputs .* `distribution = \"normal\"`"
+  )
+
+  expect_error(
+    bpc(
+      NULL,
+      LSL = -3, target = 0, USL = 3,
+      distribution = "t",
+      prior_nu = prior("exponential", list(1 / 30), list(2, Inf)),
+      method = "mcmc",
+      chains = 1, iter = 100, warmup = 50, cores = 1,
+      silent = TRUE, seed = 1
+    ),
+    regexp = "supply raw observations in `x`"
+  )
+})
+
+
 testthat::test_that("fit with t-distribution", {
 
   set.seed(1)
