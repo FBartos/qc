@@ -1454,7 +1454,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       if (c <= 0) return(0)
 
       sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0) return(0)
+      if (sigma_c <= 0 || sigma_c > uni_s) return(0)
 
       lps <- log_p_sigma(sigma_c)
       log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
@@ -1806,9 +1806,11 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
 
       sigma_max <- tol / ((2 * sigma_level) * c)
       if (sigma_max <= 0) return(0)
+      sigma_upper <- min(sigma_max, uni_s)
+      if (sigma_upper <= 1e-10) return(0)
 
       integrand <- function(sigma) {
-        valid <- sigma > 0 & sigma < sigma_max
+        valid <- sigma > 0 & sigma < sigma_upper
         result <- rep(0, length(sigma))
         if (!any(valid)) return(result)
 
@@ -1837,7 +1839,11 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         result
       }
 
-      stats::integrate(integrand, 0, sigma_max, rel.tol = 1e-5, subdivisions = 200)$value
+      tryCatch({
+        stats::integrate(integrand, 1e-10, sigma_upper, rel.tol = 1e-5, subdivisions = 200)$value
+      }, error = function(e) {
+        0
+      })
     })
   }
 
@@ -1949,8 +1955,12 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         mu_upper <- mc + 6 * ms
       }
 
-      mu_integral <- stats::integrate(mu_integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
-      mu_integral * exp(log_jacobian)
+      tryCatch({
+        mu_integral <- stats::integrate(mu_integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
+        mu_integral * exp(log_jacobian)
+      }, error = function(e) {
+        0
+      })
     })
   }
 
@@ -1990,7 +2000,11 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         result
       }
 
-      stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
+      tryCatch({
+        stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
+      }, error = function(e) {
+        0
+      })
     })
   }
 
@@ -2014,11 +2028,15 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         vals
       }
 
-      stats::integrate(
-        integrand, 0, 20,
-        rel.tol = 1e-5,
-        subdivisions = 400
-      )$value
+      tryCatch({
+        stats::integrate(
+          integrand, 0, 20,
+          rel.tol = 1e-5,
+          subdivisions = 400
+        )$value
+      }, error = function(e) {
+        0
+      })
     })
   }
 
@@ -2066,13 +2084,22 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
 
     # Find MAP for integration bounds
     init_sd <- sqrt(sse / (n - 1))
-    opt <- stats::optim(c(x_bar, init_sd), function(p) -log_post(p[1], p[2]))
+    init <- .find_feasible_generic_init(x_bar, init_sd, prior, log_post)
+    opt <- stats::optim(c(init$mu, init$sigma), function(p) -log_post(p[1], p[2]))
     map_mu <- opt$par[1]
     map_sig <- opt$par[2]
     h_max <- -opt$value
 
-    # Tighter bounds: 5 sigma from MAP
+    # Tighter bounds intersected with prior support when available.
     uni_s <- map_sig * 5
+    bt <- prior$bayestools_priors
+    if (!is.null(bt) && inherits(bt$sigma, "prior")) {
+      sig_bounds <- .extract_prior_bounds(bt$sigma)
+      if (is.finite(sig_bounds$upper)) {
+        uni_s <- min(uni_s, sig_bounds$upper)
+      }
+      uni_s <- max(uni_s, max(sig_bounds$lower, 1e-6) * 1.1)
+    }
 
     # cubature 2D integration with fully vectorized interface
     int_2d <- function(s_lim, m_fn) {
@@ -2167,6 +2194,10 @@ precompute_generic_state <- function(data, prior) {
     log_lik + prior$log_dens(mu, sigma)
   }
 
+  init <- .find_feasible_generic_init(init_mu, init_sd, prior, log_post)
+  init_mu <- init$mu
+  init_sd <- init$sigma
+
   # Vectorized log posterior (used by cubature)
   log_post_vec <- function(mu, sigma) {
     log_lik <- rep(0, length(mu))
@@ -2212,6 +2243,18 @@ precompute_generic_state <- function(data, prior) {
     # For n=30, this is about 0.77 * map_sig, so bounds [0.5 * map_sig, 3 * map_sig] should work
     sigma_lower <- max(0.2 * map_sig, 1e-6)
     sigma_upper <- 4 * map_sig
+
+    bt <- prior$bayestools_priors
+    if (!is.null(bt) && inherits(bt$sigma, "prior")) {
+      sig_bounds <- .extract_prior_bounds(bt$sigma)
+      if (is.finite(sig_bounds$lower)) {
+        sigma_lower <- max(sigma_lower, sig_bounds$lower + 1e-6)
+      }
+      if (is.finite(sig_bounds$upper)) {
+        sigma_upper <- min(sigma_upper, sig_bounds$upper)
+      }
+    }
+    sigma_upper <- max(sigma_upper, sigma_lower * 1.1)
 
     # Mu bounds: at sigma_upper, SD of mu|sigma is sigma_upper/sqrt(n)
     # Use 6 SDs for safety
@@ -3070,6 +3113,83 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     info$value <- upper - 0.1 * min(info$scale, span)
   }
   info
+}
+
+#' Extract effective support bounds for a BayesTools prior
+#' @keywords internal
+.extract_prior_bounds <- function(bt_prior) {
+  if (!inherits(bt_prior, "prior")) {
+    return(list(lower = -Inf, upper = Inf))
+  }
+
+  dist <- bt_prior[["distribution"]]
+  params <- bt_prior[["parameters"]]
+  trunc <- bt_prior[["truncation"]]
+
+  lower <- trunc[["lower"]] %||% -Inf
+  upper <- trunc[["upper"]] %||% Inf
+
+  natural_bounds <- switch(dist,
+    "uniform" = list(lower = params[["a"]], upper = params[["b"]]),
+    "gamma" = list(lower = 0, upper = Inf),
+    "invgamma" = list(lower = 0, upper = Inf),
+    "lognormal" = list(lower = 0, upper = Inf),
+    "exp" = list(lower = 0, upper = Inf),
+    "beta" = list(lower = 0, upper = 1),
+    "point" = list(lower = params[["location"]], upper = params[["location"]]),
+    list(lower = -Inf, upper = Inf)
+  )
+
+  list(
+    lower = max(lower, natural_bounds$lower),
+    upper = min(upper, natural_bounds$upper)
+  )
+}
+
+#' Find finite optimizer initials for generic integration problems
+#' @keywords internal
+.find_feasible_generic_init <- function(init_mu, init_sd, prior, log_post) {
+  candidate_pairs <- list(c(init_mu, max(init_sd, 1e-6)))
+
+  bt <- prior$bayestools_priors
+  if (!is.null(bt)) {
+    mu_init  <- .extract_prior_init(bt$mu)
+    sig_init <- .extract_prior_init(bt$sigma)
+
+    mu_candidates <- unique(c(init_mu, mu_init$value, 0))
+    sig_candidates <- unique(c(init_sd, sig_init$value, 0.1, 1))
+
+    if (inherits(bt$sigma, "prior")) {
+      sig_q <- tryCatch(
+        as.numeric(BayesTools::quant(bt$sigma, c(0.25, 0.5, 0.75))),
+        error = function(e) numeric(0)
+      )
+      sig_candidates <- c(sig_candidates, sig_q)
+    }
+
+    mu_candidates <- mu_candidates[is.finite(mu_candidates)]
+    sig_candidates <- sig_candidates[is.finite(sig_candidates) & sig_candidates > 0]
+
+    for (sigma in sig_candidates) {
+      for (mu in mu_candidates) {
+        candidate_pairs[[length(candidate_pairs) + 1L]] <- c(mu, sigma)
+      }
+    }
+  }
+
+  candidate_pairs <- c(candidate_pairs, list(c(0, max(init_sd, 1e-6)), c(0, 1)))
+
+  for (candidate in candidate_pairs) {
+    value <- tryCatch(log_post(candidate[1], candidate[2]), error = function(e) -Inf)
+    if (is.finite(value)) {
+      return(list(mu = candidate[1], sigma = candidate[2]))
+    }
+  }
+
+  stop(
+    "Could not find finite initial values for integration with the supplied priors. ",
+    "Consider widening the prior support or using method = 'mcmc'."
+  )
 }
 
 #' Create a log-density function for a BayesTools prior
