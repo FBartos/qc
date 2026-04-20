@@ -556,7 +556,7 @@ create_prior_unit_information <- function(x) {
 .sigma_interval_prob_inv_gamma <- function(lower, upper, shape, rate) {
   prob <- numeric(length(lower))
 
-  full_region <- lower <= 0 & is.infinite(upper)
+  full_region <- lower <= 0 & is.infinite(upper) & upper > 0
   prob[full_region] <- 1
 
   upper_only <- lower <= 0 & is.finite(upper) & upper > 0
@@ -569,7 +569,7 @@ create_prior_unit_information <- function(x) {
     )
   }
 
-  lower_only <- is.finite(lower) & lower > 0 & is.infinite(upper)
+  lower_only <- is.finite(lower) & lower > 0 & is.infinite(upper) & upper > 0
   if (any(lower_only)) {
     prob[lower_only] <- stats::pgamma(
       1 / lower[lower_only]^2,
@@ -1200,6 +1200,166 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
 
+.safe_prior_quantiles <- function(bt_prior, probs) {
+  if (is.null(bt_prior) || !inherits(bt_prior, "prior")) {
+    return(rep(NA_real_, length(probs)))
+  }
+
+  tryCatch(
+    as.numeric(BayesTools::quant(bt_prior, probs)),
+    error = function(e) rep(NA_real_, length(probs))
+  )
+}
+
+.semi_sigma_mu_domain <- function(prior, n, x_bar, sse, beta0,
+                                  quantile_probs = c(1e-4, 1 - 1e-4),
+                                  scale_multiplier = 8) {
+  mu_prior <- prior$bayestools_priors$mu %||% NULL
+  support <- if (!is.null(mu_prior) && inherits(mu_prior, "prior")) {
+    .extract_prior_bounds(mu_prior)
+  } else {
+    list(lower = -Inf, upper = Inf)
+  }
+
+  init <- if (!is.null(mu_prior)) {
+    .extract_prior_init(mu_prior)
+  } else {
+    list(value = x_bar, scale = 1)
+  }
+
+  qs <- .safe_prior_quantiles(mu_prior, quantile_probs)
+  qs_finite <- qs[is.finite(qs)]
+
+  data_scale <- if (n > 1 && sse > 0) sqrt(sse / (n - 1)) else 0
+  beta_scale <- if (beta0 > 0) {
+    if (n > 0) sqrt((sse + 2 * beta0) / n) else sqrt(2 * beta0)
+  } else {
+    0
+  }
+  quantile_scale <- if (length(qs_finite) == 2L && diff(qs_finite) > 0) {
+    diff(qs_finite) / 6
+  } else {
+    0
+  }
+
+  ref_scale <- max(c(init$scale, data_scale, beta_scale, quantile_scale, 1), na.rm = TRUE)
+  data_radius <- scale_multiplier * max(data_scale, beta_scale, 0)
+  prior_radius <- scale_multiplier * ref_scale
+
+  finite_lower <- c(qs[1], x_bar - data_radius)
+  finite_upper <- c(qs[2], x_bar + data_radius)
+  if (!all(is.finite(qs))) {
+    finite_lower <- c(finite_lower, init$value - prior_radius)
+    finite_upper <- c(finite_upper, init$value + prior_radius)
+  }
+  finite_lower <- finite_lower[is.finite(finite_lower)]
+  finite_upper <- finite_upper[is.finite(finite_upper)]
+
+  lower <- if (is.finite(support$lower)) support$lower else min(finite_lower)
+  upper <- if (is.finite(support$upper)) support$upper else max(finite_upper)
+
+  if (!is.finite(lower)) lower <- x_bar - prior_radius
+  if (!is.finite(upper)) upper <- x_bar + prior_radius
+
+  lower <- max(lower, support$lower)
+  upper <- min(upper, support$upper)
+
+  if (!is.finite(lower) || !is.finite(upper) || upper <= lower) {
+    center_candidates <- c(x_bar, init$value, qs_finite)
+    center_candidates <- center_candidates[is.finite(center_candidates)]
+    center <- if (length(center_candidates) > 0L) stats::median(center_candidates) else 0
+    radius <- max(ref_scale, 1)
+    lower <- max(center - radius, support$lower)
+    upper <- min(center + radius, support$upper)
+  }
+
+  list(lower = lower, upper = upper, scale = ref_scale)
+}
+
+.validate_semi_sigma_posterior <- function(n, x_bar, sse, alpha0, beta0,
+                                           log_dens_mu, jeffreys_adj = 0,
+                                           context = "The semi-conjugate sigma posterior") {
+  alpha_n_eff <- alpha0 + n / 2 + jeffreys_adj
+  beta_floor <- beta0 + sse / 2
+
+  if (!is.finite(alpha_n_eff) || alpha_n_eff <= 0) {
+    stop(
+      sprintf(
+        "%s is improper for the supplied data and prior (alpha_n = %s).",
+        context,
+        .format_conjugate_posterior_parameter(alpha_n_eff)
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (!is.finite(beta_floor) || beta_floor < 0) {
+    stop(
+      sprintf(
+        "%s is improper for the supplied data and prior (beta_n = %s).",
+        context,
+        .format_conjugate_posterior_parameter(beta_floor)
+      ),
+      call. = FALSE
+    )
+  }
+
+  zero_singularity_in_support <- beta_floor == 0 && (n == 0 || is.finite(log_dens_mu(x_bar)))
+  if (zero_singularity_in_support && alpha_n_eff >= 0.5) {
+    stop(
+      sprintf(
+        "%s is improper because beta_n reaches zero inside the mu support (alpha_n = %s).",
+        context,
+        .format_conjugate_posterior_parameter(alpha_n_eff)
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(alpha_n_eff)
+}
+
+.prepare_semi_sigma_state <- function(data, prior, cached_state = NULL,
+                                      context = "The semi-conjugate sigma posterior") {
+  ss <- .extract_suff_stats(data, cached_state)
+  n <- ss$n
+  x_bar <- ss$x_bar
+  sse <- ss$SS
+  alpha0 <- prior$alpha0
+  beta0 <- prior$beta0
+  jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
+  alpha_n <- alpha0 + n / 2
+  alpha_n_eff <- .validate_semi_sigma_posterior(
+    n, x_bar, sse, alpha0, beta0, prior$log_dens_mu,
+    jeffreys_adj = jeffreys_adj,
+    context = context
+  )
+  mu_domain <- .semi_sigma_mu_domain(prior, n, x_bar, sse, beta0)
+
+  sigma_scale_num <- sse + 2 * max(beta0, 0)
+  if (n > 0) {
+    sigma_scale_num <- sigma_scale_num + n * mu_domain$scale^2
+  }
+  sigma_scale <- sqrt(max(sigma_scale_num, 0) / max(n + 1, 1))
+  if (!is.finite(sigma_scale) || sigma_scale <= 0) {
+    sigma_scale <- max(mu_domain$scale, 1)
+  }
+
+  list(
+    n = n,
+    x_bar = x_bar,
+    sse = sse,
+    alpha0 = alpha0,
+    beta0 = beta0,
+    alpha_n = alpha_n,
+    alpha_n_eff = alpha_n_eff,
+    jeffreys_adj = jeffreys_adj,
+    alpha_0_times_logbeta0 = if (beta0 == 0) 0 else alpha0 * log(beta0),
+    mu_domain = mu_domain,
+    sigma_scale = sigma_scale
+  )
+}
+
 #' @export
 compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
                                                             metric = "Cpk", target = NULL,
@@ -1210,17 +1370,18 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
   # Use 2D integration: outer over mu, inner over sigma via chi-square quadrature.
   # Previous version used E[sigma|mu] as plug-in (Jensen bias for 1/sigma metrics).
 
-  n <- length(data)
-  x_bar <- if (n > 0) mean(data) else 0
-  sse <- if (n > 0) sum((data - x_bar)^2) else 0
-
-  alpha0 <- prior$alpha0
-  beta0 <- prior$beta0
-  alpha_n <- alpha0 + n / 2
+  state <- .prepare_semi_sigma_state(
+    data, prior, cached_state,
+    context = "The semi-conjugate sigma posterior for metric computation"
+  )
+  n <- state$n
+  x_bar <- state$x_bar
+  sse <- state$sse
+  alpha0 <- state$alpha0
+  beta0 <- state$beta0
+  alpha_n <- state$alpha_n
   df_p <- 2 * alpha_n
-
-  sd_data <- sqrt(sse / max(n - 1, 1))
-  alpha_0_times_logbeta0 <- if (prior$beta0 == 0) 0 else alpha0 * log(beta0)
+  alpha_0_times_logbeta0 <- state$alpha_0_times_logbeta0
 
   # 7-point Gauss-Hermite nodes/weights for inner sigma integration
   gh7_nodes <- c(-2.651961, -1.673552, -0.816288, 0, 0.816288, 1.673552, 2.651961)
@@ -1274,8 +1435,8 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
     result
   }
 
-  mu_low <- x_bar - 10 * sd_data
-  mu_high <- x_bar + 10 * sd_data
+  mu_low <- state$mu_domain$lower
+  mu_high <- state$mu_domain$upper
 
   Z <- stats::integrate(function(mu) {
     sse_mu <- sse + n * (mu - x_bar)^2
@@ -1551,24 +1712,22 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   # Case 3: Non-conjugate mu, conjugate sigma (InvGamma/Jeffreys)
   # Integrate sigma analytically using Gamma functions, then 1D over mu
 
-  # Use cached state for sufficient statistics (data may not be in scope)
-  if (!is.null(cached_state)) {
-    n <- cached_state$n
-    x_bar <- cached_state$x_bar
-    sse <- cached_state$sse
-  } else {
-    n <- length(data)
-    x_bar <- mean(data)
-    sse <- sum((data - x_bar)^2)
-  }
-  alpha0 <- prior$alpha0
-  beta0 <- prior$beta0
-  alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
-  jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
+  state <- .prepare_semi_sigma_state(
+    data, prior, cached_state,
+    context = "The semi-conjugate sigma posterior for survival-function computation"
+  )
+  n <- state$n
+  x_bar <- state$x_bar
+  sse <- state$sse
+  alpha0 <- state$alpha0
+  beta0 <- state$beta0
+  alpha_0_times_logbeta0 <- state$alpha_0_times_logbeta0
+  jeffreys_adj <- state$jeffreys_adj
   # Normalize to the same posterior mass used by the density solver.
   log_Z <- .compute_semi_sigma_log_Z(n, x_bar, sse, alpha0, beta0,
-                                     prior$log_dens_mu, jeffreys_adj)
-  mu_window <- 20 * sqrt(sse / max(n, 1))
+                                     prior$log_dens_mu, jeffreys_adj,
+                                     mu_domain = state$mu_domain,
+                                     context = "The semi-conjugate sigma posterior for normalization")
 
   function(c) {
     if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
@@ -1597,8 +1756,8 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       exp(log_marginal + log_prior_mu + log_prob_sigma - log_Z)
     }
 
-    mu_low <- x_bar - mu_window
-    mu_high <- x_bar + mu_window
+    mu_low <- state$mu_domain$lower
+    mu_high <- state$mu_domain$upper
 
     prob <- stats::integrate(integrand, mu_low, mu_high,
                              rel.tol = 1e-5, subdivisions = 200)$value
@@ -2013,43 +2172,35 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   # Case 3: Contour integration with semi-analytical sigma integration
   # For each mu on the contour, p(sigma|mu,data) is Inverse-Gamma
 
-  # Use cached state for sufficient statistics (data may not be in scope)
-  if (!is.null(cached_state)) {
-    n <- cached_state$n
-    x_bar <- cached_state$x_bar
-    sse <- cached_state$sse
-  } else {
-    n <- length(data)
-    x_bar <- mean(data)
-    sse <- sum((data - x_bar)^2)
-  }
-  alpha0 <- prior$alpha0
-  beta0 <- prior$beta0
-  alpha_n <- alpha0 + n / 2
-
-  # In the NIG model, alpha0=-0.5 with beta0=0 gives a FLAT prior on sigma,
-
-  # but the true Jeffreys prior is sigma^{-1}. The missing sigma^{-1} factor
-  # is equivalent to shifting alpha_n by +0.5 in the sigma exponent and Z.
-  # We keep alpha0=-0.5 (since lgamma(-0.5) is finite) and only adjust alpha_n.
-  jeffreys_adj <- if (alpha0 == -0.5 && beta0 == 0) 0.5 else 0
-  alpha_n_eff <- alpha_n + jeffreys_adj
+  state <- .prepare_semi_sigma_state(
+    data, prior, cached_state,
+    context = "The semi-conjugate sigma posterior for density computation"
+  )
+  n <- state$n
+  x_bar <- state$x_bar
+  sse <- state$sse
+  alpha0 <- state$alpha0
+  beta0 <- state$beta0
+  alpha_n <- state$alpha_n
+  alpha_n_eff <- state$alpha_n_eff
 
   M <- (LSL + USL) / 2
   tol <- USL - LSL
 
   # Compute normalization constant Z
   log_Z <- .compute_semi_sigma_log_Z(n, x_bar, sse, alpha0, beta0,
-                                      prior$log_dens_mu, jeffreys_adj)
+                                      prior$log_dens_mu, state$jeffreys_adj,
+                                      mu_domain = state$mu_domain,
+                                      context = "The semi-conjugate sigma posterior for normalization")
 
   # Constant for the unnormalized sigma kernel
-  alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
+  alpha_0_times_logbeta0 <- state$alpha_0_times_logbeta0
   log_C <- log(2) + alpha_0_times_logbeta0 - lgamma(alpha0)
 
   # Precompute fine sigma grid for numerical integration.
   # The contour integrand has a narrow peak in sigma from the likelihood
   # factor exp(-n*(mu-xbar)^2/(2*sigma^2)) which stats::integrate can miss.
-  sigma_mode_approx <- sqrt(sse / max(n - 1, 1))
+  sigma_mode_approx <- state$sigma_scale
   sigma_lo <- max(1e-10, sigma_mode_approx * 0.05)
   sigma_hi <- sigma_mode_approx * 8
   n_sigma <- 1024L
@@ -2144,8 +2295,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
         exp(log_prior_mu + log_sigma_kernel + log_jacobian - log_Z)
       }
 
-      mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
-      mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
+      mu_lower <- state$mu_domain$lower
+      mu_upper <- state$mu_domain$upper
       stats::integrate(integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
     })
   }
@@ -2223,9 +2374,16 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 #' Helper to compute log normalization constant for semi-conjugate sigma prior
 #' @keywords internal
 .compute_semi_sigma_log_Z <- function(n, x_bar, sse, alpha0, beta0, log_dens_mu,
-                                      jeffreys_adj = 0) {
+                                      jeffreys_adj = 0, mu_domain,
+                                      context = "The semi-conjugate sigma posterior") {
   alpha_n <- alpha0 + n / 2
   alpha_n_eff <- alpha_n + jeffreys_adj
+
+  .validate_semi_sigma_posterior(
+    n, x_bar, sse, alpha0, beta0, log_dens_mu,
+    jeffreys_adj = jeffreys_adj,
+    context = context
+  )
 
   # for the Jeffreys prior case, beta0 = 0, so we need to handle that carefully
   alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
@@ -2239,8 +2397,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     exp(log_marginal + log_prior)
   }
 
-  mu_lower <- x_bar - 20 * sqrt(sse / max(n, 1))
-  mu_upper <- x_bar + 20 * sqrt(sse / max(n, 1))
+  mu_lower <- mu_domain$lower
+  mu_upper <- mu_domain$upper
   Z <- stats::integrate(integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
   log(max(Z, 1e-300))
 }
