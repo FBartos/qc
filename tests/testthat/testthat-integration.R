@@ -20,6 +20,36 @@ testthat::test_that("integration method returns valid bpc object", {
 })
 
 
+testthat::test_that("integration method respects sigma scaling", {
+
+  set.seed(123)
+  x <- rnorm(40, mean = 10, sd = 1.5)
+
+  fit_sigma3 <- bpc(x, LSL = 6, target = 10, USL = 14,
+                    method = "integration", sigma = 3)
+  fit_sigma4 <- bpc(x, LSL = 6, target = 10, USL = 14,
+                    method = "integration", sigma = 4)
+
+  expect_equal(fit_sigma4$integration_result$sigma, 4)
+
+  for (metric in c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")) {
+    mean3 <- unname(fit_sigma3$metrics[[metric]]["Mean"])
+    mean4 <- unname(fit_sigma4$metrics[[metric]]["Mean"])
+
+    expect_false(isTRUE(all.equal(mean3, mean4)))
+    expect_equal(mean4 / mean3, 3 / 4, tolerance = 0.03,
+                 info = metric)
+  }
+
+  summary_default <- summary(fit_sigma4, LSL = 5.5, target = 10, USL = 14.5)
+  summary_explicit <- summary(fit_sigma4, LSL = 5.5, target = 10, USL = 14.5,
+                              sigma = 4)
+
+  expect_equal(summary_default$summary, summary_explicit$summary)
+  expect_equal(summary_default$interval_summary, summary_explicit$interval_summary)
+})
+
+
 testthat::test_that("density solver vs survival function methods agree", {
 
   set.seed(42)

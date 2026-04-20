@@ -139,14 +139,16 @@ create_prior_unit_information <- function(x) {
 #' @param target Target value
 #' @return List with s_max_fn and mu_b_fn_vec (vectorized)
 #' @keywords internal
-get_metric_constraints <- function(metric, c, LSL, USL, target) {
+get_metric_constraints <- function(metric, c, LSL, USL, target,
+                                   sigma_level = 3) {
   tol <- USL - LSL
   mid <- (LSL + USL) / 2
   if (is.null(target)) target <- mid
 
   list(
     s_max_fn = function() {
-      if (metric %in% c("Cp", "Cpk", "Cpm", "Cpc")) return(tol / (6 * c))
+      if (metric %in% c("Cp", "Cpk", "Cpm", "Cpc"))
+        return(tol / ((2 * sigma_level) * c))
       return(Inf)
     },
     # Vectorized version: takes vector of sigma, returns list(lower, upper)
@@ -156,17 +158,20 @@ get_metric_constraints <- function(metric, c, LSL, USL, target) {
         return(list(lower = rep(-Inf, n), upper = rep(Inf, n)))
       }
       if (metric == "Cpk") {
-        return(list(lower = LSL + 3 * c * s, upper = USL - 3 * c * s))
+        return(list(lower = LSL + sigma_level * c * s,
+                    upper = USL - sigma_level * c * s))
       }
       if (metric == "Cpu") {
-        return(list(lower = rep(-Inf, n), upper = USL - 3 * c * s))
+        return(list(lower = rep(-Inf, n),
+                    upper = USL - sigma_level * c * s))
       }
       if (metric == "Cpl") {
-        return(list(lower = LSL + 3 * c * s, upper = rep(Inf, n)))
+        return(list(lower = LSL + sigma_level * c * s,
+                    upper = rep(Inf, n)))
       }
       if (metric %in% c("Cpm", "Cpc")) {
         T_val <- if (metric == "Cpc") mid else target
-        R <- tol / (6 * c)
+        R <- tol / ((2 * sigma_level) * c)
         w <- sqrt(pmax(0, R^2 - s^2))
         lower <- T_val - w
         upper <- T_val + w
@@ -193,18 +198,20 @@ get_metric_constraints <- function(metric, c, LSL, USL, target) {
 #' @param metric One of "Cp", "Cpk", "Cpu", "Cpl", "Cpm", "Cpc"
 #' @return Metric value(s) (same length as mu/sigma)
 #' @keywords internal
-compute_metric_value <- function(mu, sigma, LSL, USL, target, metric) {
+compute_metric_value <- function(mu, sigma, LSL, USL, target, metric,
+                                 sigma_level = 3) {
   tol <- USL - LSL
   mid <- (LSL + USL) / 2
   if (is.null(target)) target <- mid
 
   switch(metric,
-    "Cp"  = tol / (6 * sigma),
-    "Cpu" = (USL - mu) / (3 * sigma),
-    "Cpl" = (mu - LSL) / (3 * sigma),
-    "Cpk" = pmin((USL - mu) / (3 * sigma), (mu - LSL) / (3 * sigma)),
-    "Cpm" = tol / (6 * sqrt(sigma^2 + (mu - target)^2)),
-    "Cpc" = tol / (6 * sqrt(sigma^2 + (mu - mid)^2)),
+    "Cp"  = tol / ((2 * sigma_level) * sigma),
+    "Cpu" = (USL - mu) / (sigma_level * sigma),
+    "Cpl" = (mu - LSL) / (sigma_level * sigma),
+    "Cpk" = pmin((USL - mu) / (sigma_level * sigma),
+                 (mu - LSL) / (sigma_level * sigma)),
+    "Cpm" = tol / ((2 * sigma_level) * sqrt(sigma^2 + (mu - target)^2)),
+    "Cpc" = tol / ((2 * sigma_level) * sqrt(sigma^2 + (mu - mid)^2)),
     stop("Unknown metric: ", metric)
   )
 }
@@ -226,7 +233,8 @@ compute_metric_value <- function(mu, sigma, LSL, USL, target, metric) {
 #' @keywords internal
 compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
                                    target = NULL, use_analytic = TRUE,
-                                   cached_state = NULL) {
+                                   cached_state = NULL,
+                                   sigma_level = 3) {
   UseMethod("compute_metric_moments", prior)
 }
 
@@ -248,7 +256,8 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
 .compute_metric_grid_bounds_from_quantiles <- function(prior_sigma, LSL, USL,
                                                         metric, target = NULL,
                                                         p_low = 0.001,
-                                                        p_high = 0.999) {
+                                                        p_high = 0.999,
+                                                        sigma_level = 3) {
   tol <- USL - LSL
   mid <- (LSL + USL) / 2
   if (is.null(target)) target <- mid
@@ -261,23 +270,23 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
 
 # metric_high corresponds to sigma_low and vice versa
   metric_at_sigma_low <- switch(metric,
-    "Cp" = tol / (6 * sigma_low),
-    "Cpk" = tol / (6 * sigma_low),  # Upper bound (assumes mu = mid)
-    "Cpu" = (USL - mid) / (3 * sigma_low),
-    "Cpl" = (mid - LSL) / (3 * sigma_low),
-    "Cpm" = tol / (6 * sigma_low),  # Upper bound (assumes mu = target)
-    "Cpc" = tol / (6 * sigma_low),  # Upper bound approximation
-    tol / (6 * sigma_low)  # Default
+    "Cp" = tol / ((2 * sigma_level) * sigma_low),
+    "Cpk" = tol / ((2 * sigma_level) * sigma_low),  # Upper bound (assumes mu = mid)
+    "Cpu" = (USL - mid) / (sigma_level * sigma_low),
+    "Cpl" = (mid - LSL) / (sigma_level * sigma_low),
+    "Cpm" = tol / ((2 * sigma_level) * sigma_low),  # Upper bound (assumes mu = target)
+    "Cpc" = tol / ((2 * sigma_level) * sigma_low),  # Upper bound approximation
+    tol / ((2 * sigma_level) * sigma_low)  # Default
   )
 
   metric_at_sigma_high <- switch(metric,
-    "Cp" = tol / (6 * sigma_high),
-    "Cpk" = tol / (6 * sigma_high),
-    "Cpu" = (USL - mid) / (3 * sigma_high),
-    "Cpl" = (mid - LSL) / (3 * sigma_high),
-    "Cpm" = tol / (6 * sigma_high),
-    "Cpc" = tol / (6 * sigma_high),
-    tol / (6 * sigma_high)
+    "Cp" = tol / ((2 * sigma_level) * sigma_high),
+    "Cpk" = tol / ((2 * sigma_level) * sigma_high),
+    "Cpu" = (USL - mid) / (sigma_level * sigma_high),
+    "Cpl" = (mid - LSL) / (sigma_level * sigma_high),
+    "Cpm" = tol / ((2 * sigma_level) * sigma_high),
+    "Cpc" = tol / ((2 * sigma_level) * sigma_high),
+    tol / ((2 * sigma_level) * sigma_high)
   )
 
   x_start <- max(0, metric_at_sigma_high)
@@ -295,7 +304,8 @@ compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",
 compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
                                                    metric = "Cpk", target = NULL,
                                                    use_analytic = TRUE,
-                                                   cached_state = NULL) {
+                                                   cached_state = NULL,
+                                                   sigma_level = 3) {
   ss  <- .extract_suff_stats(data, cached_state)
   post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
@@ -308,7 +318,8 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   if (!use_analytic) {
     # Numerical fallback: 2D integration
     return(.compute_moments_numerical_conjugate(
-      mu_n, k_n, alpha_n, beta_n, LSL, USL, target, metric
+      mu_n, k_n, alpha_n, beta_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
     ))
   }
 
@@ -322,38 +333,39 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   E_inv_sigma2 <- df_p / (2 * beta_n)  # E[y/(2*beta)] = E[y]/(2*beta) = df/(2*beta)
 
   if (metric == "Cp") {
-    # Cp = tol / (6*sigma)
-    E1 <- (tol / 6) * E_inv_sigma
-    # E[Cp^2] = (tol/6)^2 * E[1/sigma^2]
-    E2 <- (tol / 6)^2 * E_inv_sigma2
+    # Cp = tol / (2 * sigma_level * sigma)
+    E1 <- (tol / (2 * sigma_level)) * E_inv_sigma
+    # E[Cp^2] = (tol / (2 * sigma_level))^2 * E[1/sigma^2]
+    E2 <- (tol / (2 * sigma_level))^2 * E_inv_sigma2
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
   if (metric == "Cpu") {
-    # Cpu = (USL - mu) / (3*sigma)
-    # E[Cpu] = E[(USL - mu)/sigma] / 3
+    # Cpu = (USL - mu) / (sigma_level * sigma)
+    # E[Cpu] = E[(USL - mu)/sigma] / sigma_level
     # mu|sigma ~ N(mu_n, sigma^2/k_n), so E[mu|sigma] = mu_n
     # E[(USL - mu)/sigma] = (USL - mu_n) * E[1/sigma]
-    E1 <- (USL - mu_n) / 3 * E_inv_sigma
+    E1 <- (USL - mu_n) / sigma_level * E_inv_sigma
 
-    # E[Cpu^2] = E[(USL - mu)^2 / sigma^2] / 9
+    # E[Cpu^2] = E[(USL - mu)^2 / sigma^2] / sigma_level^2
     # (USL - mu)^2 = (USL - mu_n)^2 - 2*(USL - mu_n)*(mu - mu_n) + (mu - mu_n)^2
     # E[(mu - mu_n)^2 | sigma] = sigma^2/k_n
     # E[(USL - mu)^2 / sigma^2] = (USL - mu_n)^2 * E[1/sigma^2] + E[1/k_n] = (USL - mu_n)^2 * E[1/sigma^2] + 1/k_n
-    E2 <- ((USL - mu_n)^2 * E_inv_sigma2 + 1 / k_n) / 9
+    E2 <- ((USL - mu_n)^2 * E_inv_sigma2 + 1 / k_n) / sigma_level^2
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
   if (metric == "Cpl") {
-    # Cpl = (mu - LSL) / (3*sigma)
-    E1 <- (mu_n - LSL) / 3 * E_inv_sigma
-    E2 <- ((mu_n - LSL)^2 * E_inv_sigma2 + 1 / k_n) / 9
+    # Cpl = (mu - LSL) / (sigma_level * sigma)
+    E1 <- (mu_n - LSL) / sigma_level * E_inv_sigma
+    E2 <- ((mu_n - LSL)^2 * E_inv_sigma2 + 1 / k_n) / sigma_level^2
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
 
   if (metric == "Cpk") {
-    # Cpk = min(Cpu, Cpl) = (tol/2 - |mu - mid|) / (3*sigma)
-    # E[Cpk] = (tol/2)/3 * E[1/sigma] - (1/3) * E[|mu - mid|/sigma]
+    # Cpk = min(Cpu, Cpl) = (tol/2 - |mu - mid|) / (sigma_level * sigma)
+    # E[Cpk] = (tol/2) / sigma_level * E[1/sigma] -
+    #          E[|mu - mid|/sigma] / sigma_level
 
     # E[|mu - mid|/sigma] requires integrating over sigma
     # (mu - mid)|sigma ~ N(mu_n - mid, sigma^2/k_n)
@@ -373,19 +385,20 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     }
     E_abs_div_sigma <- stats::integrate(integrand_abs, 0, Inf, rel.tol = 1e-6)$value
 
-    E1 <- (tol / 2) / 3 * E_inv_sigma - E_abs_div_sigma / 3
+    E1 <- (tol / 2) / sigma_level * E_inv_sigma - E_abs_div_sigma / sigma_level
 
     # E[Cpk^2] - more complex, use 1D numerical integration
     integrand_sq <- function(y) {
       sigma <- sqrt(2 * beta_n / y)
       tau <- sigma / sqrt(k_n)
-      # E[(tol/2 - |mu - mid|)^2 | sigma] / (9*sigma^2)
-      # = E[(tol/2)^2 - tol*|mu-mid| + |mu-mid|^2 | sigma] / (9*sigma^2)
+      # E[(tol/2 - |mu - mid|)^2 | sigma] / (sigma_level^2 * sigma^2)
+      # = E[(tol/2)^2 - tol*|mu-mid| + |mu-mid|^2 | sigma] / (sigma_level^2 * sigma^2)
       abs_mean <- tau * sqrt(2 / pi) * exp(-delta^2 / (2 * tau^2)) +
                   delta * (1 - 2 * stats::pnorm(-delta / tau))
       # E[|X|^2] = E[X^2] = delta^2 + tau^2
       abs2_mean <- delta^2 + tau^2
-      cpk2_given_sigma <- ((tol / 2)^2 - tol * abs_mean + abs2_mean) / (9 * sigma^2)
+      cpk2_given_sigma <- ((tol / 2)^2 - tol * abs_mean + abs2_mean) /
+        (sigma_level^2 * sigma^2)
       cpk2_given_sigma * stats::dchisq(y, df_p)
     }
     E2 <- stats::integrate(integrand_sq, 0, Inf, rel.tol = 1e-6)$value
@@ -394,7 +407,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   }
 
   if (metric %in% c("Cpm", "Cpc")) {
-    # Cpm = tol / (6 * sqrt(sigma^2 + (mu - T)^2))
+    # Cpm = tol / (2 * sigma_level * sqrt(sigma^2 + (mu - T)^2))
     # No closed form - use 1D numerical integration over sigma (via chi-square)
     T_val <- if (metric == "Cpc") mid else target
     delta_T <- mu_n - T_val
@@ -418,7 +431,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     }
     E_inv_sqrt <- stats::integrate(integrand_cpm, 1e-6, y_upper,
                             rel.tol = 1e-4, subdivisions = 200)$value
-    E1 <- (tol / 6) * E_inv_sqrt
+    E1 <- (tol / (2 * sigma_level)) * E_inv_sqrt
 
     integrand_cpm2 <- function(y) {
       sigma <- sqrt(2 * beta_n / y)
@@ -431,7 +444,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     }
     E_inv <- stats::integrate(integrand_cpm2, 1e-6, y_upper,
                        rel.tol = 1e-4, subdivisions = 200)$value
-    E2 <- (tol / 6)^2 * E_inv
+    E2 <- (tol / (2 * sigma_level))^2 * E_inv
 
     return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
   }
@@ -443,7 +456,8 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 #' Numerical fallback for conjugate prior moments (2D integration)
 #' @keywords internal
 .compute_moments_numerical_conjugate <- function(mu_n, k_n, alpha_n, beta_n,
-                                                  LSL, USL, target, metric) {
+                                                  LSL, USL, target, metric,
+                                                  sigma_level = 3) {
   df_p <- 2 * alpha_n
   h_max <- stats::dchisq(max(df_p - 2, 1e-6), df_p, log = TRUE)
 
@@ -467,7 +481,10 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     sigma <- x[2, ]
 
     log_post <- log_post_vec(mu, sigma)
-    metric_val <- compute_metric_value(mu, sigma, LSL, USL, target, metric)
+    metric_val <- compute_metric_value(
+      mu, sigma, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
 
     result <- exp(log_post - h_max) * (metric_val^power)
     result[!is.finite(result)] <- 0
@@ -520,7 +537,8 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
                                                          metric = "Cpk", target = NULL,
                                                          use_analytic = TRUE,
-                                                         cached_state = NULL) {
+                                                         cached_state = NULL,
+                                                         sigma_level = 3) {
   ss <- .extract_suff_stats(data, NULL)
   n <- ss$n; x_bar <- ss$x_bar; sse <- ss$SS
   smp <- .semi_mu_posterior(prior, n, x_bar, sse)
@@ -555,18 +573,21 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     inner_moments <- function(sigma) {
       sd_mu <- sigma / sqrt(k_n)
       a <- mu_n - LSL; cc <- USL - mu_n; b <- sd_mu
-      inv3s <- 1 / (3 * sigma)
+      inv_sigma_scale <- 1 / (sigma_level * sigma)
       switch(metric,
-        "Cp"  = list(E1 = spec_tol * inv3s / 2, E2 = (spec_tol * inv3s / 2)^2),
-        "Cpu" = list(E1 = cc * inv3s, E2 = (cc^2 + b^2) * inv3s^2),
-        "Cpl" = list(E1 = a * inv3s,  E2 = (a^2 + b^2) * inv3s^2),
+        "Cp"  = list(E1 = spec_tol * inv_sigma_scale / 2,
+                     E2 = (spec_tol * inv_sigma_scale / 2)^2),
+        "Cpu" = list(E1 = cc * inv_sigma_scale,
+                     E2 = (cc^2 + b^2) * inv_sigma_scale^2),
+        "Cpl" = list(E1 = a * inv_sigma_scale,
+                     E2 = (a^2 + b^2) * inv_sigma_scale^2),
         "Cpk" = {
           zs  <- (M - mu_n) / sd_mu
           Phi <- stats::pnorm(zs); phi <- stats::dnorm(zs)
           list(
-            E1 = (a * Phi + cc * (1 - Phi) - 2 * b * phi) * inv3s,
+            E1 = (a * Phi + cc * (1 - Phi) - 2 * b * phi) * inv_sigma_scale,
             E2 = ((a^2 + b^2) * Phi + (cc^2 + b^2) * (1 - Phi) -
-                    2 * b * (a + cc) * phi) * inv3s^2
+                    2 * b * (a + cc) * phi) * inv_sigma_scale^2
           )
         }
       )
@@ -595,7 +616,10 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       sd_mu <- sigma[ok] / sqrt(k_n)
       mu_mat <- tcrossprod(sd_mu, gh_nodes) + mu_n
       sigma_rep <- rep(sigma[ok], each = n_gh)
-      m_vals <- compute_metric_value(as.vector(t(mu_mat)), sigma_rep, LSL, USL, target, metric)
+      m_vals <- compute_metric_value(
+        as.vector(t(mu_mat)), sigma_rep, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )
       m_mat <- matrix(m_vals, ncol = n_gh, byrow = TRUE)
       result[ok] <- w[ok] * drop(m_mat^power %*% gh_wts)
       result
@@ -613,7 +637,8 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
 compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
                                                             metric = "Cpk", target = NULL,
                                                             use_analytic = TRUE,
-                                                            cached_state = NULL) {
+                                                            cached_state = NULL,
+                                                            sigma_level = 3) {
   # Case 3: Non-conjugate mu, conjugate sigma (InvGamma)
   # Use 2D integration: outer over mu, inner over sigma via chi-square quadrature.
   # Previous version used E[sigma|mu] as plug-in (Jensen bias for 1/sigma metrics).
@@ -660,7 +685,8 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
     for (i in seq_len(n_mu)) {
       sigma_pts <- sqrt(2 * beta_n_vec[i] / y_pts)
       m_vals <- compute_metric_value(
-        rep(mu_vec[i], n_gh), sigma_pts, LSL, USL, target, metric
+        rep(mu_vec[i], n_gh), sigma_pts, LSL, USL, target, metric,
+        sigma_level = sigma_level
       )
       result[i] <- sum(w_base * m_vals^power)
     }
@@ -703,7 +729,8 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
 compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
                                                  metric = "Cpk", target = NULL,
                                                  use_analytic = TRUE,
-                                                 cached_state = NULL) {
+                                                 cached_state = NULL,
+                                                 sigma_level = 3) {
   # For generic priors, always use numerical 2D integration
   # (use_analytic is ignored - no closed form available)
 
@@ -723,7 +750,10 @@ compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
     sigma <- x[2, ]
 
     # Vectorized metric and log posterior computation
-    metric_val <- compute_metric_value(mu, sigma, LSL, USL, target, metric)
+    metric_val <- compute_metric_value(
+      mu, sigma, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    )
     log_p <- log_post_vec(mu, sigma)
 
     result <- exp(log_p - h_max) * (metric_val^power)
@@ -781,13 +811,15 @@ compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
 #' @param cached_state Pre-computed state for PriorGeneric (optional)
 #' @return Function that takes threshold c and returns P(Index > c)
 #' @keywords internal
-make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL, ...) {
+make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL,
+                        sigma_level = 3, ...) {
   UseMethod("make_solver", prior)
 }
 
 #' @export
 make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
-                                        target = NULL, cached_state = NULL, ...) {
+                                        target = NULL, cached_state = NULL,
+                                        sigma_level = 3, ...) {
   ss   <- .extract_suff_stats(data, cached_state)
   post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
@@ -799,7 +831,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   if (metric == "Cp") {
     return(function(c) {
       if (c <= 0) return(1.0)
-      stats::pchisq(72 * beta_n * c^2 / tol^2, df = df_p, lower.tail = FALSE)
+      stats::pchisq(8 * beta_n * sigma_level^2 * c^2 / tol^2,
+                    df = df_p, lower.tail = FALSE)
     })
   }
   if (metric == "Cpu") {
@@ -807,7 +840,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     sqrt_k_n <- sqrt(k_n)
     return(function(c) {
       if (c <= 0) return(1.0)
-      suppressWarnings(stats::pt(x_U, df = df_p, ncp = 3 * c * sqrt_k_n))
+      suppressWarnings(stats::pt(x_U, df = df_p,
+                                 ncp = sigma_level * c * sqrt_k_n))
     })
   }
   if (metric == "Cpl") {
@@ -815,7 +849,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     sqrt_k_n <- sqrt(k_n)
     return(function(c) {
       if (c <= 0) return(1.0)
-      suppressWarnings(stats::pt(x_L, df = df_p, ncp = 3 * c * sqrt_k_n))
+      suppressWarnings(stats::pt(x_L, df = df_p,
+                                 ncp = sigma_level * c * sqrt_k_n))
     })
   }
 
@@ -826,7 +861,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   function(c) {
     if (c <= 0) return(1.0)
 
-    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target,
+                                     sigma_level = sigma_level)
     s_max <- constr$s_max_fn()
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
 
@@ -879,7 +915,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
 #' @export
 make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
                                               metric = "Cpk", target = NULL,
-                                              cached_state = NULL, ...) {
+                                              cached_state = NULL,
+                                              sigma_level = 3, ...) {
   # Case 2: Conjugate mu (Normal/Jeffreys), non-conjugate sigma
   # Integrate mu analytically using pnorm, then 1D numerical over sigma
 
@@ -892,7 +929,8 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
 
   function(c) {
     if (c <= 0) return(1.0)
-    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target,
+                                     sigma_level = sigma_level)
     s_max <- constr$s_max_fn()
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
 
@@ -928,7 +966,8 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
 #' @export
 make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
                                                  metric = "Cpk", target = NULL,
-                                                 cached_state = NULL, ...) {
+                                                 cached_state = NULL,
+                                                 sigma_level = 3, ...) {
   # Case 3: Non-conjugate mu, conjugate sigma (InvGamma/Jeffreys)
   # Integrate sigma analytically using Gamma functions, then 1D over mu
 
@@ -947,7 +986,8 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 
   function(c) {
     if (c <= 0) return(1.0)
-    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target,
+                                     sigma_level = sigma_level)
     s_max <- constr$s_max_fn()
     if (!is.infinite(s_max) && s_max <= 0) return(0.0)
 
@@ -997,14 +1037,17 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 #' @param ... Additional arguments
 #' @return Function pdf(c) returning the marginal posterior density at c
 #' @keywords internal
-make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL, ...) {
+make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
+                                target = NULL, sigma_level = 3, ...) {
   UseMethod("make_density_solver", prior)
 }
 
 #' @export
 #' @export
 make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
-                                                metric = "Cpk", target = NULL, cached_state = NULL, ...) {
+                                                metric = "Cpk", target = NULL,
+                                                cached_state = NULL,
+                                                sigma_level = 3, ...) {
   ss   <- .extract_suff_stats(data, cached_state)
   post <- .nig_posterior(prior, ss$n, ss$x_bar, ss$SS)
   n <- ss$n; k_n <- post$k_n; mu_n <- post$mu_n
@@ -1019,10 +1062,10 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   if (metric == "Cp") {
     return(function(c) {
       if (c <= 0) return(0)
-      sigma_c <- tol / (6 * c)
+      sigma_c <- tol / ((2 * sigma_level) * c)
       if (sigma_c <= 0) return(0)
       log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_c) - beta_n / sigma_c^2
-      log_jacobian <- log(tol / 6) - 2 * log(c)
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
       exp(log_p_sigma + log_jacobian - log_Z_sigma)
     })
   }
@@ -1034,8 +1077,10 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
       h <- max(c * 1e-5, 1e-8)
-      S_plus  <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n, ncp = 3 * (c + h) * sqrt_k_n))
-      S_minus <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n, ncp = 3 * (c - h) * sqrt_k_n))
+      S_plus  <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n,
+                                            ncp = sigma_level * (c + h) * sqrt_k_n))
+      S_minus <- suppressWarnings(stats::pt(x_U, df = 2 * alpha_n,
+                                            ncp = sigma_level * (c - h) * sqrt_k_n))
       max(0, -(S_plus - S_minus) / (2 * h))
     })
   }
@@ -1046,8 +1091,10 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
       h <- max(c * 1e-5, 1e-8)
-      S_plus  <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n, ncp = 3 * (c + h) * sqrt_k_n))
-      S_minus <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n, ncp = 3 * (c - h) * sqrt_k_n))
+      S_plus  <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n,
+                                            ncp = sigma_level * (c + h) * sqrt_k_n))
+      S_minus <- suppressWarnings(stats::pt(x_L, df = 2 * alpha_n,
+                                            ncp = sigma_level * (c - h) * sqrt_k_n))
       max(0, -(S_plus - S_minus) / (2 * h))
     })
   }
@@ -1060,12 +1107,12 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   n_sigma <- 1024L
   sigma_grid <- seq(sigma_lo, sigma_hi, length.out = n_sigma)
   lps_grid <- -(2 * alpha_n + 1) * log(sigma_grid) - beta_n / sigma_grid^2
-  log_jac_grid <- log(3) + log(sigma_grid)
+  log_jac_grid <- log(sigma_level) + log(sigma_grid)
 
   if (metric == "Cpk") {
     return(function(c) {
       if (c <= 0) return(0)
-      sigma_max <- tol / (6 * c)
+      sigma_max <- tol / ((2 * sigma_level) * c)
       if (sigma_max <= sigma_lo) return(0)
 
       # Include sigma_max as the boundary point for smooth trapezoidal integration.
@@ -1082,10 +1129,10 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
       if (np > 2L) w_trap[2L:(np - 1L)] <- (ds[1L:(np - 2L)] + ds[2L:(np - 1L)]) / 2
 
       sd_mu <- sig_pts / sqrt(k_n)
-      mu_L <- LSL + 3 * c * sig_pts
-      mu_U <- USL - 3 * c * sig_pts
+      mu_L <- LSL + sigma_level * c * sig_pts
+      mu_U <- USL - sigma_level * c * sig_pts
       lps <- c(lps_grid[idx], -(2 * alpha_n + 1) * log(sig_pts[np]) - beta_n / sig_pts[np]^2)
-      lj  <- c(log_jac_grid[idx], log(3) + log(sig_pts[np]))
+      lj  <- c(log_jac_grid[idx], log(sigma_level) + log(sig_pts[np]))
       log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu, log = TRUE)
       log_p_mu_U <- stats::dnorm(mu_U, mu_n, sd_mu, log = TRUE)
       contrib_L <- exp(lps + log_p_mu_L + lj - log_Z_sigma)
@@ -1106,7 +1153,7 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
 
     return(function(c) {
       if (c <= 0) return(0)
-      R <- tol / (6 * c)
+      R <- tol / ((2 * sigma_level) * c)
       if (R <= 0) return(0)
       log_jacobian <- 2 * log(R) - log(c)
 
@@ -1131,7 +1178,8 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
 #' @export
 make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
                                                       metric = "Cpk", target = NULL,
-                                                      cached_state = NULL, ...) {
+                                                      cached_state = NULL,
+                                                      sigma_level = 3, ...) {
   # Case 2: Contour integration with semi-analytical mu integration
   # Uses the same contour approach as PriorConjugate but with
   # log p(sigma | data) = log_lik(sigma) + log_prior_sigma(sigma)
@@ -1170,12 +1218,12 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   sigma_grid <- seq(sigma_lo, sigma_hi, length.out = n_sigma)
   d_sigma <- sigma_grid[2] - sigma_grid[1]
   lps_grid <- log_p_sigma(sigma_grid)
-  log_jac_grid <- log(3) + log(sigma_grid)
+  log_jac_grid <- log(sigma_level) + log(sigma_grid)
 
   if (metric == "Cpk") {
     return(function(c) {
       if (c <= 0) return(0)
-      sigma_max <- tol / (6 * c)
+      sigma_max <- tol / ((2 * sigma_level) * c)
       if (sigma_max <= 0) return(0)
 
       valid <- sigma_grid > 0 & sigma_grid < sigma_max
@@ -1183,8 +1231,8 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       sg <- sigma_grid[valid]
       sd_mu <- sg / sqrt(k_n)
 
-      mu_L <- LSL + 3 * c * sg
-      mu_U <- USL - 3 * c * sg
+      mu_L <- LSL + sigma_level * c * sg
+      mu_U <- USL - sigma_level * c * sg
 
       lps <- lps_grid[valid]
       log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu, log = TRUE)
@@ -1204,7 +1252,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      mu_U <- USL - 3 * c * sigma_grid
+      mu_U <- USL - sigma_level * c * sigma_grid
       sd_mu <- sigma_grid / sqrt(k_n)
 
       log_p_mu_U <- stats::dnorm(mu_U, mu_n, sd_mu, log = TRUE)
@@ -1218,7 +1266,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      mu_L <- LSL + 3 * c * sigma_grid
+      mu_L <- LSL + sigma_level * c * sigma_grid
       sd_mu <- sigma_grid / sqrt(k_n)
 
       log_p_mu_L <- stats::dnorm(mu_L, mu_n, sd_mu, log = TRUE)
@@ -1233,11 +1281,11 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      sigma_c <- tol / (6 * c)
+      sigma_c <- tol / ((2 * sigma_level) * c)
       if (sigma_c <= 0) return(0)
 
       lps <- log_p_sigma(sigma_c)
-      log_jacobian <- log(tol / 6) - 2 * log(c)
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
       exp(lps + log_jacobian - log_Z)
     })
   }
@@ -1253,7 +1301,7 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      R <- tol / (6 * c)
+      R <- tol / ((2 * sigma_level) * c)
       if (R <= 0) return(0)
 
       log_jacobian <- 2 * log(R) - log(c)
@@ -1289,7 +1337,8 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
 #' @export
 make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
                                                          metric = "Cpk", target = NULL,
-                                                         cached_state = NULL, ...) {
+                                                         cached_state = NULL,
+                                                         sigma_level = 3, ...) {
   # Case 3: Contour integration with semi-analytical sigma integration
   # For each mu on the contour, p(sigma|mu,data) is Inverse-Gamma
 
@@ -1336,20 +1385,20 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   sigma_grid <- seq(sigma_lo, sigma_hi, length.out = n_sigma)
   d_sigma <- sigma_grid[2] - sigma_grid[1]
   log_sigma_grid <- log(sigma_grid)
-  log_jac_grid <- log(3) + log_sigma_grid
+  log_jac_grid <- log(sigma_level) + log_sigma_grid
 
   if (metric == "Cpk") {
     return(function(c) {
       if (c <= 0) return(0)
-      sigma_max <- tol / (6 * c)
+      sigma_max <- tol / ((2 * sigma_level) * c)
       if (sigma_max <= 0) return(0)
 
       valid <- sigma_grid > 0 & sigma_grid < sigma_max
       if (!any(valid)) return(0)
       sg <- sigma_grid[valid]
 
-      mu_L <- LSL + 3 * c * sg
-      mu_U <- USL - 3 * c * sg
+      mu_L <- LSL + sigma_level * c * sg
+      mu_U <- USL - sigma_level * c * sg
 
       sse_L <- sse + n * (mu_L - x_bar)^2
       sse_U <- sse + n * (mu_U - x_bar)^2
@@ -1377,7 +1426,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      mu_U <- USL - 3 * c * sigma_grid
+      mu_U <- USL - sigma_level * c * sigma_grid
       sse_U <- sse + n * (mu_U - x_bar)^2
       beta_n_U <- beta0 + sse_U / 2
 
@@ -1394,7 +1443,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      mu_L <- LSL + 3 * c * sigma_grid
+      mu_L <- LSL + sigma_level * c * sigma_grid
       sse_L <- sse + n * (mu_L - x_bar)^2
       beta_n_L <- beta0 + sse_L / 2
 
@@ -1410,10 +1459,10 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   if (metric == "Cp") {
     return(function(c) {
       if (c <= 0) return(0)
-      sigma_c <- tol / (6 * c)
+      sigma_c <- tol / ((2 * sigma_level) * c)
       if (sigma_c <= 0) return(0)
 
-      log_jacobian <- log(tol / 6) - 2 * log(c)
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
 
       integrand <- function(mu) {
         sse_mu <- sse + n * (mu - x_bar)^2
@@ -1442,7 +1491,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      R <- tol / (6 * c)
+      R <- tol / ((2 * sigma_level) * c)
       if (R <= 0) return(0)
 
       log_jacobian <- 2 * log(R) - log(c)
@@ -1492,7 +1541,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
 #' @export
 make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
                                               metric = "Cpk", target = NULL,
-                                              cached_state = NULL, ...) {
+                                              cached_state = NULL,
+                                              sigma_level = 3, ...) {
   # For generic priors, we still use 1D integration along contours,
   # but evaluate the joint posterior numerically using vectorized operations
 
@@ -1517,7 +1567,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      sigma_max <- tol / (6 * c)
+      sigma_max <- tol / ((2 * sigma_level) * c)
       if (sigma_max <= 0) return(0)
 
       integrand <- function(sigma) {
@@ -1528,11 +1578,11 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         sigma_v <- sigma[valid]
 
         # Contour points
-        mu_L <- LSL + 3 * c * sigma_v
-        mu_U <- USL - 3 * c * sigma_v
+        mu_L <- LSL + sigma_level * c * sigma_v
+        mu_U <- USL - sigma_level * c * sigma_v
 
-        # Jacobian |dmu/dc| = 3*sigma
-        log_jacobian <- log(3) + log(sigma_v)
+        # Jacobian |dmu/dc| = sigma_level * sigma
+        log_jacobian <- log(sigma_level) + log(sigma_v)
 
         # Evaluate joint posterior at contour points (vectorized)
         log_p_L <- log_post_vec(mu_L, sigma_v)
@@ -1555,7 +1605,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   }
 
   # Cpu: single contour
-  # For Cpu = c, contour is mu = USL - 3*c*sigma
+  # For Cpu = c, contour is mu = USL - sigma_level * c * sigma
   # Need sigma_upper that ensures mu is within prior support (or has meaningful density)
   if (metric == "Cpu") {
     return(function(c) {
@@ -1567,8 +1617,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         if (!any(valid)) return(result)
 
         sigma_v <- sigma[valid]
-        mu_U <- USL - 3 * c * sigma_v
-        log_jacobian <- log(3) + log(sigma_v)
+        mu_U <- USL - sigma_level * c * sigma_v
+        log_jacobian <- log(sigma_level) + log(sigma_v)
 
         log_p <- log_post_vec(mu_U, sigma_v)
         contrib <- exp(log_p + log_jacobian - h_max) / Z
@@ -1581,7 +1631,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       mu_center <- if (n > 0) x_bar else map_mu
       mu_sd <- if (n > 0) sqrt(uni_s^2 / n) else if (!is.null(mu_scale)) mu_scale else uni_s
       mu_lower_bound <- mu_center - 6 * mu_sd
-      sigma_upper_mu <- (USL - mu_lower_bound) / (3 * c)
+      sigma_upper_mu <- (USL - mu_lower_bound) / (sigma_level * c)
       sigma_upper <- min(uni_s, max(sigma_upper_mu, 1e-6))
 
       tryCatch({
@@ -1594,7 +1644,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   }
 
   # Cpl: single contour
-  # For Cpl = c, contour is mu = LSL + 3*c*sigma
+  # For Cpl = c, contour is mu = LSL + sigma_level * c * sigma
   if (metric == "Cpl") {
     return(function(c) {
       if (c <= 0) return(0)
@@ -1605,8 +1655,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         if (!any(valid)) return(result)
 
         sigma_v <- sigma[valid]
-        mu_L <- LSL + 3 * c * sigma_v
-        log_jacobian <- log(3) + log(sigma_v)
+        mu_L <- LSL + sigma_level * c * sigma_v
+        log_jacobian <- log(sigma_level) + log(sigma_v)
 
         log_p <- log_post_vec(mu_L, sigma_v)
         contrib <- exp(log_p + log_jacobian - h_max) / Z
@@ -1619,7 +1669,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       mu_center <- if (n > 0) x_bar else map_mu
       mu_sd <- if (n > 0) sqrt(uni_s^2 / n) else if (!is.null(mu_scale)) mu_scale else uni_s
       mu_upper_bound <- mu_center + 6 * mu_sd
-      sigma_upper_mu <- (mu_upper_bound - LSL) / (3 * c)
+      sigma_upper_mu <- (mu_upper_bound - LSL) / (sigma_level * c)
       sigma_upper <- min(uni_s, max(sigma_upper_mu, 1e-6))
 
       tryCatch({
@@ -1635,13 +1685,13 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      sigma_c <- tol / (6 * c)
+      sigma_c <- tol / ((2 * sigma_level) * c)
       if (sigma_c <= 0) return(0)
 
       # At sigma_c, mu can be anything - integrate over mu
       # p(Cp = c) = ∫ p(mu, sigma_c) |dsigma/dc| dmu
-      # |dsigma/dc| = tol / (6 * c^2)
-      log_jacobian <- log(tol / 6) - 2 * log(c)
+      # |dsigma/dc| = tol / (2 * sigma_level * c^2)
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
 
       # Integrate over mu
       mu_integrand <- function(mu) {
@@ -1675,8 +1725,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     return(function(c) {
       if (c <= 0) return(0)
 
-      # Contour radius R = tol / (6*c)
-      R <- tol / (6 * c)
+      # Contour radius R = tol / (2 * sigma_level * c)
+      R <- tol / ((2 * sigma_level) * c)
       if (R <= 0) return(0)
 
       # Jacobian determinant for polar coordinates wrt c
@@ -1715,7 +1765,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
 
 #' @export
 make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
-                                      target = NULL, cached_state = NULL, ...) {
+                                      target = NULL, cached_state = NULL,
+                                      sigma_level = 3, ...) {
 
   # Use cached state if available (massive speedup for multiple metrics)
   if (!is.null(cached_state)) {
@@ -1803,7 +1854,8 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
   # Return closure
   function(c) {
     if (c <= 0) return(1.0)
-    constr <- get_metric_constraints(metric, c, LSL, USL, target)
+    constr <- get_metric_constraints(metric, c, LSL, USL, target,
+                                     sigma_level = sigma_level)
     num <- int_2d(constr$s_max_fn(), constr$mu_b_fn_vec)
     return(num / Z)
   }
@@ -1993,7 +2045,8 @@ precompute_generic_state <- function(data, prior) {
 #' @keywords internal
 compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
                                           metric = "Cpk", target = NULL,
-                                          cached_state = NULL) {
+                                          cached_state = NULL,
+                                          sigma_level = 3) {
 
   # Check if we can use density solver
   density_metrics <- c("Cpk", "Cp", "Cpu", "Cpl", "Cpm", "Cpc")
@@ -2006,7 +2059,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   if (can_use_density) {
     # Use density solver PDF and integrate over bounds
     pdf_fn <- make_density_solver(data, LSL, USL, prior, metric, target,
-                                   cached_state = cached_state)
+                                  sigma_level = sigma_level,
+                                  cached_state = cached_state)
     pdf_vec <- function(x) vapply(x, pdf_fn, numeric(1L))
 
     # Clip infinite bounds: capability indices are >= 0 and rarely exceed 10
@@ -2022,9 +2076,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     # Fallback: try survival function approach
     S <- tryCatch({
       if (!is.null(cached_state))
-        make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level,
+                    cached_state = cached_state)
       else
-        make_solver(data, LSL, USL, prior, metric, target)
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level)
     }, error = function(e) NULL)
     if (!is.null(S)) {
       p_lower <- tryCatch(S(lower), error = function(e) NA_real_)
@@ -2036,9 +2093,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   } else {
     # Fallback: Survival function S(c) = P(Index > c)
     if (!is.null(cached_state)) {
-      S <- make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+      S <- make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level,
+                       cached_state = cached_state)
     } else {
-      S <- make_solver(data, LSL, USL, prior, metric, target)
+      S <- make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level)
     }
 
     # P(lower < Index < upper) = P(Index > lower) - P(Index > upper)
@@ -2053,7 +2113,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 #' This returns \eqn{E[metric * I(metric <= 0)]}, a negative correction to add to
 #' \eqn{area * E[metric | metric > 0]} to get the full unconditional mean.
 #' @keywords internal
-.compute_negative_mean_correction <- function(metric, LSL, USL, bayestools_priors) {
+.compute_negative_mean_correction <- function(metric, LSL, USL, bayestools_priors,
+                                              sigma_level = 3) {
   if (is.null(bayestools_priors)) return(0)
   if (metric %in% c("Cp", "Cpm", "Cpc")) return(0)
 
@@ -2077,7 +2138,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
       stats::integrate(Vectorize(integrand), USL, USL + 20 * tol,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
-    corr_Cpu <- (1 / 3) * E_Cpu_neg * E_inv_sigma
+    corr_Cpu <- (1 / sigma_level) * E_Cpu_neg * E_inv_sigma
   }
 
   if (metric == "Cpl" || metric == "Cpk") {
@@ -2087,7 +2148,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
       stats::integrate(Vectorize(integrand), LSL - 20 * tol, LSL,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
-    corr_Cpl <- (1 / 3) * E_Cpl_neg * E_inv_sigma
+    corr_Cpl <- (1 / sigma_level) * E_Cpl_neg * E_inv_sigma
   }
 
   switch(metric,
@@ -2211,7 +2272,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
                                             cached_state = NULL,
                                             use_density_solver = TRUE,
                                             mc_samples = NULL,
-                                            divergence_info = NULL) {
+                                            divergence_info = NULL,
+                                            sigma_level = 3) {
 
   # Default: no divergence
   if (is.null(divergence_info))
@@ -2228,7 +2290,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   if (is_prior_only && has_bayestools_priors) {
     # Fast path: compute grid bounds directly from sigma quantiles
     bounds <- .compute_metric_grid_bounds_from_quantiles(
-      prior$bayestools_priors$sigma, LSL, USL, metric, target
+      prior$bayestools_priors$sigma, LSL, USL, metric, target,
+      sigma_level = sigma_level
     )
     x_start <- bounds$x_start
     x_end <- bounds$x_end
@@ -2238,9 +2301,12 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     x_end <- 3
     try({
       S_fn <- if (!is.null(cached_state)) {
-        make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level,
+                    cached_state = cached_state)
       } else {
-        make_solver(data, LSL, USL, prior, metric, target)
+        make_solver(data, LSL, USL, prior, metric, target,
+                    sigma_level = sigma_level)
       }
       for (try_limit in c(10, 20, 50, 100, 500, 1000)) {
         if (S_fn(try_limit) < 0.001) {
@@ -2251,8 +2317,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     }, silent = TRUE)
   } else {
     # Standard path: compute posterior moments for grid bounds
-    moments <- compute_metric_moments(data, LSL, USL, prior, metric = metric, target = target,
-                                       use_analytic = TRUE, cached_state = cached_state)
+    moments <- compute_metric_moments(
+      data, LSL, USL, prior, metric = metric, target = target,
+      use_analytic = TRUE, cached_state = cached_state,
+      sigma_level = sigma_level
+    )
 
     # Grid bounds via normal approximation (clip to natural bounds)
     # Handle NaN moments by falling back to reasonable defaults
@@ -2270,9 +2339,12 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
        # Use S(c) = P(Index > c) to find effective upper bound (q99.9)
        try({
          S_fn <- if (!is.null(cached_state)) {
-           make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+           make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level,
+                       cached_state = cached_state)
          } else {
-           make_solver(data, LSL, USL, prior, metric, target)
+           make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level)
          }
          # Search for upper bound where prob < 0.001
          for (try_limit in c(10, 20, 50, 100, 1000)) {
@@ -2302,17 +2374,18 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     if (is.null(target)) target <- M
 
     metric_samples <- switch(metric,
-      "Cp"  = tol / (6 * sig_samples),
-      "Cpu" = (USL - mu_samples) / (3 * sig_samples),
-      "Cpl" = (mu_samples - LSL) / (3 * sig_samples),
-      "Cpk" = pmin((USL - mu_samples), (mu_samples - LSL)) / (3 * sig_samples),
+      "Cp"  = tol / ((2 * sigma_level) * sig_samples),
+      "Cpu" = (USL - mu_samples) / (sigma_level * sig_samples),
+      "Cpl" = (mu_samples - LSL) / (sigma_level * sig_samples),
+      "Cpk" = pmin((USL - mu_samples), (mu_samples - LSL)) /
+        (sigma_level * sig_samples),
       "Cpm" = pmin(USL - target, target - LSL) /
-              (3 * sqrt(sig_samples^2 + (mu_samples - target)^2)),
+              (sigma_level * sqrt(sig_samples^2 + (mu_samples - target)^2)),
       "Cpc" = {
         z <- (mu_samples - target) / sig_samples
         E_abs_dev <- sig_samples * sqrt(2 / pi) * exp(-0.5 * z^2) +
                      abs(mu_samples - target) * (1 - 2 * stats::pnorm(-abs(z)))
-        tol / (6 * sqrt(pi / 2) * E_abs_dev)
+        tol / ((2 * sigma_level) * sqrt(pi / 2) * E_abs_dev)
       },
       stop("Unknown metric: ", metric)
     )
@@ -2363,7 +2436,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   if (can_use_density) {
     # Direct PDF computation via contour integration
     pdf_fn <- make_density_solver(data, LSL, USL, prior, metric, target,
-                                   cached_state = cached_state)
+                                  sigma_level = sigma_level,
+                                  cached_state = cached_state)
 
     result <- .adaptive_density_grid(pdf_fn, x_start, x_end, n_grid,
                                      is_prior_only = is_prior_only)
@@ -2376,9 +2450,12 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   } else {
     # Fallback: Survival function + finite differences
     if (inherits(prior, "PriorGeneric") && !is.null(cached_state)) {
-      S <- make_solver(data, LSL, USL, prior, metric, target, cached_state = cached_state)
+      S <- make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level,
+                       cached_state = cached_state)
     } else {
-      S <- make_solver(data, LSL, USL, prior, metric, target)
+      S <- make_solver(data, LSL, USL, prior, metric, target,
+                       sigma_level = sigma_level)
     }
 
     # Evaluate grid
@@ -2410,7 +2487,9 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     neg_correction <- 0
     bt <- prior$bayestools_priors
     if (is.null(bt) && !is.null(cached_state)) bt <- cached_state$bayestools_priors
-    neg_correction <- .compute_negative_mean_correction(metric, LSL, USL, bt)
+    neg_correction <- .compute_negative_mean_correction(
+      metric, LSL, USL, bt, sigma_level = sigma_level
+    )
     post_mean <- area * sum(mid_x * pdf_vals * dx) + neg_correction
     post_var <- area * sum((mid_x^2) * pdf_vals * dx) - post_mean^2
     post_sd <- sqrt(max(0, post_var))
@@ -2979,9 +3058,10 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 
   results <- lapply(metrics, function(m) {
     analyze_capability_integration(data, LSL, USL, prior, metric = m,
-                                    target = target, cached_state = cached_state,
-                                    mc_samples = mc_samples,
-                                    divergence_info = divergence_map[[m]])
+                                   target = target, cached_state = cached_state,
+                                   mc_samples = mc_samples,
+                                   divergence_info = divergence_map[[m]],
+                                   sigma_level = sigma)
   })
   names(results) <- metrics
 
@@ -2999,12 +3079,14 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   attr(metrics_list, "LSL") <- LSL
   attr(metrics_list, "USL") <- USL
   attr(metrics_list, "target") <- target
+  attr(metrics_list, "sigma") <- sigma
   attr(metrics_list, "method") <- "integration"
 
   list(
     results = results,
     metrics = metrics_list,
     coefficients = coefficients,
+    sigma = sigma,
     prior = prior,
     is_conjugate = is_conjugate,
     case = case,

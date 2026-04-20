@@ -101,6 +101,7 @@ bpc <- function(
   object$distribution <- distribution
   object$prior_mu <- prior_mu
   object$prior_sigma <- prior_sigma
+  object$sigma <- sigma
 
   # Dispatch based on method
   if (method == "integration") {
@@ -265,6 +266,10 @@ print.bpc <- function(x, ...) {
 #' @export
 summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
 
+  if (missing(sigma)) {
+    sigma <- object$sigma %||% 3
+  }
+
   BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
   BayesTools::check_real(ci.level, name = "ci.level", check_length = 1, allow_NA = FALSE, lower = 0, upper = 1)
   BayesTools::check_real(interval_probability, name = "interval_probability", check_length = 0, allow_NA = FALSE)
@@ -321,6 +326,7 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
     # (these were already computed during bpc() and should be reused)
     prior <- int_result$prior
     cached_state <- int_result$cached_state
+    metric_sigma <- int_result$sigma %||% object$sigma %||% sigma
 
     orig_LSL    <- attr(metrics, "LSL")
     orig_USL    <- attr(metrics, "USL")
@@ -376,7 +382,8 @@ summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALS
             compute_cpk_prob_integration(
               numeric(0), orig_LSL, orig_USL, c(lo, hi), prior,
               metric = m, target = orig_target,
-              cached_state = cached_state
+              cached_state = cached_state,
+              sigma_level = metric_sigma
             ),
             error = function(e) NA_real_
           )

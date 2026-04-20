@@ -655,6 +655,7 @@ plot_density.bpc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
         target = target,
         prior_mu = obj$prior_mu %||% "Jeffreys_mu",
         prior_sigma = obj$prior_sigma %||% "Jeffreys_sigma",
+        sigma = obj$sigma %||% obj$integration_result$sigma %||% 3,
         cached_state = obj$integration_result$cached_state
       )
       plot_density_integration_results(new_result, ...)
