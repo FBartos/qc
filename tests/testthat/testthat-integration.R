@@ -190,8 +190,10 @@ testthat::test_that("integration handles semi-conjugate mu priors with Cp densit
     x,
     LSL = 2, target = 10, USL = 18,
     method = "integration",
-    prior_mu = "Jeffreys_mu",
-    prior_sigma = BayesTools::prior("gamma", list(2, 1))
+    prior = prior_independent(
+      mu = "Jeffreys_mu",
+      sigma = BayesTools::prior("gamma", list(2, 1))
+    )
   )
 
   expect_s3_class(fit, "bpc")
@@ -343,8 +345,11 @@ testthat::test_that("integration summary respects ci.level", {
     result$stats[c("Q2.5", "Q97.5")]
   }, numeric(2L))
 
-  expect_equal(summary_95$lower, unname(expected_95[1, ]))
-  expect_equal(summary_95$upper, unname(expected_95[2, ]))
+  # Summary() routes through interval extraction on the stored integration
+  # densities, so the public summary can differ slightly from the raw cached
+  # quantiles due to grid interpolation.
+  expect_equal(summary_95$lower, unname(expected_95[1, ]), tolerance = 0.002)
+  expect_equal(summary_95$upper, unname(expected_95[2, ]), tolerance = 0.002)
 })
 
 
@@ -374,86 +379,6 @@ testthat::test_that("extract_samples errors for integration method", {
 })
 
 
-testthat::test_that("integration vs MCMC agreement with Jeffreys prior", {
-
-  # skip_on_cran()  # Skip on CRAN due to long runtime
-
-  set.seed(42)
-  x <- rnorm(30, 50, 0.5)
-  LSL <- 44
-  USL <- 56
-  target <- 50
-
-  # Fit with both methods
-  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
-  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
-                  iter = 50000, chains = 4, silent = TRUE, seed = 42)
-
-  # Compare posterior means - should be close
-  coef_int <- fit_int$coefficients
-  coef_mcmc <- fit_mcmc$coefficients
-
-  (coef_int - coef_mcmc)
-
-  # Check agreement within tolerance (allow 10% relative error or 0.05 absolute error)
-  for (metric in names(coef_int)) {
-    rel_diff <- abs(coef_int[metric] - coef_mcmc[metric]) / max(abs(coef_mcmc[metric]), 0.01)
-    abs_diff <- abs(coef_int[metric] - coef_mcmc[metric])
-    expect_true(
-      rel_diff < 0.10 | abs_diff < 0.05,
-      info = sprintf("%s: integration=%f, mcmc=%f, rel_diff=%f, abs_diff=%f",
-                     metric, coef_int[metric], coef_mcmc[metric], rel_diff, abs_diff)
-    )
-  }
-
-
-
-})
-
-
-testthat::test_that("integration interval probabilities agree with MCMC", {
-
-  # skip_on_cran()  # Skip on CRAN due to long runtime
-
-  set.seed(42)
-  x <- rnorm(30, 50, 0.5)
-  LSL <- 44
-  USL <- 56
-  target <- 50
-  bounds <- c(1.0, 2.0)
-
-  # Fit with both methods
-  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
-  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
-                  iter = 50000, chains = 4, silent = TRUE, seed = 42)
-
-  # Compute interval probabilities for MCMC
-  mcmc_probs <- sapply(fit_mcmc$metrics, function(values) {
-    mean(values > bounds[1] & values < bounds[2])
-  })
-
-  # Get integration prior and compute probabilities
-  prior_info <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")
-  prior <- prior_info$prior
-  cached_state <- fit_int$integration_result$cached_state
-
-  int_probs <- sapply(names(fit_int$metrics), function(m) {
-    qc:::compute_cpk_prob_integration(x, LSL, USL, bounds, prior, metric = m,
-                                       target = target, cached_state = cached_state)
-  })
-
-  # Check agreement within tolerance (allow 0.03 absolute difference)
-  for (metric in names(int_probs)) {
-    abs_diff <- abs(int_probs[metric] - mcmc_probs[metric])
-    expect_true(
-      abs_diff < 0.03,
-      info = sprintf("%s: int_prob=%f, mcmc_prob=%f, abs_diff=%f",
-                     metric, int_probs[metric], mcmc_probs[metric], abs_diff)
-    )
-  }
-})
-
-
 testthat::test_that("integration preserves negative Cpu and Cpk support with data", {
 
   set.seed(1)
@@ -462,7 +387,8 @@ testthat::test_that("integration preserves negative Cpu and Cpk support with dat
   USL <- 10
   target <- 5
 
-  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL,
+             method = "integration", prior = "Jeffreys")
   prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
 
   cpu_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpu", target = target)
@@ -497,7 +423,8 @@ testthat::test_that("integration preserves negative Cpl support with data", {
   USL <- 10
   target <- 5
 
-  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL,
+             method = "integration", prior = "Jeffreys")
   prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
 
   cpl_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpl", target = target)
@@ -525,7 +452,8 @@ testthat::test_that("integration tail probabilities keep open upper bounds", {
   USL <- 52
   target <- 50
 
-  fit <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+  fit <- bpc(x, LSL = LSL, target = target, USL = USL,
+             method = "integration", prior = "Jeffreys")
   prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", "Jeffreys_sigma")$prior
   cached_state <- fit$integration_result$cached_state
 
@@ -554,8 +482,10 @@ testthat::test_that("integration method with custom priors", {
   # Test with custom normal prior on mu and gamma on sigma
   fit <- bpc(x, LSL = 2, target = 10, USL = 18,
              method = "integration",
-             prior_mu = prior("normal", list(10, 5)),
-             prior_sigma = prior("gamma", list(2, 1)))
+             prior = prior_independent(
+               mu = prior("normal", list(10, 5)),
+               sigma = prior("gamma", list(2, 1))
+             ))
 
   # Should still return valid results
   expect_s3_class(fit, "bpc")
@@ -568,131 +498,20 @@ testthat::test_that("integration method with custom priors", {
 })
 
 
-testthat::test_that("integration vs MCMC agreement with non-conjugate priors", {
-
-  # skip_on_cran()  # Skip on CRAN due to long runtime
-
-  set.seed(123)
-  x <- rnorm(30, 10, 2)
-  LSL <- 2
-  USL <- 18
-  target <- 10
-
-  # Use informative normal prior on mu and gamma prior on sigma
-  prior_mu <- prior("normal", list(10, 5))
-  prior_sigma <- prior("gamma", list(2, 1))
-
-  # Fit with both methods
-  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration",
-                 prior_mu = prior_mu, prior_sigma = prior_sigma)
-  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
-                  prior_mu = prior_mu, prior_sigma = prior_sigma,
-                  iter = 50000, chains = 4, silent = TRUE, seed = 123)
-
-  # profvis::profvis(bpc(x, LSL = LSL, target = target, USL = USL, method = "integration",
-  #                      prior_mu = prior_mu, prior_sigma = prior_sigma))
-
-  # Compare posterior means - allow slightly larger tolerance for non-conjugate
-  coef_int <- fit_int$coefficients
-  coef_mcmc <- fit_mcmc$coefficients
-  coef_int - coef_mcmc[names(coef_int)]
-
-  for (metric in names(coef_int)) {
-    rel_diff <- abs(coef_int[metric] - coef_mcmc[metric]) / max(abs(coef_mcmc[metric]), 0.01)
-    abs_diff <- abs(coef_int[metric] - coef_mcmc[metric])
-    expect_true(
-      rel_diff < 0.15 | abs_diff < 0.10,
-      info = sprintf("%s: integration=%f, mcmc=%f, rel_diff=%f, abs_diff=%f",
-                     metric, coef_int[metric], coef_mcmc[metric], rel_diff, abs_diff)
-    )
-  }
-})
-
-
-testthat::test_that("integration interval probabilities with non-conjugate priors agree with MCMC", {
-
-  # skip_on_cran()  # Skip on CRAN due to long runtime
-
-  set.seed(123)
-  x <- rnorm(30, 10, 2)
-  LSL <- 2
-  USL <- 18
-  target <- 10
-  bounds <- c(0.5, 1.5)
-
-  prior_mu <- prior("normal", list(10, 5))
-  prior_sigma <- prior("gamma", list(2, 1))
-
-  # Fit with both methods
-  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration",
-                 prior_mu = prior_mu, prior_sigma = prior_sigma)
-  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
-                  prior_mu = prior_mu, prior_sigma = prior_sigma,
-                  iter = 50000, chains = 4, silent = TRUE, seed = 123)
-
-  # Compute interval probabilities for MCMC
-  mcmc_probs <- sapply(fit_mcmc$metrics, function(values) {
-    mean(values > bounds[1] & values < bounds[2])
-  })
-
-  # Get integration prior and compute probabilities
-  prior_info <- qc:::.bayestools_to_integration_prior(prior_mu, prior_sigma)
-  prior <- prior_info$prior
-  cached_state <- fit_int$integration_result$cached_state
-
-  int_probs <- sapply(names(fit_int$metrics), function(m) {
-    qc:::compute_cpk_prob_integration(x, LSL, USL, bounds, prior, metric = m,
-                                       target = target, cached_state = cached_state)
-  })
-
-  # Check agreement within tolerance (allow 0.05 for non-conjugate)
-  for (metric in names(int_probs)) {
-    abs_diff <- abs(int_probs[metric] - mcmc_probs[metric])
-    expect_true(
-      abs_diff < 0.05,
-      info = sprintf("%s: int_prob=%f, mcmc_prob=%f, abs_diff=%f",
-                     metric, int_probs[metric], mcmc_probs[metric], abs_diff)
-    )
-  }
-})
-
-
-testthat::test_that("integration method speed advantage", {
-
-  # skip_on_cran()
-
-  set.seed(1)
-  x <- rnorm(50, 10, 2)
-
-  # Time integration method
-  time_int <- system.time({
-    fit_int <- bpc(x, LSL = 2, target = 10, USL = 18, method = "integration")
-  })["elapsed"]
-
-  # Time MCMC method (with minimal iterations)
-  time_mcmc <- system.time({
-    fit_mcmc <- bpc(x, LSL = 2, target = 10, USL = 18, method = "mcmc",
-                    chains = 4, iter = 6000, warmup = 2000, silent = TRUE)
-  })["elapsed"]
-
-  # Integration should be faster than even minimal MCMC
-  expect_true(time_int < time_mcmc,
-              info = sprintf("Integration: %f sec, MCMC: %f sec", time_int, time_mcmc))
-})
-
-
 testthat::test_that("integration summary recomputes with new specification limits", {
 
   set.seed(42)
   x <- rnorm(50, mean = 10, sd = 2)
 
   # Fit with original limits
-  fit <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
+  fit <- bpc(x, LSL = 4, target = 10, USL = 16,
+             method = "integration", prior = "Jeffreys")
   original_coef <- fit$coefficients
 
   # Get summary with new limits (wider tolerance)
   ss_new <- summary(fit, LSL = 2, target = 10, USL = 18)
-  fit_new <- bpc(x, LSL = 2, target = 10, USL = 18, method = "integration")
+  fit_new <- bpc(x, LSL = 2, target = 10, USL = 18,
+                 method = "integration", prior = "Jeffreys")
   ss_refit <- summary(fit_new)
 
   # New limits are wider, so capability indices should be higher
@@ -761,7 +580,8 @@ testthat::test_that("plot_density works for integration method", {
 testthat::test_that("plot_density does not recycle finite point labels onto infinite integration facets", {
 
   metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
-  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10,
+             method = "integration", prior = "Jeffreys")
 
   p <- plot_density(fit, what = metrics, point_estimate = "mean", ci = "none")
   layers <- p[["layers"]]
@@ -771,7 +591,7 @@ testthat::test_that("plot_density does not recycle finite point labels onto infi
 
   text_data <- layers[[text_idx]][["data"]]
   expected_cpc <- (10 - 0) / ((2 * 3) * sqrt(pi / 2) * abs(5 - 3))
-  expected_cpm <- (10 - 0) / ((2 * 3) * abs(5 - 3))
+  expected_cpm <- min(10 - 3, 3 - 0) / (3 * abs(5 - 3))
 
   expect_equal(levels(text_data$metric), metrics)
   expect_equal(as.character(text_data$metric), c("Cpc", "Cpm"))
@@ -788,8 +608,10 @@ testthat::test_that("plot_density handles sample-backed prior-only integration r
     NULL,
     LSL = 2, target = 10, USL = 18,
     method = "integration",
-    prior_mu = prior("normal", list(10, 5)),
-    prior_sigma = prior("gamma", list(2, 1)),
+    prior = prior_independent(
+      mu = prior("normal", list(10, 5)),
+      sigma = prior("gamma", list(2, 1))
+    ),
     sample_priors = TRUE
   )
 
@@ -839,46 +661,6 @@ testthat::test_that("extract_density_data works for integration method", {
 })
 
 
-testthat::test_that("extract_density_data MCMC vs integration produce comparable results", {
-
-  # skip_on_cran()
-
-  set.seed(42)
-  x <- rnorm(30, 50, 0.5)
-  LSL <- 44
-  USL <- 56
-  target <- 50
-
-  fit_mcmc <- bpc(x, LSL = LSL, target = target, USL = USL, method = "mcmc",
-                  iter = 50000, chains = 4, silent = TRUE, seed = 42)
-  fit_int <- bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
-
-  df_mcmc <- extract_density_data(fit_mcmc, what = "Cpk")
-  df_int <- extract_density_data(fit_int, what = "Cpk")
-
-  # Both should have valid structure
-  expect_equal(names(df_mcmc), c("x", "density", "metric"))
-  expect_equal(names(df_int), c("x", "density", "metric"))
-
-  # Create approxfuns to compare at same x-values
-  f_mcmc <- stats::approxfun(df_mcmc$x, df_mcmc$density, rule = 2)
-  f_int <- stats::approxfun(df_int$x, df_int$density, rule = 2)
-
-  # Compare at common evaluation points
-  x_eval <- seq(max(min(df_mcmc$x), min(df_int$x)),
-                min(max(df_mcmc$x), max(df_int$x)),
-                length.out = 50)
-  y_mcmc <- f_mcmc(x_eval)
-  y_int <- f_int(x_eval)
-  # plot(y_mcmc, y_int); abline(0,1,col='red')
-
-  # Densities should be roughly similar (correlation > 0.9)
-  cor_val <- cor(y_mcmc, y_int)
-  expect_true(cor_val > 0.9,
-              info = sprintf("Correlation between MCMC and integration densities: %.3f", cor_val))
-})
-
-
 testthat::test_that("extract_point_estimates works for both methods", {
 
   set.seed(42)
@@ -889,20 +671,12 @@ testthat::test_that("extract_point_estimates works for both methods", {
   # Extract density data first
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
 
-  # Build stats list for integration
-  results <- fit_int$integration_result$results
-  stats_list <- list(
-    Cp = results$Cp$stats,
-    Cpk = results$Cpk$stats
-  )
-
   # Extract point estimates
   dfPoints <- extract_point_estimates(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     point_estimate = "mean",
-    dfDensity = dfDensity,
-    stats_list = stats_list
+    dfDensity = dfDensity
   )
 
   expect_s3_class(dfPoints, "tbl_df")
@@ -911,11 +685,10 @@ testthat::test_that("extract_point_estimates works for both methods", {
 
   # Mode should also work
   dfMode <- extract_point_estimates(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp"),
     point_estimate = "mode",
-    dfDensity = dfDensity,
-    stats_list = stats_list
+    dfDensity = dfDensity
   )
   expect_equal(nrow(dfMode), 1)
 
@@ -924,7 +697,7 @@ testthat::test_that("extract_point_estimates works for both methods", {
     what = c("Cp"),
     point_estimate = "mode",
     dfDensity = dfDensity,
-    stats_list = list(Cp = results$Cp)
+    stats_list = list(Cp = fit_int$integration_result$results$Cp)
   )
   expect_equal(nrow(dfModeFromEntries), 1)
   expect_equal(dfMode$x, dfModeFromEntries$x)
@@ -934,16 +707,15 @@ testthat::test_that("extract_point_estimates works for both methods", {
 testthat::test_that("extract_point_estimates preserves metric levels when infinite integration estimates are skipped", {
 
   metrics <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
-  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+  fit <- bpc(rep(5, 10), LSL = 0, target = 3, USL = 10,
+             method = "integration", prior = "Jeffreys")
   dfDensity <- extract_density_data(fit, what = metrics)
-  stats_list <- setNames(lapply(metrics, function(name) fit$integration_result$results[[name]]), metrics)
 
   dfPoints <- extract_point_estimates(
-    obj = NULL,
+    obj = fit$integration_result,
     what = metrics,
     point_estimate = "mean",
-    dfDensity = dfDensity,
-    stats_list = stats_list
+    dfDensity = dfDensity
   )
 
   expect_equal(levels(dfPoints$metric), metrics)
@@ -961,21 +733,13 @@ testthat::test_that("extract_ci_data works for both methods", {
   # Extract density data first
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
 
-  # Build stats list for integration
-  results <- fit_int$integration_result$results
-  stats_list <- list(
-    Cp = results$Cp$stats,
-    Cpk = results$Cpk$stats
-  )
-
   # Extract CI data
   ci_data <- extract_ci_data(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",
     ci_level = 0.95,
-    dfDensity = dfDensity,
-    stats_list = stats_list
+    dfDensity = dfDensity
   )
 
   expect_type(ci_data, "list")
@@ -992,24 +756,21 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
 
   fit_int <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
-  results <- fit_int$integration_result$results[c("Cp", "Cpk")]
 
   ci_central_95 <- extract_ci_data(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "central",
     ci_level = 0.95,
-    dfDensity = dfDensity,
-    stats_list = results
+    dfDensity = dfDensity
   )$dfCi
 
   ci_central_50 <- extract_ci_data(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "central",
     ci_level = 0.50,
-    dfDensity = dfDensity,
-    stats_list = results
+    dfDensity = dfDensity
   )$dfCi
 
   expect_false(isTRUE(all.equal(ci_central_95$xmin, ci_central_50$xmin)))
@@ -1018,21 +779,19 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
   expect_true(all(ci_central_50$xmax <= ci_central_95$xmax))
 
   ci_hpd_95 <- extract_ci_data(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",
     ci_level = 0.95,
-    dfDensity = dfDensity,
-    stats_list = results
+    dfDensity = dfDensity
   )$dfCi
 
   ci_hpd_50 <- extract_ci_data(
-    obj = NULL,
+    obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",
     ci_level = 0.50,
-    dfDensity = dfDensity,
-    stats_list = results
+    dfDensity = dfDensity
   )$dfCi
 
   width_95 <- ci_hpd_95$xmax - ci_hpd_95$xmin

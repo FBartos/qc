@@ -25,6 +25,6 @@ which corresponds to \code{create_prior_conjugate(mu0 = xbar, k0 = 1,
 alpha0 = 0.5, beta0 = s2 / 2)}.
 }
 \details{
-The returned \code{PriorConjugate} object can be passed as \code{prior_mu}
+The returned \code{PriorConjugate} object can be passed as \code{prior}
 to \code{\link{bpc}} when \code{method = "integration"}.
 }

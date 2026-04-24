@@ -5,10 +5,13 @@
 #' @param target target value
 #' @param USL upper specification limit
 #' @param distribution distribution for fitting the data
-#' @param method computation method: "mcmc" for Stan-based MCMC sampling, or "integration" for numerical integration
-#' @param prior_mu prior for the process mean, can be a string or a prior object
-#' @param prior_sigma prior for the process standard deviation, can be a string or a prior object
-#' @param prior_nu prior for the degrees of freedom, can be a string or a prior object
+#' @param method computation method: "mcmc" for Stan-based MCMC sampling,
+#'   "integration" for numerical integration, or \code{NULL} to use the
+#'   distribution-specific default.
+#' @param prior unified prior specification. When omitted, the normal
+#'   integration path uses \code{"DCSI"}, while MCMC and Student-t fits use
+#'   \code{"Jeffreys"}. Use \code{prior_independent()} for parameter-wise
+#'   priors.
 #' @param chains number of chains to run, defaults to 4
 #' @param iter number of iterations per chain, defaults to 10000
 #' @param warmup number of warmup iterations per chain, defaults to 5000
@@ -20,24 +23,75 @@
 #' @param seed a random seed for reproducibility, defaults to NULL
 #' @param silent whether to suppress output during fitting, defaults to TRUE
 #' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
-#' @param force_normal whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE
 #' @param sample_priors whether samples should be obtained from the prior distribution only (cannot be combined with improper prior distributions)
 #' @param ... additional arguments. When \code{x} is \code{NULL}, \code{mean},
 #' \code{sd}, and \code{N} can be supplied instead of raw observations for
-#' \code{distribution = "normal"}. The Student-t model requires raw
-#' observations in \code{x}.
+#' \code{distribution = "normal"}. No other named arguments are accepted. The
+#' Student-t model requires raw observations in \code{x}.
+#'
+#' @details
+#' Priors are specified through the single \code{prior} argument. When
+#' \code{method} is omitted, the normal likelihood defaults to
+#' \code{method = "integration"} and \code{prior = "DCSI"}, which resolves to a
+#' conjugate Normal-Inverse-Gamma prior centered at the midpoint of the
+#' specification limits. Explicit MCMC fits with omitted \code{prior} use
+#' \code{prior = "Jeffreys"} because MCMC currently supports parameter-wise
+#' priors. Use \code{prior_independent()} for custom parameter-wise priors, or
+#' \code{prior_conjugate()}, \code{prior_joint()}, and
+#' \code{prior_semi_conjugate()} for normal-likelihood integration priors.
+#'
+#' @examples
+#' data("pistonrings", package = "qc")
+#' diameter <- subset(pistonrings, trial)[["diameter"]]
+#'
+#' # Default: normal likelihood, numerical integration, and DCSI prior.
+#' fit <- bpc(diameter, LSL = 73.98, target = 74.00, USL = 74.02)
+#' coef(fit)
+#' summary(fit)
+#'
+#' # Switch to the parameter-wise Jeffreys prior.
+#' fit_jeffreys <- bpc(
+#'   diameter,
+#'   LSL = 73.98, target = 74.00, USL = 74.02,
+#'   prior = "Jeffreys"
+#' )
+#' coef(fit_jeffreys)
+#'
+#' # Use a custom conjugate normal-likelihood prior with integration.
+#' fit_conjugate <- bpc(
+#'   diameter,
+#'   LSL = 73.98, target = 74.00, USL = 74.02,
+#'   prior = prior_conjugate(mu0 = 74, k0 = 2, alpha0 = 3, beta0 = 8.5e-5)
+#' )
+#' summary(fit_conjugate, LSL = 73.975, target = 74.00, USL = 74.025)
+#'
+#' \dontrun{
+#' data("pistonrings", package = "qc")
+#' diameter <- subset(pistonrings, trial)[["diameter"]]
+#'
+#' # MCMC uses parameter-wise priors.
+#' fit_mcmc <- bpc(
+#'   diameter,
+#'   LSL = 73.98, target = 74.00, USL = 74.02,
+#'   method = "mcmc",
+#'   prior = prior_independent(
+#'     mu = prior("normal", list(74, 0.02)),
+#'     sigma = prior("gamma", list(2, 200))
+#'   ),
+#'   chains = 2, iter = 2000, warmup = 1000, seed = 1
+#' )
+#' summary(fit_mcmc)
+#' }
 #'
 #' @export
 bpc <- function(
     x,
     LSL, target, USL,
     distribution = "normal",
-    method = c("mcmc", "integration"),
+    method = NULL,
 
     # prior settings
-    prior_mu    = "Jeffreys_mu",
-    prior_sigma = "Jeffreys_sigma",
-    prior_nu    = NULL, # TODO: set up default prior distribution?
+    prior = "DCSI",
 
     # stan control settings
     chains  = 4, iter = 10000, warmup = 5000, thin = 1, cores = chains, parallel = FALSE,
@@ -47,56 +101,29 @@ bpc <- function(
     sample_priors = FALSE,
 
     # capability metrics settings
-    sigma = 3, force_normal = FALSE,
+    sigma = 3,
     ...) {
 
-  ### Instructions for adding a new distribution
-  # the following functions need to be created:
-  # samples_to_mu_and_sigma.<distribution> (S3 Class)
-  # samples_to_percentiles.<distribution> (S3 Class)
-  # samples_to_posterior_predictives.<distribution> (S3 Class)
-  # samples_to_E_abs_dev.<distribution> (S3 Class)
-  # stanfit model definition that are compiled to stanmodels (stored in inst/stan/<distribution>.stan)
-  # the following functions need to be extended:
-  # .bpc_parameters (Dispatch)
-  # .bpc_priors (possibly including definition of new priors in the function calls)
-
-  dots         <- list(...)
-  object       <- list()
-  object$call  <- match.call()
+  dots <- list(...)
+  call <- match.call()
+  prior_missing <- missing(prior)
 
   # Process method argument first (handles default value)
-  method <- match.arg(method)
+  .qc_distribution_spec(distribution)
+  method <- .resolve_bpc_method(method, distribution)
+  .check_bpc_dots(dots)
 
   # check input for capability metrics calculation to fail fast before estimation
-  .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
-  BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
-  BayesTools::check_char(method, name = "method", check_length = 1, allow_values = c("mcmc", "integration"))
-  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
-  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
+  .validate_capability_request(
+    LSL = LSL,
+    USL = USL,
+    target = target,
+    sigma_level = sigma,
+    sigma_name = "sigma"
+  )
   BayesTools::check_bool(sample_priors, name = "sample_priors", check_length = 1, allow_NA = FALSE)
 
-  .validate_bpc_prior_configuration(
-    method = method,
-    distribution = distribution,
-    prior_mu = prior_mu,
-    prior_sigma = prior_sigma,
-    prior_nu = prior_nu,
-    sample_priors = sample_priors
-  )
-
-
-  # Check method-distribution compatibility
-  if (method == "integration" && distribution != "normal") {
-    stop("The integration method currently only supports distribution = 'normal'. ",
-         "Use method = 'mcmc' for t-distribution.")
-  }
-
-  object$method <- method
-  object$distribution <- distribution
-  object$prior_mu <- prior_mu
-  object$prior_sigma <- prior_sigma
-  object$sigma <- sigma
+  .qc_distribution_spec(distribution, method = method)
 
   prepared_data <- .bpc_prepare_data(
     distribution = distribution,
@@ -107,45 +134,88 @@ bpc <- function(
     allow_empty = sample_priors
   )
 
+  prior_info <- .resolve_bpc_prior(
+    prior = prior,
+    prior_missing = prior_missing,
+    distribution = distribution,
+    method = method,
+    LSL = LSL,
+    USL = USL,
+    cached_state = prepared_data$cached_state
+  )
+
+  .validate_bpc_prior_configuration(
+    method = method,
+    distribution = distribution,
+    prior_info = prior_info,
+    sample_priors = sample_priors
+  )
+
   # Dispatch based on method
   if (method == "integration") {
 
     int_result <- .bpc_fit_integration(
+      distribution = distribution,
       data = prepared_data$raw_data, LSL = LSL, USL = USL, target = target,
-      prior_mu = prior_mu, prior_sigma = prior_sigma, sigma = sigma,
+      prior = prior_info$prior, sigma = sigma,
       sample_priors = sample_priors,
       cached_state = prepared_data$cached_state
     )
 
-    object$integration_result <- int_result
-    object$metrics <- int_result$metrics
-    object$coefficients <- int_result$coefficients
-
-    class(object) <- "bpc"
-    return(object)
+    return(.new_bpc_fit(
+      call = call,
+      method = method,
+      distribution = distribution,
+      metrics = int_result$metrics,
+      coefficients = int_result$coefficients,
+      sigma = sigma,
+      prior = prior_info$specification,
+      prior_resolved = prior_info$prior,
+      prior_map = prior_info$prior_map,
+      integration_result = int_result
+    ))
 
   } else {
     # MCMC method: use Stan
 
-    object$stan_data <- prepared_data$stan_data
-
     # prepare priors
-    object$stan_priors <- .bpc_priors(distribution = distribution, prior_mu = prior_mu, prior_sigma = prior_sigma, prior_nu = prior_nu, sample_priors = sample_priors)
+    stan_data <- prepared_data$stan_data
+    stan_priors <- .bpc_priors(
+      distribution = distribution,
+      prior_map = prior_info$prior_map,
+      sample_priors = sample_priors
+    )
 
     # collect control settings
-    object$control <- .stan_check_and_list_fit_settings(
+    control <- .stan_check_and_list_fit_settings(
       chains = chains, warmup = warmup, iter = iter, thin = thin,
       parallel = parallel, cores = cores, silent = silent, seed = seed, control = control
     )
 
     # fit stan model
-    object$stanfit      <- .bpc_fit(distribution = distribution, data = object$stan_data, priors = object$stan_priors, control = object$control)
+    stanfit <- .bpc_fit(
+      distribution = distribution,
+      data = stan_data,
+      priors = stan_priors,
+      control = control
+    )
 
-    # add class to the object because it's required for dispatching in compute_capability_metrics
-    class(object) <- "bpc"
+    object <- .new_bpc_fit(
+      call = call,
+      method = method,
+      distribution = distribution,
+      sigma = sigma,
+      prior = prior_info$specification,
+      prior_resolved = prior_info$prior,
+      prior_map = prior_info$prior_map,
+      stan_data = stan_data,
+      stan_priors = stan_priors,
+      control = control,
+      stanfit = stanfit
+    )
 
     # compute capability metrics
-    object$metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
+    object$metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma)
 
     # add coefficients
     object$coefficients <- sapply(object$metrics, mean)
@@ -155,6 +225,42 @@ bpc <- function(
 }
 
 ### internal functions ----
+.resolve_bpc_method <- function(method, distribution) {
+  if (is.null(method)) {
+    if (identical(distribution, "normal")) {
+      return("integration")
+    }
+    return("mcmc")
+  }
+
+  match.arg(method, choices = c("mcmc", "integration"))
+}
+
+.check_bpc_dots <- function(dots) {
+  dot_names <- names(dots) %||% character()
+  if (length(dots) == 0L) {
+    return(invisible(NULL))
+  }
+
+  if (any(!nzchar(dot_names))) {
+    stop("All arguments in `...` must be named.", call. = FALSE)
+  }
+
+  unknown_args <- setdiff(dot_names, c("mean", "sd", "N"))
+  if (length(unknown_args) > 0L) {
+    stop(
+      sprintf(
+        "Unsupported argument%s in `...`: %s.",
+        if (length(unknown_args) == 1L) "" else "s",
+        paste(sprintf("`%s`", unknown_args), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(NULL)
+}
+
 .is_proper_prior_conjugate <- function(prior) {
   inherits(prior, "PriorConjugate") &&
     is.numeric(prior$k0) && length(prior$k0) == 1L && is.finite(prior$k0) &&
@@ -215,52 +321,41 @@ bpc <- function(
   sprintf("`%s` is improper", parameter_name)
 }
 
-.is_default_prior_sigma_placeholder <- function(prior_sigma) {
-  is.null(prior_sigma) || identical(prior_sigma, "Jeffreys_sigma")
-}
-
 .validate_bpc_prior_configuration <- function(method, distribution,
-                                              prior_mu, prior_sigma, prior_nu,
-                                              sample_priors) {
+                                              prior_info,
+                                              sample_priors,
+                                              prior_map = NULL) {
   issues <- character()
-
-  conjugate_args <- c(
-    if (inherits(prior_mu, "PriorConjugate")) "`prior_mu`",
-    if (inherits(prior_sigma, "PriorConjugate")) "`prior_sigma`"
-  )
-
-  if (method == "mcmc" && length(conjugate_args) > 0L) {
-    issues <- c(
-      issues,
-      sprintf(
-        "%s %s only supported with `method = \"integration\"`; use BayesTools priors for `method = \"mcmc\"`.",
-        paste(conjugate_args, collapse = " and "),
-        if (length(conjugate_args) == 1L) "is" else "are"
-      )
-    )
-  }
-
-  if (inherits(prior_mu, "PriorConjugate") &&
-      !.is_default_prior_sigma_placeholder(prior_sigma)) {
-    issues <- c(
-      issues,
-      "`prior_mu` is a full PriorConjugate and already contains the sigma prior; leave `prior_sigma` at its default placeholder."
-    )
-  }
+  prior_map <- prior_map %||% prior_info$prior_map
 
   if (sample_priors) {
-    improper <- c(
-      if (!.is_proper_prior_for_sampling(prior_mu)) .format_prior_sampling_issue("prior_mu", prior_mu),
-      if (!inherits(prior_mu, "PriorConjugate") &&
-          !.is_proper_prior_for_sampling(prior_sigma)) .format_prior_sampling_issue("prior_sigma", prior_sigma),
-      if (distribution == "t" &&
-          !.is_proper_prior_for_sampling(prior_nu)) .format_prior_sampling_issue("prior_nu", prior_nu)
-    )
+    improper <- character()
+    if (!is.null(prior_map)) {
+      for (parameter in names(prior_map)) {
+        prior <- prior_map[[parameter]]
+        if (!.is_proper_prior_for_sampling(prior)) {
+          improper <- c(
+            improper,
+            .format_prior_sampling_issue(sprintf("prior$%s", parameter), prior)
+          )
+        }
+      }
+    } else if (!.is_proper_prior_for_sampling(prior_info$prior)) {
+      improper <- c(
+        improper,
+        .format_prior_sampling_issue("prior", prior_info$prior)
+      )
+    }
+
+    if (identical(prior_info$kind, "joint") && inherits(prior_info$prior, "PriorGeneric")) {
+      # Properness of arbitrary joint priors is checked by the integration backend.
+      improper <- setdiff(improper, .format_prior_sampling_issue("prior", prior_info$prior))
+    }
 
     if (length(improper) > 0L) {
       issues <- c(
-        issues,
-        paste0(
+      issues,
+      paste0(
           "Improper prior distributions cannot be sampled from with `sample_priors = TRUE`:",
           " ",
           paste(improper, collapse = "; "),
@@ -277,48 +372,75 @@ bpc <- function(
   invisible(NULL)
 }
 
+.bpc_priors <- function(distribution, prior_map, sample_priors = FALSE) {
+  if (is.null(prior_map)) {
+    stop(
+      sprintf(
+        "`method = \"mcmc\"` requires parameter-wise priors for `distribution = \"%s\"`.",
+        distribution
+      ),
+      call. = FALSE
+    )
+  }
+  prior_parameters <- .qc_distribution_parameter_names(distribution, type = "prior")
+  prior_map <- prior_map[prior_parameters]
+
+  # transform priors into stan format
+  out <- unlist(
+    lapply(prior_parameters, function(parameter) {
+      .stan_distribution(parameter, prior_map[[parameter]], sample_priors)
+    }),
+    recursive = FALSE
+  )
+
+  out[["sample_priors"]] <- ifelse(sample_priors, 1, 0)
+
+  return(out)
+}
+
 .summary_statistics_unsupported_message <- function(distribution, allow_empty) {
+  model_name <- .qc_distribution_display_name(distribution)
+  supported <- paste(sprintf('"%s"', .qc_distribution_summary_stat_names()), collapse = ", ")
+
   paste(
     sprintf("For `distribution = \"%s\"`, supply raw observations in `x`.", distribution),
-    "Summary-statistics inputs (`mean`, `sd`, and `N`) are only supported for `distribution = \"normal\"`.",
+    sprintf(
+      "Summary-statistics inputs (`mean`, `sd`, and `N`) are only supported for `distribution = %s`.",
+      supported
+    ),
     if (allow_empty) {
       sprintf("For prior-only sampling with `distribution = \"%s\"`, omit `mean`, `sd`, and `N`.", distribution)
     } else {
-      sprintf("The %s likelihood cannot be reconstructed from `mean`, `sd`, and `N` alone.", if (distribution == "t") "Student-t" else distribution)
+      sprintf("The %s likelihood cannot be reconstructed from `mean`, `sd`, and `N` alone.", model_name)
     }
   )
 }
 
 .bpc_prepare_data <- function(distribution = "normal", x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
+  supports_summary_statistics <- .qc_distribution_supports_summary_statistics(distribution)
 
   if (!is.null(x)) {
     BayesTools::check_real(x, name = "x", check_length = 0)
     x <- stats::na.omit(x)
-    n <- length(x)
-    x_bar <- if (n > 0L) mean(x) else 0
-    sse <- if (n > 0L) sum((x - x_bar)^2) else 0
+    suff_state <- .as_qc_suff_stats_state(data = x)
 
     return(list(
       raw_data = as.numeric(x),
       stan_data = list(
         x = as.array(x),
-        N = n,
+        N = suff_state$n,
         is_ss = 0L,
         ss_mean = numeric(),
         ss_sd = numeric()
       ),
-      cached_state = list(
-        n = n,
-        x_bar = x_bar,
-        sse = sse
-      )
+      cached_state = suff_state
     ))
   }
 
   has_summary <- !is.null(mean) || !is.null(sd) || !is.null(N)
   if (!has_summary) {
     if (!allow_empty) {
-      if (distribution == "normal") {
+      if (supports_summary_statistics) {
         stop("When 'x' is NULL, supply all of 'mean', 'sd', and 'N'.", call. = FALSE)
       }
 
@@ -334,15 +456,11 @@ bpc <- function(
         ss_mean = numeric(),
         ss_sd = numeric()
       ),
-      cached_state = list(
-        n = 0L,
-        x_bar = 0,
-        sse = 0
-      )
+      cached_state = .as_qc_suff_stats_state(data = numeric())
     ))
   }
 
-  if (distribution != "normal") {
+  if (!supports_summary_statistics) {
     stop(.summary_statistics_unsupported_message(distribution, allow_empty), call. = FALSE)
   }
 
@@ -359,6 +477,14 @@ bpc <- function(
     stop("When 'N' is 1, 'sd' must be 0.", call. = FALSE)
   }
 
+  suff_state <- .as_qc_suff_stats_state(
+    cached_state = list(
+      n = N,
+      x_bar = mean,
+      sse = if (N > 1L) (N - 1L) * sd^2 else 0
+    )
+  )
+
   list(
     raw_data = numeric(),
     stan_data = list(
@@ -368,34 +494,28 @@ bpc <- function(
       ss_mean = as.array(c(mean)),
       ss_sd = as.array(c(sd))
     ),
-    cached_state = list(
-      n = N,
-      x_bar = mean,
-      sse = if (N > 1L) (N - 1L) * sd^2 else 0
-    )
+    cached_state = suff_state
   )
 }
 
 .bpc_data   <- function(distribution = "normal", x = NULL, mean = NULL, sd = NULL, N = NULL, allow_empty = FALSE) {
   .bpc_prepare_data(distribution = distribution, x = x, mean = mean, sd = sd, N = N, allow_empty = allow_empty)$stan_data
 }
-.bpc_priors <- function(distribution, prior_mu = NULL, prior_sigma = NULL, prior_nu = NULL, sample_priors = FALSE) {
-
-  # transform priors into stan format
-  out <- c(
-    if (distribution %in% c("normal", "t")) .stan_distribution("mu",    prior_mu,    sample_priors),
-    if (distribution %in% c("normal", "t")) .stan_distribution("sigma", prior_sigma, sample_priors),
-    if (distribution %in% c("t"))           .stan_distribution("nu",    prior_nu,    sample_priors)
-  )
-
-  out[["sample_priors"]] <- ifelse(sample_priors, 1, 0)
-
-  return(out)
-}
 .bpc_fit    <- function(distribution, data, priors, control) {
+  stan_model_name <- .qc_distribution_stan_model(distribution)
+  stan_model <- stanmodels[[stan_model_name]]
+  if (is.null(stan_model)) {
+    stop(
+      sprintf(
+        "No Stan model is registered for `distribution = \"%s\"`.",
+        distribution
+      ),
+      call. = FALSE
+    )
+  }
 
   model_call <- list(
-    object    = stanmodels[[distribution]],
+    object    = stan_model,
     data      = c(data, priors),
     pars      = .bpc_parameters(distribution),
     chains    = control[["chains"]],
@@ -428,11 +548,90 @@ bpc <- function(
 
 # helpers
 .bpc_parameters <- function(distribution) {
+  .qc_distribution_parameter_names(distribution, type = "sample")
+}
 
-  if (distribution == c("normal"))
-    return(c("mu", "sigma"))
-  if (distribution == c("t"))
-    return(c("mu", "scale", "nu"))
+.qc_requested_limits <- function(LSL, target, USL,
+                                 LSL_missing, target_missing, USL_missing) {
+  provided <- c(!LSL_missing, !target_missing, !USL_missing)
+
+  if (!any(provided)) {
+    return(NULL)
+  }
+
+  if (!all(provided)) {
+    stop("If any of LSL, USL, or target are provided, all three must be specified.", call. = FALSE)
+  }
+
+  .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
+}
+
+.bpc_requested_limits <- .qc_requested_limits
+
+.bpc_query_metrics <- function(object,
+                               limits = NULL,
+                               sigma = object$sigma %||% object$integration_result$sigma %||% 3) {
+  is_integration <- identical(object$method, "integration")
+
+  if (is.null(limits)) {
+    return(list(
+      metrics = object$metrics,
+      integration_result = if (is_integration) object$integration_result else NULL
+    ))
+  }
+
+  if (is_integration) {
+    prior <- .bpc_query_prior(
+      object = object,
+      limits = limits
+    )
+
+    int_result <- .bpc_fit_integration(
+      distribution = object$distribution %||% "normal",
+      data = numeric(0),
+      LSL = limits$LSL,
+      USL = limits$USL,
+      target = limits$target,
+      prior = prior,
+      sigma = sigma,
+      cached_state = object$integration_result$cached_state
+    )
+
+    return(list(
+      metrics = int_result$metrics,
+      integration_result = int_result
+    ))
+  }
+
+  list(
+    metrics = .compute_capability_metrics(
+      object,
+      LSL = limits$LSL,
+      USL = limits$USL,
+      target = limits$target,
+      sigma = sigma
+    ),
+    integration_result = NULL
+  )
+}
+
+.bpc_query_prior <- function(object, limits) {
+  prior_specification <- object$prior %||% object$prior_resolved
+  if (is.null(prior_specification)) {
+    return(NULL)
+  }
+
+  prior_info <- .resolve_bpc_prior(
+    prior = prior_specification,
+    prior_missing = FALSE,
+    distribution = object$distribution %||% "normal",
+    method = "integration",
+    LSL = limits$LSL,
+    USL = limits$USL,
+    cached_state = object$integration_result$cached_state
+  )
+
+  prior_info$prior
 }
 
 ### print and summary functions ----
@@ -448,166 +647,48 @@ print.bpc <- function(x, ...) {
 }
 
 #' @export
-summary.bpc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
+summary.bpc <- function(object, LSL, target, USL, sigma = 3, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
 
   if (missing(sigma)) {
     sigma <- object$sigma %||% 3
   }
-
-  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
+  .validate_sigma_level(sigma, name = "sigma")
   BayesTools::check_real(ci.level, name = "ci.level", check_length = 1, allow_NA = FALSE, lower = 0, upper = 1)
   BayesTools::check_real(interval_probability, name = "interval_probability", check_length = 0, allow_NA = FALSE)
-  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
-  # Handle integration method separately
-  if (!is.null(object$method) && object$method == "integration") {
-
-    # For integration, recompute if new limits provided
-    if (!missing(LSL) && !missing(target) && !missing(USL)) {
-
-      # Validate new specification limits
-      .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
-
-      # Re-fit with new specification limits, reusing the cached posterior state
-      int_result <- .bpc_fit_integration(
-        data = numeric(0), LSL = LSL, USL = USL, target = target,
-        prior_mu = object$prior_mu %||% "Jeffreys_mu",
-        prior_sigma = object$prior_sigma %||% "Jeffreys_sigma",
-        sigma = sigma,
-        cached_state = object$integration_result$cached_state
-      )
-
-    } else {
-
-      int_result <- object$integration_result
-    }
-
-    metrics <- int_result$metrics
-
-    # Build summary from pre-computed stats
-    metric_names <- names(int_result$results)
-
-    summary <- do.call(rbind, lapply(metric_names, function(m) {
-      stats <- int_result$results[[m]]$stats
-      interval <- .integration_interval_from_entry(
-        int_result$results[[m]],
-        ci = "central",
-        ci_level = ci.level
-      )
-      data.frame(
-        metric = m,
-        mean = stats["Mean"],
-        median = stats["Median"],
-        sd = stats["SD"],
-        lower = interval[1],
-        upper = interval[2],
-        row.names = NULL
-      )
-    }))
-    summary <- tibble::as_tibble(summary)
-
-    # Use the prior and cached state from the integration result
-    # (these were already computed during bpc() and should be reused)
-    prior <- int_result$prior
-    cached_state <- int_result$cached_state
-    metric_sigma <- int_result$sigma %||% object$sigma %||% sigma
-
-    orig_LSL    <- attr(metrics, "LSL")
-    orig_USL    <- attr(metrics, "USL")
-    orig_target <- attr(metrics, "target")
-
-    # Compute interval probabilities for each metric
-    interval_breaks <- c(-Inf, interval_probability, Inf)
-
-    interval_summary <- do.call(rbind, lapply(metric_names, function(m) {
-      r <- int_result$results[[m]]
-      probs <- .integration_interval_probs_from_entry(
-        entry = r,
-        interval_breaks = interval_breaks,
-        metric = m,
-        prior = prior,
-        cached_state = cached_state,
-        LSL = orig_LSL,
-        USL = orig_USL,
-        target = orig_target,
-        sigma_level = metric_sigma
-      )
-
-      df <- as.data.frame(t(probs))
-      names(df) <- levels(cut(0, breaks = interval_breaks, include.lowest = TRUE))
-      df$metric <- m
-      df[, c("metric", names(df)[names(df) != "metric"])]
-    }))
-    interval_summary <- tibble::as_tibble(interval_summary)
-
-    # Build divergence diagnostics table from integration results
-    divergence_diagnostics <- NULL
-    if (!is.null(int_result$divergence)) {
-      div_rows <- lapply(metric_names, function(m) {
-        d <- int_result$divergence[[m]]
-        if (is.null(d)) d <- int_result$results[[m]]$divergence_info
-        if (is.null(d)) return(NULL)
-        if (!d$mean_divergent && !d$sd_divergent) return(NULL)
-        data.frame(
-          metric = m,
-          mean_divergent = d$mean_divergent,
-          sd_divergent   = d$sd_divergent,
-          alpha          = d$alpha,
-          reason         = d$reason %||% "",
-          stringsAsFactors = FALSE
-        )
-      })
-      div_rows <- Filter(Negate(is.null), div_rows)
-      if (length(div_rows) > 0)
-        divergence_diagnostics <- tibble::as_tibble(do.call(rbind, div_rows))
-    }
-
-    out <- list(
-      call               = object$call,
-      summary            = summary,
-      interval_summary   = interval_summary,
-      metrics            = metrics,
-      integration_result = int_result,
-      divergence_diagnostics = divergence_diagnostics
-    )
-    attr(out, "has_divergent_moments") <- !is.null(divergence_diagnostics) && nrow(divergence_diagnostics) > 0
-    class(out) <- "bpc_summary"
-    return(out)
-  }
-
-  # MCMC method: original behavior
-  # recompute capability metrics if specification limits are set
-  if (!missing(LSL) && !missing(target) && !missing(USL)) {
-    metrics <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal)
-  } else {
-    metrics <- object$metrics
-  }
-
-  ### compute mean, median, and credible intervals for the metrics
-  h     <- (1 - ci.level) / 2
-  probs <- c(h, .5, 1 - h)
-
-  summary <- t(vapply(metrics, function(x) {
-    quantiles <- unname(stats::quantile(x, probs = probs, na.rm = TRUE))
-    c(mean = mean(x), median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
-  }, numeric(5L)))
-  summary <- tibble::as_tibble(summary, rownames = "metric")
-
-  ### compute interval summaries
-  interval_summary <- t(vapply(metrics, FUN = function(x) {
-    table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE)) / length(x)
-  }, FUN.VALUE = numeric(length(interval_probability) + 1L)))
-  interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
-
-  out <- list(
-    call             = object$call,
-    summary          = summary,
-    interval_summary = interval_summary,
-    metrics          = metrics
+  limits <- .qc_requested_limits(
+    LSL = LSL,
+    target = target,
+    USL = USL,
+    LSL_missing = missing(LSL),
+    target_missing = missing(target),
+    USL_missing = missing(USL)
   )
-  class(out) <- "bpc_summary"
 
-  return(out)
+  is_integration <- identical(object$method, "integration")
+  query <- .bpc_query_metrics(
+    object,
+    limits = limits,
+    sigma = sigma
+  )
+  metrics <- query$metrics
+  int_result <- query$integration_result
+
+  distributions <- .as_qc_metric_distributions(metrics, what = .qc_metric_names())
+  tables <- .qc_metric_distributions_summary_bundle(
+    distributions,
+    ci_level = ci.level,
+    interval_probability = interval_probability
+  )
+
+  .new_bpc_summary(
+    call = object$call,
+    metrics = metrics,
+    summary = tables$summary,
+    interval_summary = tables$interval_summary,
+    integration_result = if (is_integration) int_result else NULL,
+    divergence_diagnostics = tables$divergence_diagnostics
+  )
 }
 
 #' @export

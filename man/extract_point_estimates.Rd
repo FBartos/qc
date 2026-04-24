@@ -21,7 +21,8 @@ extract_point_estimates(
 
 \item{dfDensity}{Density data tibble from extract_density_data}
 
-\item{stats_list}{Optional list of pre-computed stats (for integration method)}
+\item{stats_list}{Optional list of pre-computed stats or integration result entries
+(for integration method)}
 }
 \value{
 A tibble with columns: x, y, metric, or NULL if point_estimate is "none"

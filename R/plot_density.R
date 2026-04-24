@@ -5,7 +5,7 @@
 #' Returns a standardized format regardless of whether the object was fitted
 #' with MCMC or integration method.
 #'
-#' @param obj An object of class `bpc`, `bpc_summary`, or `capability_metrics`
+#' @param obj An object of class `bpc`, `bpc_summary`, `pc`, `pc_summary`, `capability_metrics`, or `qc_integration_result`
 #' @param what Character vector of metrics to extract (default: all six metrics)
 #' @param ... Additional arguments (currently unused)
 #' @return A tibble with columns:
@@ -23,44 +23,45 @@ extract_density_data <- function(obj, ...) {
 #' @export
 extract_density_data.bpc <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
+  extract_density_data(obj$metrics, what = what, ...)
+}
 
-  if (!is.null(obj$method) && obj$method == "integration") {
-    # Integration method: extract from pre-computed grids
-    .extract_density_integration(obj$integration_result, what = what)
-  } else {
-    # MCMC method: compute density from samples
-    extract_density_data(obj$metrics, what = what, ...)
-  }
+#' @rdname extract_density_data
+#' @export
+extract_density_data.pc <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+  extract_density_data(.pc_distribution_metrics(obj), what = what, ...)
 }
 
 #' @rdname extract_density_data
 #' @export
 extract_density_data.bpc_summary <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
+  extract_density_data(obj$metrics, what = what, ...)
+}
 
-  if (!is.null(obj$integration_result)) {
-    # Integration method: use stored results
-    .extract_density_integration(obj$integration_result, what = what)
-  } else {
-    # MCMC method: compute density from samples
-    extract_density_data(obj$metrics, what = what, ...)
-  }
+#' @rdname extract_density_data
+#' @export
+extract_density_data.pc_summary <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+  extract_density_data(.pc_distribution_metrics(obj), what = what, ...)
+}
+
+#' @rdname extract_density_data
+#' @export
+extract_density_data.qc_integration_result <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
+  what <- match.arg(what, several.ok = TRUE)
+  extract_density_data(obj$metrics, what = what, ...)
 }
 
 #' @rdname extract_density_data
 #' @export
 extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"), ...) {
   what <- match.arg(what, several.ok = TRUE)
+  distributions <- .as_qc_metric_distributions(obj, what = what)
 
-  # Check method attribute - for integration metrics, we can't compute density from samples
- if (!is.null(attr(obj, "method")) && attr(obj, "method") == "integration") {
-    stop("Cannot extract density from integration capability_metrics directly. ",
-         "Use extract_density_data() on the parent bpc or bpc_summary object instead.")
-  }
-
-  # MCMC method: compute density from samples
-  vctrs::vec_rbind(!!!lapply(what, function(name) {
-    .extract_density_from_samples(obj[[name]], metric = name, levels = what)
+  vctrs::vec_rbind(!!!lapply(distributions, function(dist) {
+    .qc_metric_distribution_density_data(dist, levels = what)
   }))
 }
 
@@ -93,32 +94,7 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
 #' @return A tibble with columns: x, density, metric
 #' @keywords internal
 .extract_density_integration <- function(integration_result, what) {
-  results <- integration_result$results
-
-  vctrs::vec_rbind(!!!lapply(what, function(name) {
-    result <- results[[name]]
-    grid <- result$grid
-
-    if (!is.null(grid)) {
-      if (is.null(grid$x) || is.null(grid$density)) {
-        stop("Cannot extract integration density for metric '", name, "': ",
-             "grid must contain both 'x' and 'density' columns.")
-      }
-
-      return(tibble::tibble(
-        x = grid$x,
-        density = grid$density,
-        metric = factor(name, levels = what)
-      ))
-    }
-
-    if (!is.null(result$samples)) {
-      return(.extract_density_from_samples(result$samples, metric = name, levels = what))
-    }
-
-    stop("Cannot extract integration density for metric '", name, "': ",
-         "result has neither a density grid nor samples.")
-  }))
+  extract_density_data(integration_result, what = what)
 }
 
 #' Extract point estimates for capability metrics
@@ -134,32 +110,25 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
 extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_list = NULL) {
   if (point_estimate == "none") return(NULL)
 
+  distributions <- .coerce_qc_metric_distributions(
+    obj = obj,
+    what = what,
+    stats_list = stats_list
+  )
+
   # Build density functions for y-value lookup
   listOfFuns <- setNames(lapply(what, function(name) {
     subset_df <- dfDensity[dfDensity$metric == name, ]
     stats::approxfun(subset_df$x, subset_df$density, rule = 2, yleft = 0, yright = 0)
   }), what)
 
-  vctrs::vec_rbind(!!!lapply(what, function(name) {
-    subset_df <- dfDensity[dfDensity$metric == name, ]
-    entry <- if (!is.null(stats_list)) stats_list[[name]] else NULL
-
-    xValue <- if (!is.null(stats_list)) {
-      # Integration method: use pre-computed stats
-      stats <- .integration_result_stats(entry)
-      switch(point_estimate,
-             "mean"   = stats["Mean"],
-             "median" = stats["Median"],
-             "mode"   = .integration_result_mode(entry, x = subset_df$x, density = subset_df$density),
-             stop("Unknown point_estimate."))
-    } else {
-      # MCMC method: compute from samples
-      switch(point_estimate,
-             "mean"   = mean(obj[[name]]),
-             "median" = stats::median(obj[[name]]),
-             "mode"   = subset_df$x[which.max(subset_df$density)],
-             stop("Unknown point_estimate."))
-    }
+  vctrs::vec_rbind(!!!lapply(distributions, function(dist) {
+    subset_df <- dfDensity[dfDensity$metric == dist$metric, c("x", "density")]
+    xValue <- .qc_metric_distribution_point_estimate(
+      dist,
+      point_estimate = point_estimate,
+      density_frame = subset_df
+    )
 
     # Skip infinite point estimates (analytically divergent moments)
     if (!isTRUE(is.finite(xValue)))
@@ -168,8 +137,8 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 
     tibble::tibble(
       x = unname(xValue),
-      y = listOfFuns[[name]](xValue),
-      metric = factor(name, levels = what)
+      y = listOfFuns[[dist$metric]](xValue),
+      metric = factor(dist$metric, levels = what)
     )
   }))
 }
@@ -178,19 +147,27 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 #'
 #' @param obj A bpc or capability_metrics object (for MCMC) or NULL (for integration)
 #' @param what Character vector of metrics
-#' @param ci Type of CI ("central", "HPD", "custom", "none")
+#' @param ci Type of CI ("central", "HPD", "custom", "support", "none")
 #' @param ci_level CI level (default 0.95)
 #' @param dfDensity Density data tibble
 #' @param stats_list Optional list of pre-computed stats or integration result entries
 #'   (for integration method)
 #' @param ci_custom_left Custom CI left bound
 #' @param ci_custom_right Custom CI right bound
+#' @param bf_support Named list with support interval bounds (`lower`, `upper`)
 #' @return A list with dfCi (bounds tibble) and dfArea (filled area tibble), or NULL if ci is "none"
 #' @export
 extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
                             stats_list = NULL,
-                            ci_custom_left = NULL, ci_custom_right = NULL) {
+                            ci_custom_left = NULL, ci_custom_right = NULL,
+                            bf_support = NULL) {
   if (ci == "none") return(NULL)
+
+  distributions <- .coerce_qc_metric_distributions(
+    obj = obj,
+    what = what,
+    stats_list = stats_list
+  )
 
   # Build density functions for area computation
   listOfFuns <- setNames(lapply(what, function(name) {
@@ -199,30 +176,19 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
   }), what)
 
   # Get CI bounds
-  listOfCiEstimates <- setNames(lapply(what, function(name) {
-    subset_df <- dfDensity[dfDensity$metric == name, ]
-
-    xValue <- if (!is.null(stats_list)) {
-      # Integration method: compute interval from stored result or density grid
-      .integration_interval_from_entry(
-        stats_list[[name]],
-        ci = ci,
-        ci_level = ci_level,
-        x = subset_df$x,
-        density = subset_df$density
-      )
-    } else {
-      # MCMC method: compute from samples
-      h <- (1 - ci_level) / 2
-      switch(ci,
-             "central" = stats::quantile(obj[[name]], c(h, 1 - h)),
-             "HPD"     = HDInterval::hdi(obj[[name]], ci_level),
-             "custom"  = c(ci_custom_left, ci_custom_right),
-             "support" = stop("Support intervals are not implemented yet."),
-             stop("Unknown ci."))
-    }
-    tibble::tibble(x = unname(xValue), metric = factor(name, levels = what))
-  }), what)
+  listOfCiEstimates <- setNames(lapply(distributions, function(dist) {
+    subset_df <- dfDensity[dfDensity$metric == dist$metric, c("x", "density")]
+    xValue <- .qc_metric_distribution_interval(
+      dist,
+      ci = ci,
+      ci_level = ci_level,
+      density_frame = subset_df,
+      ci_custom_left = ci_custom_left,
+      ci_custom_right = ci_custom_right,
+      bf_support = bf_support
+    )
+    tibble::tibble(x = unname(xValue), metric = factor(dist$metric, levels = what))
+  }), names(distributions))
 
   # Build dfCi (bounds for error bars)
   dfCi0 <- vctrs::vec_rbind(!!!listOfCiEstimates)
@@ -231,6 +197,7 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
     xmax = dfCi0$x[seq(2, nrow(dfCi0), by = 2)],
     metric = factor(as.character(dfCi0$metric[seq(1, nrow(dfCi0), by = 2)]), levels = what)
   )
+  dfCi <- dfCi[is.finite(dfCi$xmin) & is.finite(dfCi$xmax), , drop = FALSE]
 
   # Build dfArea (filled polygon under curve)
   dfArea <- vctrs::vec_rbind(!!!lapply(what, function(name) {
@@ -533,6 +500,7 @@ build_density_plot <- function(
                           "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
                           "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
                           "custom"  = sprintf("Custom CI [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
+                          "support" = sprintf("Support [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
                           "")
       names(ci_lookup) <- as.character(dfCi$metric)
       ci_labels <- unname(ci_lookup[metric_levels])
@@ -651,7 +619,7 @@ build_density_plot <- function(
 
 #' Plot density for the posterior distribution of one or more capability metrics
 #'
-#' @param obj An object of class `bpc`, `bpc_capability_metrics`, or `bpc_summary`.
+#' @param obj An object of class `bpc`, `bpc_capability_metrics`, `bpc_summary`, `pc`, `pc_summary`, or `qc_integration_result`.
 #' @param LSL Lower Specification Limit
 #' @param target Target value
 #' @param USL Upper Specification Limit
@@ -665,41 +633,35 @@ plot_density <- function(obj, ...) {
 
 #' @export
 plot_density.bpc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
+  limits <- .qc_requested_limits(
+    LSL = LSL,
+    target = target,
+    USL = USL,
+    LSL_missing = is.null(LSL),
+    target_missing = is.null(target),
+    USL_missing = is.null(USL)
+  )
+  query <- .bpc_query_metrics(
+    obj,
+    limits = limits
+  )
 
-  # Validate that either all or none of LSL, USL, target are provided
-  provided <- c(!is.null(LSL), !is.null(USL), !is.null(target))
-  if (any(provided) && !all(provided)) {
-    stop("If any of LSL, USL, or target are provided, all three must be specified.")
-  }
+  plot_density(query$metrics, ...)
+}
 
-  # For integration method
-  if (!is.null(obj$method) && obj$method == "integration") {
-    if (all(provided)) {
-      new_result <- .bpc_fit_integration(
-        data = numeric(0),
-        LSL = LSL,
-        USL = USL,
-        target = target,
-        prior_mu = obj$prior_mu %||% "Jeffreys_mu",
-        prior_sigma = obj$prior_sigma %||% "Jeffreys_sigma",
-        sigma = obj$sigma %||% obj$integration_result$sigma %||% 3,
-        cached_state = obj$integration_result$cached_state
-      )
-      plot_density_integration_results(new_result, ...)
-    } else {
-      # Use pre-computed density grids
-      plot_density_integration(obj, ...)
-    }
-  } else {
-    # For MCMC method
-    if (is.null(LSL) && is.null(USL) && is.null(target)) {
-      # Use already computed metrics from the fit
-      plot_density(obj$metrics, ...)
-    } else {
-      # Recompute metrics with new spec limits if provided
-      plot_density(.compute_capability_metrics(fit = obj, LSL = LSL, USL = USL, target = target), ...)
-    }
-  }
+#' @export
+plot_density.pc <- function(obj, LSL = NULL, USL = NULL, target = NULL, ...) {
+  limits <- .qc_requested_limits(
+    LSL = LSL,
+    target = target,
+    USL = USL,
+    LSL_missing = is.null(LSL),
+    target_missing = is.null(target),
+    USL_missing = is.null(USL)
+  )
+  query <- .pc_query_metrics(obj, limits = limits)
+
+  plot_density(.pc_distribution_metrics(query), ...)
 }
 
 #' @export
@@ -737,6 +699,7 @@ plot_density.capability_metrics <- function(
   axes <- match.arg(axes)
   point_estimate <- match.arg(point_estimate)
   ci <- match.arg(ci)
+  is_integration <- identical(attr(obj, "method"), "integration")
 
   # Input validation
   if (ci == "central" || ci == "HPD") {
@@ -745,11 +708,17 @@ plot_density.capability_metrics <- function(
     BayesTools::check_real(ci_custom_left,  name = "ci_custom_left",  check_length = 1, lower = -Inf,           upper = ci_custom_right, allow_NA = FALSE)
     BayesTools::check_real(ci_custom_right, name = "ci_custom_right", check_length = 1, lower = ci_custom_left, upper = Inf,             allow_NA = FALSE)
   } else if (ci == "support") {
-    BayesTools::check_list(bf_support, name = "bf_support", check_names = c("lower", "upper"), allow_NULL = TRUE)
+    BayesTools::check_list(bf_support, name = "bf_support", check_names = c("lower", "upper"), allow_NULL = FALSE)
+    BayesTools::check_real(bf_support$lower, name = "bf_support$lower", check_length = 1, upper = bf_support$upper, allow_NA = FALSE)
+    BayesTools::check_real(bf_support$upper, name = "bf_support$upper", check_length = 1, lower = bf_support$lower, allow_NA = FALSE)
   }
   BayesTools::check_bool(show_ci_text,    name = "show_ci_text",    check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(show_ci_bar,     name = "show_ci_bar",     check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(show_point_text, name = "show_point_text", check_length = 1, allow_NA = FALSE)
+
+  if (is_integration && ci %in% c("custom", "support")) {
+    stop("Integration-backed capability metrics only support ci = 'none', 'central', or 'HPD'.")
+  }
 
   # Extract density data
   dfDensity <- extract_density_data(obj, what = what)
@@ -762,25 +731,24 @@ plot_density.capability_metrics <- function(
     dfDensity <- vctrs::vec_rbind(dfDensity, dfDensityPrior)
   }
 
-  # Extract point estimates (MCMC: pass obj for sample-based computation)
   dfPoints <- extract_point_estimates(
     obj = obj,
     what = what,
     point_estimate = point_estimate,
     dfDensity = dfDensity[dfDensity$type == "posterior", ],
-    stats_list = NULL  # MCMC uses samples
+    stats_list = NULL
   )
 
-  # Extract CI data (MCMC: pass obj for sample-based computation)
   ci_data <- extract_ci_data(
     obj = obj,
     what = what,
     ci = ci,
     ci_level = ci_level,
     dfDensity = dfDensity[dfDensity$type == "posterior", ],
-    stats_list = NULL,  # MCMC uses samples
+    stats_list = NULL,
     ci_custom_left = ci_custom_left,
-    ci_custom_right = ci_custom_right
+    ci_custom_right = ci_custom_right,
+    bf_support = bf_support
   )
 
   # Prepare dfLines for plotting (rename columns: density -> y, metric -> g)
@@ -822,14 +790,17 @@ plot_density.capability_metrics <- function(
 
 #' @export
 plot_density.bpc_summary <- function(obj, ..., priorSummaryObject = NULL) {
-  # Check if this is from integration method
-  if (!is.null(obj$integration_result)) {
-    # Use the stored integration results for plotting
-    plot_density_integration_results(obj$integration_result, ..., priorSummaryObject = priorSummaryObject)
-  } else {
-    # MCMC method: metrics contain samples
-    plot_density(obj = obj$metrics, ..., priorSummaryObject = priorSummaryObject)
-  }
+  plot_density(obj = obj$metrics, ..., priorSummaryObject = priorSummaryObject)
+}
+
+#' @export
+plot_density.pc_summary <- function(obj, ..., priorSummaryObject = NULL) {
+  plot_density(obj = .pc_distribution_metrics(obj), ..., priorSummaryObject = priorSummaryObject)
+}
+
+#' @export
+plot_density.qc_integration_result <- function(obj, ...) {
+  plot_density(obj = obj$metrics, ...)
 }
 
 #' Plot density for integration method using pre-computed density grids
@@ -839,8 +810,7 @@ plot_density.bpc_summary <- function(obj, ..., priorSummaryObject = NULL) {
 #' @return A ggplot object
 #' @keywords internal
 plot_density_integration <- function(obj, ...) {
-  # Get pre-computed results from integration and delegate to results plotter
-  plot_density_integration_results(obj$integration_result, ...)
+  plot_density(obj$metrics, ...)
 }
 
 #' Plot density from integration results
@@ -888,65 +858,8 @@ plot_density_integration_results <- function(
     show_cutoff_lines = TRUE,
     ...
   ) {
-
-  what <- match.arg(what, several.ok = TRUE)
-  axes <- match.arg(axes)
-  point_estimate <- match.arg(point_estimate)
-  ci <- match.arg(ci)
-
-  BayesTools::check_bool(show_ci_text,    name = "show_ci_text",    check_length = 1, allow_NA = FALSE)
-  BayesTools::check_bool(show_ci_bar,     name = "show_ci_bar",     check_length = 1, allow_NA = FALSE)
-  BayesTools::check_bool(show_point_text, name = "show_point_text", check_length = 1, allow_NA = FALSE)
-
-  # Extract density data using shared extractor
-  dfDensity <- .extract_density_integration(integration_result, what = what)
-  dfDensity$type <- "posterior"
-
-  # Extract prior density if available and not showing regions
-  if (!is.null(priorSummaryObject) && !show_regions) {
-    dfDensityPrior <- extract_density_data(priorSummaryObject, what = what)
-    dfDensityPrior$type <- "prior"
-    dfDensity <- vctrs::vec_rbind(dfDensity, dfDensityPrior)
-  }
-
-  # Build stats list for integration method
-  results <- integration_result$results
-  stats_list <- setNames(lapply(what, function(name) {
-    results[[name]]
-  }), what)
-
-  # Extract point estimates (integration: pass stats_list for pre-computed values)
-  dfPoints <- extract_point_estimates(
-    obj = NULL,  # Not needed for integration
-    what = what,
-    point_estimate = point_estimate,
-    dfDensity = dfDensity[dfDensity$type == "posterior", ],
-    stats_list = stats_list
-  )
-
-  # Extract CI data (integration: pass stats_list for pre-computed values)
-  ci_data <- extract_ci_data(
-    obj = NULL,  # Not needed for integration
-    what = what,
-    ci = ci,
-    ci_level = ci_level,
-    dfDensity = dfDensity[dfDensity$type == "posterior", ],
-    stats_list = stats_list
-  )
-
-  # Prepare dfLines for plotting
-  dfLines <- tibble::tibble(
-    x = dfDensity$x,
-    y = dfDensity$density,
-    metric = dfDensity$metric,
-    type = dfDensity$type
-  )
-
-  # Build plot using single skeleton
-  build_density_plot(
-    dfLines = dfLines,
-    dfPoints = dfPoints,
-    ci_data = ci_data,
+  plot_density(
+    obj = integration_result,
     what = what,
     point_estimate = point_estimate,
     ci = ci,
@@ -961,12 +874,14 @@ plot_density_integration_results <- function(
     axes = axes,
     axes_custom = axes_custom,
     textsize = textsize,
+    priorSummaryObject = priorSummaryObject,
     colorScheme = colorScheme,
     stripTextFontsize = stripTextFontsize,
     show_regions = show_regions,
     region_cutoffs = region_cutoffs,
     region_colors = region_colors,
     region_alpha = region_alpha,
-    show_cutoff_lines = show_cutoff_lines
+    show_cutoff_lines = show_cutoff_lines,
+    ...
   )
 }

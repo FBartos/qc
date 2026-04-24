@@ -17,4 +17,3 @@ PriorGeneric object
 \description{
 Create a generic prior with custom log-density function
 }
-\keyword{internal}

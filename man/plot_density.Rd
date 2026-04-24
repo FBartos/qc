@@ -7,7 +7,7 @@
 plot_density(obj, ...)
 }
 \arguments{
-\item{obj}{An object of class \code{bpc}, \code{bpc_capability_metrics}, or \code{bpc_summary}.}
+\item{obj}{An object of class \code{bpc}, \code{bpc_capability_metrics}, \code{bpc_summary}, \code{pc}, \code{pc_summary}, or \code{qc_integration_result}.}
 
 \item{...}{}
 

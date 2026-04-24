@@ -18,7 +18,6 @@ pc(
   seed = NULL,
   silent = TRUE,
   sigma = 3,
-  force_normal = FALSE,
   ...
 )
 }
@@ -49,10 +48,33 @@ pc(
 
 \item{sigma}{the number of standard deviations to use for the capability metrics, defaults to 3}
 
-\item{force_normal}{whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE}
-
 \item{...}{additional arguments}
 }
 \description{
 Process Capability
+}
+\examples{
+data("pistonrings", package = "qc")
+diameter <- subset(pistonrings, trial)[["diameter"]]
+
+# Point estimates only.
+fit <- pc(
+  diameter,
+  LSL = 73.98, target = 74.00, USL = 74.02,
+  bootstrap = FALSE
+)
+coef(fit)
+summary(fit)
+
+# Bootstrap intervals and interval probabilities.
+fit_boot <- pc(
+  diameter,
+  LSL = 73.98, target = 74.00, USL = 74.02,
+  bootstrap = TRUE, samples = 200, seed = 1
+)
+summary(fit_boot)
+
+# Re-summarize the same fitted process with wider specification limits.
+summary(fit_boot, LSL = 73.975, target = 74.00, USL = 74.025)
+
 }

@@ -25,7 +25,7 @@ Defaults to \code{0.80}.}
 Defaults to \code{15}.}
 
 \item{bridge_max_iter}{maximum number of iterations for the
-\link[bridgesampling]{bridge_sampler} function. Defaults to \code{10000}}
+\link[bridgesampling]{bridge_sampler} function. Defaults to \code{1000}}
 }
 \value{
 \code{set_control} returns a list of control settings

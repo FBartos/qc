@@ -1,6 +1,6 @@
 semi_sigma_generic_reference <- function(mu_prior, alpha0, beta0) {
-  log_prior_mu <- qc:::.make_prior_log_dens_fn(mu_prior)
-  log_prior_sigma <- function(sigma) {
+  log_mu_prior <- qc:::.make_prior_log_dens_fn(mu_prior)
+  log_sigma_prior <- function(sigma) {
     ifelse(
       sigma <= 0,
       -Inf,
@@ -10,7 +10,7 @@ semi_sigma_generic_reference <- function(mu_prior, alpha0, beta0) {
   }
 
   qc:::create_prior_generic(function(mu, sigma) {
-    log_prior_mu(mu) + log_prior_sigma(sigma)
+    log_mu_prior(mu) + log_sigma_prior(sigma)
   })
 }
 
@@ -21,11 +21,32 @@ test_that("constant-data Jeffreys semi-conjugate sigma posterior is rejected exp
     qc::bpc(
       rep(5, 10),
       LSL = 0, USL = 10, target = 5,
-      prior_mu = BayesTools::prior("normal", list(5, 2)),
-      prior_sigma = "Jeffreys_sigma",
+      prior = qc::prior_independent(
+        mu = BayesTools::prior("normal", list(5, 2)),
+        sigma = "Jeffreys_sigma"
+      ),
       method = "integration"
     ),
     regexp = "improper because beta_n reaches zero inside the mu support"
+  )
+})
+
+test_that("semi-conjugate sigma rejects beta_n zero inside support when log_dens_mu is infinite", {
+  singular_prior <- qc:::create_prior_semi_sigma(
+    alpha0 = 0,
+    beta0 = 0,
+    log_dens_mu = function(mu) ifelse(abs(mu - 5) < 1e-12, Inf, -abs(mu - 5))
+  )
+
+  expect_error(
+    qc:::compute_metric_moments(
+      rep(5, 2),
+      LSL = 0, USL = 10,
+      prior = singular_prior,
+      metric = "Cp",
+      target = 5
+    ),
+    regexp = "beta_n reaches zero inside the mu support"
   )
 })
 
@@ -65,8 +86,7 @@ test_that("constant-data semi-conjugate sigma moments match an equivalent generi
     qc::bpc(
       x,
       LSL = 0, USL = 10, target = 5,
-      prior_mu = mu_prior,
-      prior_sigma = sigma_prior,
+      prior = qc::prior_independent(mu = mu_prior, sigma = sigma_prior),
       method = "integration"
     )
   )
@@ -100,8 +120,7 @@ test_that("prior-only semi-conjugate sigma uses prior-centered domains", {
     qc::bpc(
       NULL,
       LSL = 0, USL = 10, target = 5,
-      prior_mu = mu_prior,
-      prior_sigma = sigma_prior,
+      prior = qc::prior_independent(mu = mu_prior, sigma = sigma_prior),
       sample_priors = TRUE,
       method = "integration"
     )

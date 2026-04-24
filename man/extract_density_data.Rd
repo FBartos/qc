@@ -3,7 +3,10 @@
 \name{extract_density_data}
 \alias{extract_density_data}
 \alias{extract_density_data.bpc}
+\alias{extract_density_data.pc}
 \alias{extract_density_data.bpc_summary}
+\alias{extract_density_data.pc_summary}
+\alias{extract_density_data.qc_integration_result}
 \alias{extract_density_data.capability_metrics}
 \title{Extract density data for capability metrics}
 \usage{
@@ -15,7 +18,25 @@ extract_density_data(obj, ...)
   ...
 )
 
+\method{extract_density_data}{pc}(
+  obj,
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
+  ...
+)
+
 \method{extract_density_data}{bpc_summary}(
+  obj,
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
+  ...
+)
+
+\method{extract_density_data}{pc_summary}(
+  obj,
+  what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
+  ...
+)
+
+\method{extract_density_data}{qc_integration_result}(
   obj,
   what = c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm"),
   ...
@@ -28,7 +49,7 @@ extract_density_data(obj, ...)
 )
 }
 \arguments{
-\item{obj}{An object of class \code{bpc}, \code{bpc_summary}, or \code{capability_metrics}}
+\item{obj}{An object of class \code{bpc}, \code{bpc_summary}, \code{pc}, \code{pc_summary}, \code{capability_metrics}, or \code{qc_integration_result}}
 
 \item{...}{Additional arguments (currently unused)}
 

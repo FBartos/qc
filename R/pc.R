@@ -8,7 +8,31 @@
 #' @param seed a random seed for reproducibility, defaults to NULL
 #' @param silent whether to suppress output during fitting, defaults to TRUE
 #' @param ... additional arguments
-#' @inherit bpc
+#' @inheritParams bpc
+#'
+#' @examples
+#' data("pistonrings", package = "qc")
+#' diameter <- subset(pistonrings, trial)[["diameter"]]
+#'
+#' # Point estimates only.
+#' fit <- pc(
+#'   diameter,
+#'   LSL = 73.98, target = 74.00, USL = 74.02,
+#'   bootstrap = FALSE
+#' )
+#' coef(fit)
+#' summary(fit)
+#'
+#' # Bootstrap intervals and interval probabilities.
+#' fit_boot <- pc(
+#'   diameter,
+#'   LSL = 73.98, target = 74.00, USL = 74.02,
+#'   bootstrap = TRUE, samples = 200, seed = 1
+#' )
+#' summary(fit_boot)
+#'
+#' # Re-summarize the same fitted process with wider specification limits.
+#' summary(fit_boot, LSL = 73.975, target = 74.00, USL = 74.025)
 #'
 #' @export
 pc <- function(
@@ -24,47 +48,45 @@ pc <- function(
     seed = NULL, silent = TRUE,
 
     # capability metrics settings
-    sigma = 3, force_normal = FALSE,
+    sigma = 3,
     ...) {
 
-  ### Instructions for adding a new distribution
-  # the following functions need to be created:
-  # samples_to_mu_and_sigma.<distribution> (S3 Class)
-  # samples_to_percentiles.<distribution> (S3 Class)
-  # samples_to_posterior_predictives.<distribution> (S3 Class)
-  # samples_to_E_abs_dev.<distribution> (S3 Class)
-  # pc_fit_distribution.<distribution> (S3 Class)
-  # the following functions need to be extended:
-
-
-  dots         <- list(...)
-  object       <- list()
-  object$call  <- match.call()
-
   # check input for capability metrics calculation to fail fast before estimation
-  .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
-  BayesTools::check_char(distribution, name = "distribution", check_length = 1, allow_values = c("normal", "t"))
-  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
-  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
+  .validate_capability_request(
+    LSL = LSL,
+    USL = USL,
+    target = target,
+    sigma_level = sigma,
+    sigma_name = "sigma"
+  )
+  .qc_distribution_spec(distribution, method = "pc")
 
   # prepare data
-  object$data <- .bpc_data(x = x)
+  data <- .bpc_data(distribution = distribution, x = x)
 
   # collect control settings
-  object$control <- .optim_check_and_list_fit_settings(
+  control <- .optim_check_and_list_fit_settings(
     bootstrap = bootstrap, samples = samples, parallel = parallel, cores = cores, seed = seed, control = control
   )
 
-  # fit stan model
-  object$distribution <- distribution
-  object$fit          <- .pc_fit(distribution = distribution, data = object$data, control = object$control)
+  fit <- .pc_fit(distribution = distribution, data = data, control = control)
 
-  # add class to the object because it's required for dispatching in compute_capability_metrics
-  class(object) <- "pc"
+  object <- .new_pc_fit(
+    call = match.call(),
+    distribution = distribution,
+    data = data,
+    control = control,
+    fit = fit,
+    sigma = sigma
+  )
 
   # compute capability metrics
-  object$metrics      <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
-  object$metrics_boot <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
+  object$metrics      <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, bootstrap = FALSE)
+  object$metrics_boot <- if (isTRUE(object$control[["bootstrap"]])) {
+    .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, bootstrap = TRUE)
+  } else {
+    NULL
+  }
 
   # add coefficients
   object$coefficients <- unlist(object$metrics)
@@ -108,6 +130,7 @@ pc <- function(
       list(x = sample(data$x, size = length(data$x), replace = TRUE))
     })
     cl <- parallel::makeCluster(control[["cores"]])
+    on.exit(parallel::stopCluster(cl), add = TRUE)
     parallel::clusterEvalQ(cl, {library("qc")})
     parallel::clusterExport(cl, c("distribution", "data", "control"), envir = environment())
     out <- parallel::parLapplyLB(cl, seq_len(control[["samples"]]), function(i) {
@@ -202,6 +225,87 @@ pc_fit_distribution.t      <- function(distribution, data, control) {
   )))
 }
 
+.pc_query_metrics <- function(object,
+                              limits = NULL,
+                              sigma = object$sigma %||% 3) {
+  has_bootstrap <- isTRUE(object$control[["bootstrap"]]) &&
+    !is.null(object$fit[["boot_fit"]])
+
+  if (is.null(limits)) {
+    return(list(
+      metrics = object$metrics,
+      metrics_boot = object$metrics_boot
+    ))
+  }
+
+  list(
+    metrics = .compute_capability_metrics(
+      object,
+      LSL = limits$LSL,
+      USL = limits$USL,
+      target = limits$target,
+      sigma = sigma,
+      bootstrap = FALSE
+    ),
+    metrics_boot = if (has_bootstrap) {
+      .compute_capability_metrics(
+        object,
+        LSL = limits$LSL,
+        USL = limits$USL,
+        target = limits$target,
+        sigma = sigma,
+        bootstrap = TRUE
+      )
+    } else {
+      NULL
+    }
+  )
+}
+
+.pc_summary_tables <- function(metrics, metrics_boot, ci.level, interval_probability) {
+  if (is.null(metrics_boot)) {
+    summary <- tibble::tibble(
+      metric = names(metrics),
+      mean = as.numeric(metrics),
+      median = NA_real_,
+      sd = NA_real_,
+      lower = NA_real_,
+      upper = NA_real_
+    )
+
+    interval_columns <- levels(cut(
+      0,
+      breaks = c(-Inf, interval_probability, Inf),
+      include.lowest = TRUE
+    ))
+    interval_summary <- tibble::as_tibble(matrix(
+      NA_real_,
+      nrow = length(metrics),
+      ncol = length(interval_columns),
+      dimnames = list(names(metrics), interval_columns)
+    ), rownames = "metric")
+
+    return(list(
+      summary = summary,
+      interval_summary = interval_summary
+    ))
+  }
+
+  distributions <- .as_qc_metric_distributions(metrics_boot, what = names(metrics))
+  tables <- .qc_metric_distributions_summary_bundle(
+    distributions,
+    ci_level = ci.level,
+    interval_probability = interval_probability,
+    mean_override = metrics,
+    include_divergence = FALSE
+  )
+
+  list(
+    summary = tables$summary,
+    interval_summary = tables$interval_summary
+  )
+}
+
 ### print and summary functions ----
 #' @export
 print.pc <- function(x, ...) {
@@ -215,47 +319,45 @@ print.pc <- function(x, ...) {
 }
 
 #' @export
-summary.pc <- function(object, LSL, target, USL, sigma = 3, force_normal = FALSE, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
+summary.pc <- function(object, LSL, target, USL, sigma = 3, ci.level = 0.95, interval_probability = c(1.00, 1.33, 1.50, 2.00), ...) {
 
-  BayesTools::check_real(sigma, name = "sigma", check_length = 1, lower = 0, allow_NA = FALSE)
+  if (missing(sigma)) {
+    sigma <- object$sigma %||% 3
+  }
+  .validate_sigma_level(sigma, name = "sigma")
   BayesTools::check_real(ci.level, name = "ci.level", check_length = 1, allow_NA = FALSE, lower = 0, upper = 1)
   BayesTools::check_real(interval_probability, name = "interval_probability", check_length = 0, allow_NA = FALSE)
-  BayesTools::check_bool(force_normal, name = "force_normal", check_length = 1, allow_NA = FALSE)
 
-  # recompute capability metrics if specification limits are set
-  if (!missing(LSL) && !missing(target) && !missing(USL)) {
-    metrics      <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = FALSE)
-    metrics_boot <- .compute_capability_metrics(object, LSL = LSL, USL = USL, target = target, sigma = sigma, force_normal = force_normal, bootstrap = TRUE)
-  } else {
-    metrics      <- object$metrics
-    metrics_boot <- object$metrics_boot
-  }
-
-  ### compute mean, median, and credible intervals for the metrics
-  h     <- (1 - ci.level) / 2
-  probs <- c(h, .5, 1 - h)
-
-  summary <- cbind(mean = as.numeric(metrics) ,t(vapply(metrics_boot, function(x) {
-    quantiles <- unname(stats::quantile(x, probs = probs, na.rm = TRUE))
-    c(median = quantiles[2], sd = stats::sd(x), lower = quantiles[1], upper = quantiles[3])
-  }, numeric(4L))))
-  summary <- tibble::as_tibble(summary, rownames = "metric")
-
-  ### compute interval summaries
-  interval_summary <- t(vapply(metrics_boot, FUN = function(x) {
-    table(cut(x, breaks = c(-Inf, interval_probability, Inf), include.lowest = TRUE)) / length(x)
-  }, FUN.VALUE = numeric(length(interval_probability) + 1L)))
-  interval_summary <- tibble::as_tibble(interval_summary, rownames = "metric")
-
-  out <- list(
-    call             = object$call,
-    summary          = summary,
-    interval_summary = interval_summary,
-    metrics          = metrics
+  limits <- .qc_requested_limits(
+    LSL = LSL,
+    target = target,
+    USL = USL,
+    LSL_missing = missing(LSL),
+    target_missing = missing(target),
+    USL_missing = missing(USL)
   )
-  class(out) <- "pc_summary"
+  query <- .pc_query_metrics(
+    object,
+    limits = limits,
+    sigma = sigma
+  )
+  metrics <- query$metrics
+  metrics_boot <- query$metrics_boot
 
-  return(out)
+  tables <- .pc_summary_tables(
+    metrics = metrics,
+    metrics_boot = metrics_boot,
+    ci.level = ci.level,
+    interval_probability = interval_probability
+  )
+
+  .new_pc_summary(
+    call             = object$call,
+    metrics          = metrics,
+    metrics_boot     = metrics_boot,
+    summary          = tables$summary,
+    interval_summary = tables$interval_summary
+  )
 }
 
 #' @export

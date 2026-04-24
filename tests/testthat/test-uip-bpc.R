@@ -4,7 +4,7 @@ test_that("bpc with UIP via integration method returns a valid bpc object", {
   uip <- create_prior_unit_information(x)
 
   fit <- bpc(x, LSL = 2, target = 10, USL = 18,
-             prior_mu = uip, method = "integration")
+             prior = uip, method = "integration")
 
   expect_s3_class(fit, "bpc")
   expect_equal(fit$method, "integration")
@@ -18,7 +18,7 @@ test_that("bpc UIP posterior summaries are non-empty and finite", {
   x   <- rnorm(30, mean = 5, sd = 1)
   uip <- create_prior_unit_information(x)
 
-  fit <- bpc(x, LSL = 1, target = 5, USL = 9, prior_mu = uip, method = "integration")
+  fit <- bpc(x, LSL = 1, target = 5, USL = 9, prior = uip, method = "integration")
   s   <- summary(fit)
 
   expect_true(!is.null(s))
@@ -38,7 +38,7 @@ test_that("bpc UIP regression: posterior Cp close to frequentist estimate for la
 
   uip <- create_prior_unit_information(x)
   fit <- bpc(x, LSL = LSL, target = mu, USL = USL,
-             prior_mu = uip, method = "integration")
+             prior = uip, method = "integration")
 
   # Frequentist Cp = (USL - LSL) / (6 * sd(x))
   cp_mle <- (USL - LSL) / (6 * sd(x))
@@ -53,7 +53,7 @@ test_that("bpc UIP prior predictive uses prior parameters when sample_priors = T
   # alpha0 = 0.5 gives InvGamma with no finite mean, so capability metric
   # moments may diverge — the important thing is no error is thrown.
   expect_no_error(
-    bpc(x, LSL = -3, target = 0, USL = 3, prior_mu = uip, method = "integration",
+    bpc(x, LSL = -3, target = 0, USL = 3, prior = uip, method = "integration",
         sample_priors = TRUE)
   )
 })

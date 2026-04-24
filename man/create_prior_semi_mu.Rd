@@ -21,4 +21,3 @@ PriorSemiConjugateMu object
 \description{
 Create a semi-conjugate prior (conjugate mu, non-conjugate sigma)
 }
-\keyword{internal}

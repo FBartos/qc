@@ -8,10 +8,10 @@ testthat::test_that("#5: HDI is correct on log-spaced grids (prior-only, heavy t
   skip_if_not_installed("BayesTools")
 
   LSL <- 0; USL <- 6; target <- 3
-  prior_mu    <- BayesTools::prior("normal", list(3, 1))
-  prior_sigma <- BayesTools::prior("gamma",  list(2, 1))
+  mu_prior    <- BayesTools::prior("normal", list(3, 1))
+  sigma_prior <- BayesTools::prior("gamma",  list(2, 1))
 
-  conv <- qc:::.bayestools_to_integration_prior(prior_mu, prior_sigma)
+  conv <- qc:::.bayestools_to_integration_prior(mu_prior, sigma_prior)
   result <- qc:::analyze_capability_integration(
     numeric(0), LSL, USL, conv$prior,
     metric = "Cp", target = target, n_grid = 1024L
@@ -51,21 +51,28 @@ testthat::test_that("#8: semi-conjugate sigma moments match 2D numerical integra
   LSL <- 2; USL <- 8; target <- 5
 
   # Build semi-conjugate sigma prior (Jeffreys sigma, Normal mu)
-  prior_mu    <- BayesTools::prior("normal", list(5, 2))
-  prior_sigma <- "Jeffreys_sigma"
+  mu_prior    <- BayesTools::prior("normal", list(5, 2))
+  sigma_prior <- "Jeffreys_sigma"
 
-  conv <- qc:::.bayestools_to_integration_prior(prior_mu, prior_sigma)
+  conv <- qc:::.bayestools_to_integration_prior(mu_prior, sigma_prior)
   prior <- conv$prior
 
-  # Method under test
-  result <- qc:::compute_metric_moments(x, LSL, USL, prior,
-                                         metric = "Cp", target = target)
+  analytic <- qc:::compute_metric_moments(
+    x, LSL, USL, prior,
+    metric = "Cp", target = target,
+    use_analytic = TRUE
+  )
+  exact <- qc:::compute_metric_moments(
+    x, LSL, USL, prior,
+    metric = "Cp", target = target,
+    use_analytic = FALSE
+  )
 
   # Reference: full 2D numerical integration (no Jensen approximation)
   n <- length(x); x_bar <- mean(x); sse <- sum((x - x_bar)^2)
   alpha0 <- prior$alpha0; beta0 <- prior$beta0
   alpha_n <- alpha0 + n / 2
-  log_dens_mu <- qc:::.make_prior_log_dens_fn(prior_mu)
+  log_dens_mu <- qc:::.make_prior_log_dens_fn(mu_prior)
   alpha_0_times_logbeta0 <- if (beta0 == 0) 0 else alpha0 * log(beta0)
 
   log_joint <- function(mu, sigma) {
@@ -109,9 +116,13 @@ testthat::test_that("#8: semi-conjugate sigma moments match 2D numerical integra
                                  c(mu_lo, 1e-6), c(mu_hi, sig_hi),
                                  tol = 1e-5, vectorInterface = TRUE)$integral / Z_ref
 
-  # The semi-conjugate method should be close to the 2D reference
-  expect_equal(result$mean, E1_ref, tolerance = 0.02,
-               info = sprintf("semi-conj mean=%.4f, 2D ref=%.4f", result$mean, E1_ref))
+  # Both the semi-analytic and generic-reference paths should stay close to the
+  # same 2D posterior integral.
+  expect_equal(analytic$mean, E1_ref, tolerance = 0.02,
+               info = sprintf("semi-conj mean=%.4f, 2D ref=%.4f", analytic$mean, E1_ref))
+  expect_equal(exact$mean, E1_ref, tolerance = 0.02,
+               info = sprintf("generic-fallback mean=%.4f, 2D ref=%.4f", exact$mean, E1_ref))
+  expect_equal(analytic$mean, exact$mean, tolerance = 0.01)
 })
 
 testthat::test_that("#9: Gauss-Hermite quadrature is accurate for Cpk", {
@@ -125,10 +136,10 @@ testthat::test_that("#9: Gauss-Hermite quadrature is accurate for Cpk", {
 
   LSL <- 2; USL <- 8; target <- 5
 
-  prior_mu_bt    <- "Jeffreys_mu"
-  prior_sigma_bt <- BayesTools::prior("gamma", list(2, 1))
+  mu_prior_bt    <- "Jeffreys_mu"
+  sigma_prior_bt <- BayesTools::prior("gamma", list(2, 1))
 
-  conv <- qc:::.bayestools_to_integration_prior(prior_mu_bt, prior_sigma_bt)
+  conv <- qc:::.bayestools_to_integration_prior(mu_prior_bt, sigma_prior_bt)
   prior <- conv$prior
   stopifnot(inherits(prior, "PriorSemiConjugateMu"))
 

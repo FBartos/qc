@@ -5,12 +5,12 @@
 \title{Fit using numerical integration method}
 \usage{
 .bpc_fit_integration(
+  distribution = "normal",
   data,
   LSL,
   USL,
   target,
-  prior_mu,
-  prior_sigma,
+  prior,
   sigma = 3,
   sample_priors = FALSE,
   cached_state = NULL
@@ -25,9 +25,7 @@
 
 \item{target}{Target value}
 
-\item{prior_mu}{Prior for mu}
-
-\item{prior_sigma}{Prior for sigma}
+\item{prior}{Resolved integration prior object}
 
 \item{sigma}{Number of standard deviations for capability metrics}
 }

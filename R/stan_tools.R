@@ -14,7 +14,7 @@
 #' @param max_treedepth tuning parameter of HMC.
 #' Defaults to \code{15}.
 #' @param bridge_max_iter maximum number of iterations for the
-#' \link[bridgesampling]{bridge_sampler} function. Defaults to \code{10000}
+#' \link[bridgesampling]{bridge_sampler} function. Defaults to \code{1000}
 #'
 #'
 #' @return \code{set_control} returns a list of control settings
@@ -60,7 +60,7 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15, brid
 
   BayesTools::check_int(chains, "chains",  lower = check_mins[["chains"]],  call = call)
   BayesTools::check_int(warmup, "warmup",  lower = check_mins[["warmup"]],  call = call)
-  BayesTools::check_int(iter,   "iter",    lower = min(check_mins[["iter"]], warmup + 1), call = call)
+  BayesTools::check_int(iter,   "iter",    lower = max(check_mins[["iter"]], warmup + 1), call = call)
   BayesTools::check_int(thin,   "thin",    lower = check_mins[["thin"]],    call = call)
   BayesTools::check_list(control, "control", check_names = c("adapt_delta", "max_treedepth", "bridge_max_iter"))
 

@@ -17,7 +17,8 @@ test_that("constant-data conjugate posterior yields infinite interior capability
   }
 
   fit <- expect_no_error(
-    qc::bpc(x, LSL = LSL, target = target, USL = USL, method = "integration")
+    qc::bpc(x, LSL = LSL, target = target, USL = USL,
+            method = "integration", prior = "Jeffreys")
   )
   expect_true(all(is.infinite(fit$coefficients)))
 
@@ -64,13 +65,15 @@ test_that("single-observation Jeffreys conjugate posteriors are rejected before 
   )
 
   expect_error(
-    qc::bpc(x, LSL = LSL, target = target, USL = USL, method = "integration"),
+    qc::bpc(x, LSL = LSL, target = target, USL = USL,
+            method = "integration", prior = "Jeffreys"),
     regexp = "improper"
   )
 })
 
 test_that("degenerate +Inf integration summaries keep mass in the open upper tail", {
-  fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10, method = "integration")
+  fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10,
+                 method = "integration", prior = "Jeffreys")
   ss <- summary(fit, interval_probability = c(1.00, 1.33, 1.50, 2.00))
 
   expect_true(all(vapply(fit$integration_result$results, function(x) {
@@ -91,7 +94,7 @@ test_that("degenerate conjugate Cpm and Cpc collapse to finite point masses off 
   target <- 3
   prior <- qc:::create_prior_conjugate()
 
-  expected_cpm <- (USL - LSL) / ((2 * 3) * abs(5 - target))
+  expected_cpm <- qc:::.cpm_spec_distance(LSL, USL, target) / (3 * abs(5 - target))
   expected_cpc <- (USL - LSL) / ((2 * 3) * sqrt(pi / 2) * abs(5 - target))
 
   cpm_mom <- qc:::compute_metric_moments(x, LSL, USL, prior, metric = "Cpm", target = target)
@@ -129,10 +132,11 @@ test_that("degenerate conjugate Cpm and Cpc collapse to finite point masses off 
 })
 
 test_that("extract_point_estimates keeps compatibility with stats-only degenerate entries", {
-  cpm_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 3, USL = 10, method = "integration")
+  cpm_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 3, USL = 10,
+                     method = "integration", prior = "Jeffreys")
   cpm_result <- cpm_fit$integration_result$results$Cpm
   cpm_density <- qc::extract_density_data(cpm_fit, what = "Cpm")
-  expected_cpm <- (10 - 0) / ((2 * 3) * abs(5 - 3))
+  expected_cpm <- qc:::.cpm_spec_distance(0, 10, 3) / (3 * abs(5 - 3))
 
   cpm_mode_full <- qc::extract_point_estimates(
     obj = NULL,
@@ -152,7 +156,8 @@ test_that("extract_point_estimates keeps compatibility with stats-only degenerat
   expect_equal(cpm_mode_full$x, expected_cpm)
   expect_equal(cpm_mode_stats$x, expected_cpm)
 
-  cpu_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10, method = "integration")
+  cpu_fit <- qc::bpc(rep(5, 10), LSL = 0, target = 5, USL = 10,
+                     method = "integration", prior = "Jeffreys")
   cpu_result <- cpu_fit$integration_result$results$Cpu
   cpu_density <- qc::extract_density_data(cpu_fit, what = "Cpu")
 

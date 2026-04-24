@@ -12,7 +12,8 @@ extract_ci_data(
   dfDensity,
   stats_list = NULL,
   ci_custom_left = NULL,
-  ci_custom_right = NULL
+  ci_custom_right = NULL,
+  bf_support = NULL
 )
 }
 \arguments{
@@ -20,17 +21,20 @@ extract_ci_data(
 
 \item{what}{Character vector of metrics}
 
-\item{ci}{Type of CI ("central", "HPD", "custom", "none")}
+\item{ci}{Type of CI ("central", "HPD", "custom", "support", "none")}
 
 \item{ci_level}{CI level (default 0.95)}
 
 \item{dfDensity}{Density data tibble}
 
-\item{stats_list}{Optional list of pre-computed stats (for integration method)}
+\item{stats_list}{Optional list of pre-computed stats or integration result entries
+(for integration method)}
 
 \item{ci_custom_left}{Custom CI left bound}
 
 \item{ci_custom_right}{Custom CI right bound}
+
+\item{bf_support}{Named list with support interval bounds (\code{lower}, \code{upper})}
 }
 \value{
 A list with dfCi (bounds tibble) and dfArea (filled area tibble), or NULL if ci is "none"

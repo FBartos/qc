@@ -3,3 +3,6 @@
 ^qc\.Rproj$
 ^\.Rproj\.user$
 ^dev$
+^data-raw$
+^\.positai$
+^\.claude$
