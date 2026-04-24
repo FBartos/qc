@@ -11,6 +11,7 @@ make_solver(
   prior,
   metric = "Cpk",
   target = NULL,
+  cached_state = NULL,
   sigma_level = 3,
   ...
 )
@@ -29,6 +30,11 @@ make_solver(
 \item{target}{Target value for Cpm}
 
 \item{cached_state}{Pre-computed state for PriorGeneric (optional)}
+
+\item{sigma_level}{Number of process standard deviations used to define the
+capability metric scale.}
+
+\item{...}{Additional arguments.}
 }
 \value{
 Function that takes threshold c and returns P(Index > c)

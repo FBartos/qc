@@ -1,7 +1,7 @@
 test_that("extract_predictive_samples works for integration method with conjugate prior", {
   set.seed(1)
   x   <- rnorm(50, mean = 10, sd = 2)
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   fit     <- bpc(x, LSL = 2, target = 10, USL = 18, prior = uip, method = "integration")
   samples <- extract_predictive_samples(fit, n_samples = 5000L)
@@ -52,7 +52,7 @@ test_that("extract_predictive_samples: integration and MCMC posterior predictive
 test_that("extract_predictive_samples prior predictive via integration is finite", {
   set.seed(4)
   x   <- rnorm(20, mean = 0, sd = 1)
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   fit_prior <- bpc(x, LSL = -3, target = 0, USL = 3, prior = uip,
                    method = "integration", sample_priors = TRUE)
@@ -86,7 +86,7 @@ test_that("extract_predictive_samples rejects non-normal integration fits before
     distribution = "qc_future_distribution",
     integration_result = list(
       distribution = "qc_future_distribution",
-      prior = create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1),
+      prior = qc:::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1),
       cached_state = list(n = 2L, x_bar = 0, sse = 1)
     )
   )
@@ -104,7 +104,7 @@ test_that("extract_predictive_samples rejects improper conjugate prior-only stat
     distribution = "normal",
     integration_result = list(
       distribution = "normal",
-      prior = create_prior_conjugate(),
+      prior = qc:::create_prior_conjugate(),
       cached_state = list(n = 0L, x_bar = 0, sse = 0)
     )
   )

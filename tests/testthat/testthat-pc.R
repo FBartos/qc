@@ -60,7 +60,7 @@ test_that("pc t bootstrap supports shared density and support-interval contracts
   expect_s3_class(df_density, "tbl_df")
   expect_equal(sort(unique(as.character(df_density$metric))), c("Cp", "Cpc"))
 
-  support_ci <- extract_ci_data(
+  support_ci <- qc:::extract_ci_data(
     fit,
     what = "Cpc",
     ci = "support",
@@ -97,7 +97,7 @@ test_that("pc bootstrap parallel path delegates to the parallel backend and clos
       NULL
     },
     clusterExport = function(cl, varlist, envir) {
-      calls$exported <- sort(varlist)
+      calls$exported <- c(calls$exported, list(sort(varlist)))
       NULL
     },
     parLapplyLB = function(cl, X, fun) {
@@ -116,8 +116,18 @@ test_that("pc bootstrap parallel path delegates to the parallel backend and clos
   expect_equal(nrow(out), 10L)
   expect_equal(calls$cores, 2L)
   expect_equal(calls$parallel_work, 10L)
-  expect_equal(calls$exported, c("control", "data", "distribution"))
-  expect_true(isTRUE(calls$cluster_evalq))
+  expect_true(any(vapply(
+    calls$exported,
+    identical,
+    logical(1),
+    c("bootstrap_seeds", "control", "distribution", "x")
+  )))
+  expect_true(any(vapply(
+    calls$exported,
+    function(x) ".pc_bootstrap_one" %in% x,
+    logical(1)
+  )))
+  expect_false(isTRUE(calls$cluster_evalq))
   expect_true(isTRUE(calls$stopped))
 })
 

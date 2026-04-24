@@ -240,8 +240,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   # E[1/sigma] from the sigma prior
   E_inv_sigma <- tryCatch({
-    integrand <- function(s) exp(log_dens_sigma(s)) / s
-    stats::integrate(Vectorize(integrand), 1e-10, Inf,
+    integrand_inv_sigma <- function(s) exp(log_dens_sigma(s)) / s
+    stats::integrate(Vectorize(integrand_inv_sigma), 1e-10, Inf,
                      rel.tol = 1e-6, subdivisions = 500)$value
   }, error = function(e) Inf)
   if (!is.finite(E_inv_sigma)) return(0)
@@ -251,8 +251,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   if (metric == "Cpu" || metric == "Cpk") {
     # E[(USL - mu) * I(mu > USL)]: negative since USL - mu < 0 when mu > USL
     E_Cpu_neg <- tryCatch({
-      integrand <- function(mu) (USL - mu) * exp(log_dens_mu(mu))
-      stats::integrate(Vectorize(integrand), USL, USL + 20 * tol,
+      integrand_cpu_neg <- function(mu) (USL - mu) * exp(log_dens_mu(mu))
+      stats::integrate(Vectorize(integrand_cpu_neg), USL, USL + 20 * tol,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
     corr_Cpu <- (1 / sigma_level) * E_Cpu_neg * E_inv_sigma
@@ -261,8 +261,8 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   if (metric == "Cpl" || metric == "Cpk") {
     # E[(mu - LSL) * I(mu < LSL)]: negative since mu - LSL < 0 when mu < LSL
     E_Cpl_neg <- tryCatch({
-      integrand <- function(mu) (mu - LSL) * exp(log_dens_mu(mu))
-      stats::integrate(Vectorize(integrand), LSL - 20 * tol, LSL,
+      integrand_cpl_neg <- function(mu) (mu - LSL) * exp(log_dens_mu(mu))
+      stats::integrate(Vectorize(integrand_cpl_neg), LSL - 20 * tol, LSL,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
     corr_Cpl <- (1 / sigma_level) * E_Cpl_neg * E_inv_sigma

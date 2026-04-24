@@ -7,9 +7,11 @@
 prior_joint(log_dens_fn, bayestools_priors = NULL)
 }
 \arguments{
-\item{log_dens_fn}{Function(mu, sigma) returning log prior density}
+\item{log_dens_fn}{Function \code{function(mu, sigma)} returning the joint
+log prior density.}
 
-\item{bayestools_priors}{Optional list with original BayesTools prior objects (mu and sigma)}
+\item{bayestools_priors}{Optional list preserving original BayesTools prior
+objects for diagnostics.}
 }
 \value{
 A \code{PriorGeneric} object.

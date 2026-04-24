@@ -45,7 +45,7 @@ testthat::test_that("custom and support intervals pass through the plotting help
   )
 
   df_cp <- extract_density_data(fit, what = "Cp")
-  custom_ci <- extract_ci_data(
+  custom_ci <- qc:::extract_ci_data(
     fit,
     what = "Cp",
     ci = "custom",
@@ -58,7 +58,7 @@ testthat::test_that("custom and support intervals pass through the plotting help
   expect_equal(custom_ci$dfCi$xmax, 1.2)
 
   df_cpc <- extract_density_data(fit, what = "Cpc")
-  support_ci <- extract_ci_data(
+  support_ci <- qc:::extract_ci_data(
     fit,
     what = "Cpc",
     ci = "support",

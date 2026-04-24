@@ -135,10 +135,7 @@
 #' @return List with $prior (integration prior object), $case (1-4), and $is_conjugate (logical)
 #' @keywords internal
 
-#' Classify mu prior as conjugate or non-conjugate
-#' @param prior Prior specification for mu
-#' @return List with is_conjugate, mu0, k0 (if conjugate), or log_dens_fn (if not)
-#' @keywords internal
+#' @noRd
 .classify_mu_prior <- function(prior) {
   # Jeffreys (flat) is conjugate with k0 = 0
   if (identical(prior, "Jeffreys_mu")) {
@@ -158,10 +155,7 @@
   list(is_conjugate = FALSE, log_dens_fn = .make_prior_log_dens_fn(prior))
 }
 
-#' Classify sigma prior as conjugate or non-conjugate
-#' @param prior Prior specification for sigma
-#' @return List with is_conjugate, alpha0, beta0 (if conjugate), or log_dens_fn (if not)
-#' @keywords internal
+#' @noRd
 .classify_sigma_prior <- function(prior) {
   # Jeffreys (1/sigma) is conjugate with alpha0 = -0.5, beta0 = 0
   if (identical(prior, "Jeffreys_sigma")) {

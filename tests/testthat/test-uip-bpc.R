@@ -1,7 +1,7 @@
 test_that("bpc with UIP via integration method returns a valid bpc object", {
   set.seed(1)
   x   <- rnorm(50, mean = 10, sd = 2)
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   fit <- bpc(x, LSL = 2, target = 10, USL = 18,
              prior = uip, method = "integration")
@@ -16,7 +16,7 @@ test_that("bpc with UIP via integration method returns a valid bpc object", {
 test_that("bpc UIP posterior summaries are non-empty and finite", {
   set.seed(2)
   x   <- rnorm(30, mean = 5, sd = 1)
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   fit <- bpc(x, LSL = 1, target = 5, USL = 9, prior = uip, method = "integration")
   s   <- summary(fit)
@@ -36,7 +36,7 @@ test_that("bpc UIP regression: posterior Cp close to frequentist estimate for la
   LSL <- mu - 3 * sig
   USL <- mu + 3 * sig
 
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
   fit <- bpc(x, LSL = LSL, target = mu, USL = USL,
              prior = uip, method = "integration")
 
@@ -48,7 +48,7 @@ test_that("bpc UIP regression: posterior Cp close to frequentist estimate for la
 test_that("bpc UIP prior predictive uses prior parameters when sample_priors = TRUE", {
   set.seed(4)
   x   <- rnorm(20, mean = 0, sd = 1)
-  uip <- create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   # alpha0 = 0.5 gives InvGamma with no finite mean, so capability metric
   # moments may diverge — the important thing is no error is thrown.

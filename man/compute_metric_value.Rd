@@ -18,6 +18,9 @@ compute_metric_value(mu, sigma, LSL, USL, target, metric, sigma_level = 3)
 \item{target}{Target value (required for Cpm)}
 
 \item{metric}{One of "Cp", "Cpk", "Cpu", "Cpl", "Cpm", "Cpc"}
+
+\item{sigma_level}{Number of process standard deviations used to define the
+capability metric scale.}
 }
 \value{
 Metric value(s) (same length as mu/sigma)

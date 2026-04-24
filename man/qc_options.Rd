@@ -12,7 +12,10 @@ qc.get_option(name)
 }
 \arguments{
 \item{...}{named option(s) to change - for a list of available options, see
-details below.}
+details below. Available options are \code{max_cores}, the maximum number
+of cores used when a parallel backend is requested, and
+\code{prior_mc_samples}, the number of Monte Carlo draws used for prior-only
+integration summaries that require simulation.}
 
 \item{name}{the name of the option to get the current value of - for a list of
 available options, see details below.}
@@ -22,5 +25,5 @@ The current value of all available 'qc' options (after applying any
 changes specified) is returned invisibly as a named list.
 }
 \description{
-A placeholder object and functions for the 'qc' package.
+Get or set package-level options.
 }

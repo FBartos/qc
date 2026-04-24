@@ -16,6 +16,9 @@ get_metric_constraints(metric, c, LSL, USL, target, sigma_level = 3)
 \item{USL}{Upper specification limit}
 
 \item{target}{Target value}
+
+\item{sigma_level}{Number of process standard deviations used to define the
+capability metric scale.}
 }
 \value{
 List with s_max_fn and mu_b_fn_vec (vectorized)

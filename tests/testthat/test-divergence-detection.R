@@ -207,7 +207,7 @@ test_that("non-divergent summaries return no analytic flags", {
 
 test_that("prior-only UIP integration does not flag proper conjugate sigma priors as divergent", {
   x <- c(-1.5, -0.5, 0.25, 0.75, 1.5)
-  uip <- qc::create_prior_unit_information(x)
+  uip <- qc:::create_prior_unit_information(x)
 
   fit <- qc::bpc(
     x,

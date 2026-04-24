@@ -51,7 +51,7 @@ test_that("integration results are first-class readers for density, intervals, a
   df_from_metrics <- extract_density_data(fit$metrics, what = c("Cp", "Cpk"))
   expect_equal(df_from_result, df_from_metrics)
 
-  df_points <- extract_point_estimates(
+  df_points <- qc:::extract_point_estimates(
     obj = fit$integration_result,
     what = c("Cp", "Cpk"),
     point_estimate = "mean",
@@ -60,7 +60,7 @@ test_that("integration results are first-class readers for density, intervals, a
   expect_s3_class(df_points, "tbl_df")
   expect_equal(nrow(df_points), 2)
 
-  ci_data <- extract_ci_data(
+  ci_data <- qc:::extract_ci_data(
     obj = fit$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",

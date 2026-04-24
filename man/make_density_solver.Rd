@@ -11,6 +11,7 @@ make_density_solver(
   prior,
   metric = "Cpk",
   target = NULL,
+  cached_state = NULL,
   sigma_level = 3,
   ...
 )
@@ -27,6 +28,11 @@ make_density_solver(
 \item{metric}{Capability metric (currently "Cpk", "Cpu", "Cpl", "Cp" supported)}
 
 \item{target}{Target value for Cpm/Cpc}
+
+\item{cached_state}{Optional precomputed integration state.}
+
+\item{sigma_level}{Number of process standard deviations used to define the
+capability metric scale.}
 
 \item{...}{Additional arguments}
 }

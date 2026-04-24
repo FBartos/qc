@@ -10,9 +10,10 @@ prior_semi_conjugate(conjugate = c("mu", "sigma"), ...)
 \item{conjugate}{Which component uses the conjugate form: \code{"mu"} or
 \code{"sigma"}.}
 
-\item{...}{Arguments forwarded to \code{\link{create_prior_semi_mu}} when
-\code{conjugate = "mu"}, or \code{\link{create_prior_semi_sigma}} when
-\code{conjugate = "sigma"}.}
+\item{...}{Arguments for the selected semi-conjugate prior. Use
+\code{mu0}, \code{k0}, and \code{log_dens_sigma} when
+\code{conjugate = "mu"}; use \code{alpha0}, \code{beta0}, and
+\code{log_dens_mu} when \code{conjugate = "sigma"}.}
 }
 \value{
 A semi-conjugate prior object.

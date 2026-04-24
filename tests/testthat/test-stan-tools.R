@@ -1,18 +1,23 @@
 test_that("qc options round-trip and validate option names", {
   old_max_cores <- qc.get_option("max_cores")
-  on.exit(qc.options(max_cores = old_max_cores), add = TRUE)
+  old_prior_mc_samples <- qc.get_option("prior_mc_samples")
+  on.exit(qc.options(max_cores = old_max_cores, prior_mc_samples = old_prior_mc_samples), add = TRUE)
 
   current <- qc.options()
   expect_type(current, "list")
   expect_true("max_cores" %in% names(current))
+  expect_true("prior_mc_samples" %in% names(current))
   expect_equal(current$max_cores, old_max_cores)
 
   updated_max_cores <- max(1L, as.integer(old_max_cores) - 1L)
   updated <- qc.options(max_cores = updated_max_cores)
   expect_equal(updated$max_cores, updated_max_cores)
   expect_equal(qc.get_option("max_cores"), updated_max_cores)
+  expect_no_error(qc.options(prior_mc_samples = 1000L))
 
   expect_error(qc.options(unknown = 1), "Unmatched or ambiguous option")
+  expect_error(qc.options(max_cores = 0L), "max_cores")
+  expect_error(qc.options(prior_mc_samples = 999L), "prior_mc_samples")
   expect_error(qc.get_option(c("max_cores", "other")), "Only 1 option")
   expect_error(qc.get_option("unknown"), "Unmatched or ambiguous option")
 })
@@ -20,17 +25,11 @@ test_that("qc options round-trip and validate option names", {
 test_that("Stan control helpers validate values and supply defaults", {
   expect_equal(
     set_control(),
-    list(adapt_delta = 0.8, max_treedepth = 15L, bridge_max_iter = 1000L)
-  )
-  expect_equal(
-    set_convergence_checks(),
-    list(max_Rhat = 1.05, min_ESS = 500)
+    list(adapt_delta = 0.8, max_treedepth = 15L)
   )
 
   expect_error(set_control(adapt_delta = 1.2), "adapt_delta")
   expect_error(set_control(max_treedepth = 0), "max_treedepth")
-  expect_error(set_convergence_checks(min_ESS = -1), "min_ESS")
-  expect_error(set_convergence_checks(max_Rhat = 0.9), "max_Rhat")
 })
 
 test_that("Stan fit settings enforce iter greater than warmup and cap parallel cores", {
@@ -49,15 +48,13 @@ test_that("Stan fit settings enforce iter greater than warmup and cap parallel c
     seed = 11L,
     control = list(
       adapt_delta = NULL,
-      max_treedepth = NULL,
-      bridge_max_iter = NULL
+      max_treedepth = NULL
     )
   )
 
   expect_equal(capped$cores, 2L)
   expect_equal(capped$adapt_delta, 0.8)
   expect_equal(capped$max_treedepth, 15L)
-  expect_equal(capped$bridge_max_iter, 1000L)
 
   serial <- qc:::.stan_check_and_list_fit_settings(
     chains = 2L,
@@ -87,8 +84,7 @@ test_that("Stan fit settings enforce iter greater than warmup and cap parallel c
       seed = 1L,
       control = list(
         adapt_delta = NULL,
-        max_treedepth = NULL,
-        bridge_max_iter = NULL
+        max_treedepth = NULL
       )
     ),
     "iter"
@@ -196,9 +192,8 @@ test_that("E_abs_dev helpers fall back to sampling on errors and non-finite outp
     },
     .package = "stats"
   )
-  expect_warning(
-    normal_fallback <- qc:::samples_to_E_abs_dev.normal(normal_samples, target = 0),
-    "fallback"
+  expect_silent(
+    normal_fallback <- qc:::samples_to_E_abs_dev.normal(normal_samples, target = 0)
   )
   expect_length(normal_fallback, 2L)
   expect_true(all(is.finite(normal_fallback)))
@@ -207,9 +202,8 @@ test_that("E_abs_dev helpers fall back to sampling on errors and non-finite outp
     hyperg_2F1 = function(...) stop("boom"),
     .package = "gsl"
   )
-  expect_warning(
-    t_fallback <- qc:::samples_to_E_abs_dev.t(t_samples, target = 0),
-    "fallback"
+  expect_silent(
+    t_fallback <- qc:::samples_to_E_abs_dev.t(t_samples, target = 0)
   )
   expect_length(t_fallback, 2L)
   expect_true(all(is.finite(t_fallback)))

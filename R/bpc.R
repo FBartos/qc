@@ -19,7 +19,6 @@
 #' @param cores number of cores for parallel processing
 #' @param parallel whether to run chains in parallel, defaults to FALSE
 #' @param control a list of control settings for the Stan model, see \code{\link[rstan]{sampling}} for details, defaults to \code{set_control()}
-#' @param convergence_checks a list of convergence checks for the Stan model, see \code{\link[rstan]{check_convergence}} for details, defaults to \code{set_convergence_checks()}
 #' @param seed a random seed for reproducibility, defaults to NULL
 #' @param silent whether to suppress output during fitting, defaults to TRUE
 #' @param sigma the number of standard deviations to use for the capability metrics, defaults to 3
@@ -85,7 +84,7 @@
 #'
 #' @export
 bpc <- function(
-    x,
+    x = NULL,
     LSL, target, USL,
     distribution = "normal",
     method = NULL,
@@ -95,7 +94,7 @@ bpc <- function(
 
     # stan control settings
     chains  = 4, iter = 10000, warmup = 5000, thin = 1, cores = chains, parallel = FALSE,
-    control = set_control(), convergence_checks = set_convergence_checks(),
+    control = set_control(),
     seed = NULL, silent = TRUE,
 
     sample_priors = FALSE,

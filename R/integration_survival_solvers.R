@@ -14,10 +14,13 @@
 #' @param metric Capability index name
 #' @param target Target value for Cpm
 #' @param cached_state Pre-computed state for PriorGeneric (optional)
+#' @param sigma_level Number of process standard deviations used to define the
+#'   capability metric scale.
+#' @param ... Additional arguments.
 #' @return Function that takes threshold c and returns P(Index > c)
 #' @keywords internal
 make_solver <- function(data, LSL, USL, prior, metric = "Cpk", target = NULL,
-                        sigma_level = 3, ...) {
+                        cached_state = NULL, sigma_level = 3, ...) {
   .validate_capability_request(
     LSL = LSL,
     USL = USL,

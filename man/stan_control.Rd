@@ -2,35 +2,21 @@
 % Please edit documentation in R/stan_tools.R
 \name{stan_control}
 \alias{stan_control}
-\alias{set_control,}
-\alias{set_convergence_checks}
 \alias{set_control}
-\title{Convergence checks of the fitting process}
+\title{Stan control settings}
 \usage{
-set_convergence_checks(max_Rhat = 1.05, min_ESS = 500)
-
-set_control(adapt_delta = 0.8, max_treedepth = 15, bridge_max_iter = 1000)
+set_control(adapt_delta = 0.8, max_treedepth = 15)
 }
 \arguments{
-\item{max_Rhat}{maximum value of the R-hat diagnostic.
-Defaults to \code{1.05}.}
-
-\item{min_ESS}{minimum estimated sample size.
-Defaults to \code{500}.}
-
 \item{adapt_delta}{tuning parameter of HMC.
 Defaults to \code{0.80}.}
 
 \item{max_treedepth}{tuning parameter of HMC.
 Defaults to \code{15}.}
-
-\item{bridge_max_iter}{maximum number of iterations for the
-\link[bridgesampling]{bridge_sampler} function. Defaults to \code{1000}}
 }
 \value{
-\code{set_control} returns a list of control settings
-and \code{set_convergence_checks} returns a list of convergence checks settings.
+\code{set_control} returns a list of control settings.
 }
 \description{
-Set values for the convergence checks of the fitting process.
+Set values for Stan's HMC sampler.
 }

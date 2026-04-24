@@ -117,32 +117,59 @@ pc <- function(
   distribution <- structure(distribution, class = distribution)
   pc_fit_distribution(distribution, data, control)
 }
+
+.pc_bootstrap_one <- function(i, distribution, x, control, seed) {
+  set.seed(seed)
+  data_i <- list(x = sample(x, size = length(x), replace = TRUE))
+  .pc_single_fit(distribution = distribution, data = data_i, control = control)
+}
+
 .pc_bootstrap_fit <- function(distribution, data, control) {
 
   if (!is.null(control[["seed"]]))
     set.seed(control[["seed"]])
 
+  x <- data$x
+  bootstrap_seeds <- sample.int(.Machine$integer.max, control[["samples"]])
 
   if (control[["parallel"]]) {
 
-    # TODO: this should not create all bootstrap datasets at once, which is memory inefficient, but I guess this is easier to implement for now.
-    data <- lapply(seq_len(control[["samples"]]), function(i) {
-      list(x = sample(data$x, size = length(data$x), replace = TRUE))
-    })
     cl <- parallel::makeCluster(control[["cores"]])
     on.exit(parallel::stopCluster(cl), add = TRUE)
-    parallel::clusterEvalQ(cl, {library("qc")})
-    parallel::clusterExport(cl, c("distribution", "data", "control"), envir = environment())
+    parallel::clusterExport(cl, c("distribution", "x", "control", "bootstrap_seeds"), envir = environment())
+    parallel::clusterExport(
+      cl,
+      c(
+        ".pc_bootstrap_one",
+        ".pc_single_fit",
+        "pc_fit_distribution",
+        "pc_fit_distribution.normal",
+        "pc_fit_distribution.t",
+        "lpdf_scaled_t"
+      ),
+      envir = environment(.pc_bootstrap_fit)
+    )
     out <- parallel::parLapplyLB(cl, seq_len(control[["samples"]]), function(i) {
-      .pc_single_fit(distribution = distribution, data = data[[i]], control = control)
+      .pc_bootstrap_one(
+        i = i,
+        distribution = distribution,
+        x = x,
+        control = control,
+        seed = bootstrap_seeds[[i]]
+      )
     })
 
   } else {
 
     out  <- vector("list", control[["samples"]])
     for (i in seq_len(control[["samples"]])) {
-      data_i <- list(x = sample(data$x, size = length(data$x), replace = TRUE))
-      out[[i]]  <- .pc_single_fit(distribution = distribution, data = data_i, control = control)
+      out[[i]] <- .pc_bootstrap_one(
+        i = i,
+        distribution = distribution,
+        x = x,
+        control = control,
+        seed = bootstrap_seeds[[i]]
+      )
     }
 
   }
@@ -179,13 +206,12 @@ pc_fit_distribution.t      <- function(distribution, data, control) {
     par     = c(df = 30, mu = mean(data[["x"]]), sigma = stats::sd(data[["x"]])),
     fn      = function(par, x) {
       ret_val <- -sum(lpdf_scaled_t(x, par[["df"]], par[["mu"]], par[["sigma"]]))
-      # if (is.infinite(ret_val) || is.na(ret_val)) browser()
       return(ret_val)
     },
     x       = data[["x"]],
     lower   = c(2, -Inf, stats::sd(data[["x"]]) / 1e3),
     method  = "L-BFGS-B"
-  ))
+  ), silent = TRUE)
 
   if (inherits(fit, "try-error"))
     return(list(

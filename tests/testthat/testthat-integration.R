@@ -672,7 +672,7 @@ testthat::test_that("extract_point_estimates works for both methods", {
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
 
   # Extract point estimates
-  dfPoints <- extract_point_estimates(
+  dfPoints <- qc:::extract_point_estimates(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     point_estimate = "mean",
@@ -684,7 +684,7 @@ testthat::test_that("extract_point_estimates works for both methods", {
   expect_equal(nrow(dfPoints), 2)
 
   # Mode should also work
-  dfMode <- extract_point_estimates(
+  dfMode <- qc:::extract_point_estimates(
     obj = fit_int$integration_result,
     what = c("Cp"),
     point_estimate = "mode",
@@ -692,7 +692,7 @@ testthat::test_that("extract_point_estimates works for both methods", {
   )
   expect_equal(nrow(dfMode), 1)
 
-  dfModeFromEntries <- extract_point_estimates(
+  dfModeFromEntries <- qc:::extract_point_estimates(
     obj = NULL,
     what = c("Cp"),
     point_estimate = "mode",
@@ -711,7 +711,7 @@ testthat::test_that("extract_point_estimates preserves metric levels when infini
              method = "integration", prior = "Jeffreys")
   dfDensity <- extract_density_data(fit, what = metrics)
 
-  dfPoints <- extract_point_estimates(
+  dfPoints <- qc:::extract_point_estimates(
     obj = fit$integration_result,
     what = metrics,
     point_estimate = "mean",
@@ -734,7 +734,7 @@ testthat::test_that("extract_ci_data works for both methods", {
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
 
   # Extract CI data
-  ci_data <- extract_ci_data(
+  ci_data <- qc:::extract_ci_data(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",
@@ -757,7 +757,7 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
   fit_int <- bpc(x, LSL = 4, target = 10, USL = 16, method = "integration")
   dfDensity <- extract_density_data(fit_int, what = c("Cp", "Cpk"))
 
-  ci_central_95 <- extract_ci_data(
+  ci_central_95 <- qc:::extract_ci_data(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "central",
@@ -765,7 +765,7 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
     dfDensity = dfDensity
   )$dfCi
 
-  ci_central_50 <- extract_ci_data(
+  ci_central_50 <- qc:::extract_ci_data(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "central",
@@ -778,7 +778,7 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
   expect_true(all(ci_central_50$xmin >= ci_central_95$xmin))
   expect_true(all(ci_central_50$xmax <= ci_central_95$xmax))
 
-  ci_hpd_95 <- extract_ci_data(
+  ci_hpd_95 <- qc:::extract_ci_data(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",
@@ -786,7 +786,7 @@ testthat::test_that("extract_ci_data respects ci_level for integration results",
     dfDensity = dfDensity
   )$dfCi
 
-  ci_hpd_50 <- extract_ci_data(
+  ci_hpd_50 <- qc:::extract_ci_data(
     obj = fit_int$integration_result,
     what = c("Cp", "Cpk"),
     ci = "HPD",

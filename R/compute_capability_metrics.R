@@ -184,7 +184,7 @@ samples_to_percentiles.t        <- function(samples, sigma) {
   ))
 }
 
-samples_to_E_abs_dev            <- function(samples, target) {
+samples_to_E_abs_dev            <- function(samples, target, ...) {
   UseMethod("samples_to_E_abs_dev")
 }
 
@@ -214,7 +214,7 @@ samples_to_E_abs_dev            <- function(samples, target) {
 }
 
 #' @export
-samples_to_E_abs_dev.default    <- function(samples, target, n_inner = 2048L) {
+samples_to_E_abs_dev.default    <- function(samples, target, n_inner = 2048L, ...) {
   n_inner <- as.integer(n_inner)
   if (!is.finite(n_inner) || n_inner < 2L) {
     stop("`n_inner` must be a finite integer greater than or equal to 2.", call. = FALSE)
@@ -233,79 +233,21 @@ samples_to_E_abs_dev.default    <- function(samples, target, n_inner = 2048L) {
   return(E_abs_dev)
 }
 #' @export
-samples_to_E_abs_dev.normal     <- function(samples, target) {
+samples_to_E_abs_dev.normal     <- function(samples, target, ...) {
 
   E_abs_dev <- try(with(
     samples,
     .cpc_E_abs_dev_normal(mu, sigma, target)
-  ))
-
-  # TODO: Don (this is your previous comment from this function)
-  # TODO: I'm confused about which of these we want, average across rows or columns?
-  # E_abs_dev2 <- try(with(samples, {
-  #   z      <- (mu - target) / sigma
-  #   abs_mu_minus_T <- abs(mu - target)
-  #
-  #   sigma * sqrt(2 / pi) * exp(-0.5 * z^2) + abs_mu_minus_T * (1 - 2 * pnorm(-abs(z)))
-  #   # z <- (mu - T) / sigma
-  #   # a <- sigma * sqrt(2/pi) * exp(-0.5 * z^2) + abs(mu - T) * (1 - 2 * pnorm(-abs(z)))
-  # }))
-  #
-  # E_abs_dev_ref  <- .bpc_compute_E_abs_dev.default(fit, target)
-  # E_abs_dev_ref2 <- .bpc_compute_E_abs_dev.default(fit, target)
-  #
-  # par(mfrow = c(1, 3))
-  # plot(density(E_abs_dev), main = "what we have")
-  # lines(density(E_abs_dev_ref), col = "red")
-  # plot(density(E_abs_dev2), col = "blue", main = "what we want")
-  # lines(density(E_abs_dev_ref2), col = "green")
-  # plot(density(E_abs_dev), main = "what we have")
-  # lines(density(E_abs_dev2), col = "red")
-  #
-  # hh <- seq(.01, .99, .01)
-  # plot(quantile(E_abs_dev, probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
-  # plot(quantile(E_abs_dev2, probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
-  # lm(E_abs_dev ~ E_abs_dev_ref)
-  # plot(quantile((E_abs_dev - mean(E_abs_dev)) / (sd(E_abs_dev) * sqrt(length(E_abs_dev))) + mean(E_abs_dev), probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
-
-
-  # E_abs_dev_mat <- matrix(nrow = with(fit$control, chains * (iter - warmup)), ncol = length(E_abs_dev))
-  # for (i in seq_along(E_abs_dev)) {
-  #   E_abs_dev_mat[, i] <- stats::rnorm(length(samples$mu), mean = samples$mu, sd = samples$sigma)
-  # }
-  # E_abs_dev_mat_abs    <- abs(target - E_abs_dev_mat)
-  # E_abs_dev_mat_abs_rm <- colMeans(E_abs_dev_mat_abs)
-  # E_abs_dev_mat_abs_cm <- rowMeans(E_abs_dev_mat_abs)
-  #
-  # this is what we've done analytically for the normal and the t...
-  # plot(E_abs_dev, E_abs_dev_mat_abs_cm)
-  # this is a Rao-blackwellized estimate that agrees in mean, but I'm not so sure about any other statistics...
-  # but we want/ need E_abs_dev_mat_abs_rm!
-  # is there a trick we can use?
-
-  # hh <- seq(.01, .99, .01)
-  # plot(quantile(E_abs_dev, probs = hh), quantile(E_abs_dev_mat_abs_cm, probs = hh)); abline(0, 1)
-  # lm(E_abs_dev ~ E_abs_dev_ref)
-  # plot(quantile((E_abs_dev - mean(E_abs_dev)) / (sd(E_abs_dev) * sqrt(length(E_abs_dev))) + mean(E_abs_dev), probs = hh), quantile(E_abs_dev_ref, probs = hh)); abline(0, 1)
-
-  # E_abs_dev_ref <- .bpc_compute_E_abs_dev.default(fit, target)
-  # par(mfrow = c(1, 2))
-  # plot(density(E_abs_dev), main = "what we have")
-  # lines(density(E_abs_dev_mat_abs_cm), col = "red")
-  # plot(density(E_abs_dev_ref), col = "blue", main = "what we want")
-  # lines(density(E_abs_dev_mat_abs_rm), col = "green")
+  ), silent = TRUE)
 
   if (.should_fallback_E_abs_dev(E_abs_dev)) {
-    warning(
-      "Failed to compute E_abs_dev analytically; using a Monte Carlo fallback instead."
-    )
     return(samples_to_E_abs_dev.default(samples, target))
   }
 
   return(E_abs_dev)
 }
 #' @export
-samples_to_E_abs_dev.t          <- function(samples, target) {
+samples_to_E_abs_dev.t          <- function(samples, target, ...) {
 
   E_abs_dev <- try(with(
     samples,
@@ -319,12 +261,9 @@ samples_to_E_abs_dev.t          <- function(samples, target) {
       # gamma((1 + 1) / 2) == 1, so dropped
       sqrt(nu / inv_scale_sq) * gamma(nu / 2 - 1 / 2) / (sqrt(pi) * gamma(nu / 2)) * gauss2F1
     }
-  ))
+  ), silent = TRUE)
 
   if (.should_fallback_E_abs_dev(E_abs_dev)) {
-    warning(
-      "Failed to compute E_abs_dev analytically; using a Monte Carlo fallback instead."
-    )
     return(samples_to_E_abs_dev.default(samples, target))
   }
 

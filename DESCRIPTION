@@ -14,14 +14,13 @@ Description: Tools for statistical quality control in both frequentist and
     Bayesian inference using either Markov chain Monte Carlo (via 'Stan')
     or numerical integration. Further quality control methods will be
     added in future releases.
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+License: GPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Biarch: true
 Depends:
-    R (>= 3.4.0)
+    R (>= 3.5.0)
 Imports:
     methods,
     Rcpp (>= 0.12.0),
@@ -35,8 +34,7 @@ Imports:
     gsl,
     HDInterval,
     ggplot2,
-    ggtext,
-    ggh4x
+    ggtext
 LinkingTo:
     BH (>= 1.66.0),
     Rcpp (>= 0.12.0),

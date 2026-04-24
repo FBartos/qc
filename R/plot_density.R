@@ -106,7 +106,7 @@ extract_density_data.capability_metrics <- function(obj, what = c("Cp", "Cpu", "
 #' @param stats_list Optional list of pre-computed stats or integration result entries
 #'   (for integration method)
 #' @return A tibble with columns: x, y, metric, or NULL if point_estimate is "none"
-#' @export
+#' @noRd
 extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_list = NULL) {
   if (point_estimate == "none") return(NULL)
 
@@ -156,7 +156,7 @@ extract_point_estimates <- function(obj, what, point_estimate, dfDensity, stats_
 #' @param ci_custom_right Custom CI right bound
 #' @param bf_support Named list with support interval bounds (`lower`, `upper`)
 #' @return A list with dfCi (bounds tibble) and dfArea (filled area tibble), or NULL if ci is "none"
-#' @export
+#' @noRd
 extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
                             stats_list = NULL,
                             ci_custom_left = NULL, ci_custom_right = NULL,
@@ -446,7 +446,8 @@ build_density_plot <- function(
     )
 
     if (show_ci_bar) {
-      dfCi$y <- 1.15 * c(tapply(dfLines$y, dfLines$metric, max))
+      metric_heights <- tapply(dfLines$y, dfLines$metric, max)
+      dfCi$y <- 1.15 * unname(metric_heights[as.character(dfCi$metric)])
       layer_cibar <- ggplot2::geom_errorbar(
         data = dfCi,
         mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = metric, color = metric),
@@ -620,10 +621,9 @@ build_density_plot <- function(
 #' Plot density for the posterior distribution of one or more capability metrics
 #'
 #' @param obj An object of class `bpc`, `bpc_capability_metrics`, `bpc_summary`, `pc`, `pc_summary`, or `qc_integration_result`.
-#' @param LSL Lower Specification Limit
-#' @param target Target value
-#' @param USL Upper Specification Limit
-#' @param ...
+#' @param ... Additional arguments passed to methods. For \code{bpc} and
+#'   \code{pc} objects this may include replacement \code{LSL}, \code{target},
+#'   and \code{USL} values.
 #'
 #' @export
 #'

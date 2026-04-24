@@ -12,7 +12,7 @@
 #' @param alpha0 Prior shape for sigma^2
 #' @param beta0 Prior rate for sigma^2
 #' @return PriorConjugate object
-#' @export
+#' @noRd
 create_prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
   structure(list(mu0 = mu0, k0 = k0, alpha0 = alpha0, beta0 = beta0),
             class = "PriorConjugate")
@@ -22,7 +22,7 @@ create_prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
 #' @param log_dens_fn Function(mu, sigma) returning log prior density
 #' @param bayestools_priors Optional list with original BayesTools prior objects (mu and sigma)
 #' @return PriorGeneric object
-#' @export
+#' @noRd
 create_prior_generic <- function(log_dens_fn, bayestools_priors = NULL) {
   structure(list(log_dens = log_dens_fn, bayestools_priors = bayestools_priors),
             class = "PriorGeneric")
@@ -34,7 +34,7 @@ create_prior_generic <- function(log_dens_fn, bayestools_priors = NULL) {
 #' @param log_dens_sigma Function(sigma) returning log prior density for sigma
 #' @param bayestools_priors Optional list with original BayesTools prior objects
 #' @return PriorSemiConjugateMu object
-#' @export
+#' @noRd
 create_prior_semi_mu <- function(mu0, k0, log_dens_sigma, bayestools_priors = NULL) {
   structure(list(mu0 = mu0, k0 = k0, log_dens_sigma = log_dens_sigma,
                  bayestools_priors = bayestools_priors),
@@ -47,7 +47,7 @@ create_prior_semi_mu <- function(mu0, k0, log_dens_sigma, bayestools_priors = NU
 #' @param log_dens_mu Function(mu) returning log prior density for mu
 #' @param bayestools_priors Optional list with original BayesTools prior objects
 #' @return PriorSemiConjugateSigma object
-#' @export
+#' @noRd
 create_prior_semi_sigma <- function(alpha0, beta0, log_dens_mu, bayestools_priors = NULL) {
   structure(list(alpha0 = alpha0, beta0 = beta0, log_dens_mu = log_dens_mu,
                  bayestools_priors = bayestools_priors),
@@ -72,7 +72,7 @@ create_prior_semi_sigma <- function(alpha0, beta0, log_dens_mu, bayestools_prior
 #' @param x Numeric vector of observations.  \code{NA} values are removed.
 #'   At least 2 finite observations are required.
 #' @return A \code{PriorConjugate} object.
-#' @export
+#' @noRd
 create_prior_unit_information <- function(x) {
   x <- x[is.finite(x)]
   if (length(x) < 2L)
@@ -263,7 +263,7 @@ create_prior_unit_information <- function(x) {
                    inherits(prior$bayestools_priors$sigma, "prior")
   if (is_prior_only && has_bt_priors) {
     bt <- prior$bayestools_priors
-    n_mc <- 2000000L
+    n_mc <- qc.get_option("prior_mc_samples")
     mc_samples <- list(
       mu  = BayesTools::rng(bt$mu, n_mc),
       sig = BayesTools::rng(bt$sigma, n_mc)

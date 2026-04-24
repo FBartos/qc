@@ -32,6 +32,9 @@ compute_metric_moments(
 \item{use_analytic}{Use analytic formulas (TRUE) or numerical fallback (FALSE)}
 
 \item{cached_state}{Pre-computed state for PriorGeneric}
+
+\item{sigma_level}{Number of process standard deviations used to define the
+capability metric scale.}
 }
 \value{
 List with mean and sd of the posterior distribution of the metric

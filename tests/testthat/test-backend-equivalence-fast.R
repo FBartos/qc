@@ -19,20 +19,20 @@ test_that("MCMC backend supports the shared density, interval, and plotting cont
 
   ss <- summary(fixture)
   df_density <- extract_density_data(fixture, what = c("Cp", "Cpk"))
-  df_points <- extract_point_estimates(
+  df_points <- qc:::extract_point_estimates(
     obj = fixture,
     what = c("Cp", "Cpk"),
     point_estimate = "median",
     dfDensity = df_density
   )
-  ci_95 <- extract_ci_data(
+  ci_95 <- qc:::extract_ci_data(
     obj = fixture,
     what = c("Cp", "Cpk"),
     ci = "central",
     ci_level = 0.95,
     dfDensity = df_density
   )
-  ci_50 <- extract_ci_data(
+  ci_50 <- qc:::extract_ci_data(
     obj = fixture,
     what = c("Cp", "Cpk"),
     ci = "central",

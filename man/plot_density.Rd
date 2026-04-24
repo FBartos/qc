@@ -9,13 +9,9 @@ plot_density(obj, ...)
 \arguments{
 \item{obj}{An object of class \code{bpc}, \code{bpc_capability_metrics}, \code{bpc_summary}, \code{pc}, \code{pc_summary}, or \code{qc_integration_result}.}
 
-\item{...}{}
-
-\item{LSL}{Lower Specification Limit}
-
-\item{target}{Target value}
-
-\item{USL}{Upper Specification Limit}
+\item{...}{Additional arguments passed to methods. For \code{bpc} and
+\code{pc} objects this may include replacement \code{LSL}, \code{target},
+and \code{USL} values.}
 }
 \description{
 Plot density for the posterior distribution of one or more capability metrics

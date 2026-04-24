@@ -7,13 +7,14 @@
 prior_conjugate(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0)
 }
 \arguments{
-\item{mu0}{Prior mean location}
+\item{mu0}{Prior mean location.}
 
-\item{k0}{Prior precision multiplier (0 = noninformative)}
+\item{k0}{Prior precision multiplier. Use \code{0} for the default
+noninformative location component.}
 
-\item{alpha0}{Prior shape for sigma^2}
+\item{alpha0}{Prior shape for \eqn{\sigma^2}.}
 
-\item{beta0}{Prior rate for sigma^2}
+\item{beta0}{Prior rate for \eqn{\sigma^2}.}
 }
 \value{
 A \code{PriorConjugate} object.

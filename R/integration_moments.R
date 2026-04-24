@@ -11,6 +11,8 @@
 #' @param target Target value for Cpm
 #' @param use_analytic Use analytic formulas (TRUE) or numerical fallback (FALSE)
 #' @param cached_state Pre-computed state for PriorGeneric
+#' @param sigma_level Number of process standard deviations used to define the
+#'   capability metric scale.
 #' @return List with mean and sd of the posterior distribution of the metric
 #' @keywords internal
 compute_metric_moments <- function(data, LSL, USL, prior, metric = "Cpk",

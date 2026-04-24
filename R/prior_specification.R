@@ -127,7 +127,11 @@ prior_independent <- function(mu, sigma, nu, ...) {
 
 #' Conjugate normal likelihood prior
 #'
-#' @inheritParams create_prior_conjugate
+#' @param mu0 Prior mean location.
+#' @param k0 Prior precision multiplier. Use \code{0} for the default
+#'   noninformative location component.
+#' @param alpha0 Prior shape for \eqn{\sigma^2}.
+#' @param beta0 Prior rate for \eqn{\sigma^2}.
 #' @return A \code{PriorConjugate} object.
 #' @export
 prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
@@ -136,7 +140,10 @@ prior_conjugate <- function(mu0 = 0, k0 = 0, alpha0 = -0.5, beta0 = 0) {
 
 #' Joint normal likelihood prior
 #'
-#' @inheritParams create_prior_generic
+#' @param log_dens_fn Function \code{function(mu, sigma)} returning the joint
+#'   log prior density.
+#' @param bayestools_priors Optional list preserving original BayesTools prior
+#'   objects for diagnostics.
 #' @return A \code{PriorGeneric} object.
 #' @export
 prior_joint <- function(log_dens_fn, bayestools_priors = NULL) {
@@ -147,9 +154,10 @@ prior_joint <- function(log_dens_fn, bayestools_priors = NULL) {
 #'
 #' @param conjugate Which component uses the conjugate form: \code{"mu"} or
 #'   \code{"sigma"}.
-#' @param ... Arguments forwarded to \code{\link{create_prior_semi_mu}} when
-#'   \code{conjugate = "mu"}, or \code{\link{create_prior_semi_sigma}} when
-#'   \code{conjugate = "sigma"}.
+#' @param ... Arguments for the selected semi-conjugate prior. Use
+#'   \code{mu0}, \code{k0}, and \code{log_dens_sigma} when
+#'   \code{conjugate = "mu"}; use \code{alpha0}, \code{beta0}, and
+#'   \code{log_dens_mu} when \code{conjugate = "sigma"}.
 #' @return A semi-conjugate prior object.
 #' @export
 prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {

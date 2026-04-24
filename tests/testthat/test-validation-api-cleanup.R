@@ -78,20 +78,36 @@ testthat::test_that("data preparation centralizes summary-statistics validation 
   testthat::expect_equal(empty_t$cached_state$n, 0L)
 })
 
+testthat::test_that("bpc accepts normal summary statistics without explicit x", {
+  fit <- qc::bpc(
+    LSL = 0,
+    target = 1,
+    USL = 2,
+    mean = 1,
+    sd = 0.2,
+    N = 10L,
+    prior = qc::prior_conjugate(mu0 = 1, k0 = 1, alpha0 = 2, beta0 = 1)
+  )
+
+  testthat::expect_s3_class(fit, "bpc")
+  testthat::expect_identical(fit$method, "integration")
+  testthat::expect_equal(fit$integration_result$cached_state$n, 10L)
+})
+
 testthat::test_that("documented integration helpers are available through the package namespace", {
   expected_exports <- c(
     "compute_metric_value",
-    "create_prior_generic",
-    "create_prior_semi_mu",
-    "create_prior_semi_sigma",
-    "get_metric_constraints"
+    "get_metric_constraints",
+    "prior_conjugate",
+    "prior_joint",
+    "prior_semi_conjugate"
   )
 
   testthat::expect_true(all(expected_exports %in% getNamespaceExports("qc")))
 
-  generic_prior <- qc::create_prior_generic(function(mu, sigma) rep(0, max(length(mu), length(sigma))))
-  semi_mu_prior <- qc::create_prior_semi_mu(0, 1, function(sigma) rep(0, length(sigma)))
-  semi_sigma_prior <- qc::create_prior_semi_sigma(1, 1, function(mu) rep(0, length(mu)))
+  generic_prior <- qc::prior_joint(function(mu, sigma) rep(0, max(length(mu), length(sigma))))
+  semi_mu_prior <- qc::prior_semi_conjugate("mu", mu0 = 0, k0 = 1, log_dens_sigma = function(sigma) rep(0, length(sigma)))
+  semi_sigma_prior <- qc::prior_semi_conjugate("sigma", alpha0 = 1, beta0 = 1, log_dens_mu = function(mu) rep(0, length(mu)))
   constraints <- qc::get_metric_constraints("Cp", c = 1, LSL = 0, USL = 10, target = 5)
 
   testthat::expect_s3_class(generic_prior, "PriorGeneric")
@@ -108,7 +124,7 @@ testthat::test_that("documented integration helpers are available through the pa
 testthat::test_that("public integration prior constructors are accepted by bpc integration", {
   metric_names <- c("Cp", "Cpu", "Cpl", "Cpk", "Cpc", "Cpm")
   prior_cases <- list(
-    generic = qc::create_prior_generic(function(mu, sigma) {
+    generic = qc::prior_joint(function(mu, sigma) {
       ifelse(
         sigma <= 0,
         -Inf,
@@ -116,14 +132,16 @@ testthat::test_that("public integration prior constructors are accepted by bpc i
           stats::dgamma(sigma, shape = 2, rate = 1, log = TRUE)
       )
     }),
-    semi_mu = qc::create_prior_semi_mu(
+    semi_mu = qc::prior_semi_conjugate(
+      "mu",
       mu0 = 5,
       k0 = 1,
       log_dens_sigma = function(sigma) {
         stats::dgamma(sigma, shape = 2, rate = 1, log = TRUE)
       }
     ),
-    semi_sigma = qc::create_prior_semi_sigma(
+    semi_sigma = qc::prior_semi_conjugate(
+      "sigma",
       alpha0 = 2,
       beta0 = 1,
       log_dens_mu = function(mu) {

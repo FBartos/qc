@@ -239,6 +239,8 @@ log_diff_exp <- function(x, y) {
 #' @param LSL Lower specification limit
 #' @param USL Upper specification limit
 #' @param target Target value
+#' @param sigma_level Number of process standard deviations used to define the
+#'   capability metric scale.
 #' @return List with s_max_fn and mu_b_fn_vec (vectorized)
 #' @export
 get_metric_constraints <- function(metric, c, LSL, USL, target,
@@ -329,6 +331,8 @@ get_metric_constraints <- function(metric, c, LSL, USL, target,
 #' @param USL Upper specification limit
 #' @param target Target value (required for Cpm)
 #' @param metric One of "Cp", "Cpk", "Cpu", "Cpl", "Cpm", "Cpc"
+#' @param sigma_level Number of process standard deviations used to define the
+#'   capability metric scale.
 #' @return Metric value(s) (same length as mu/sigma)
 #' @export
 compute_metric_value <- function(mu, sigma, LSL, USL, target, metric,

@@ -14,11 +14,15 @@
 #' @param prior Prior object (PriorConjugate)
 #' @param metric Capability metric (currently "Cpk", "Cpu", "Cpl", "Cp" supported)
 #' @param target Target value for Cpm/Cpc
+#' @param cached_state Optional precomputed integration state.
+#' @param sigma_level Number of process standard deviations used to define the
+#'   capability metric scale.
 #' @param ... Additional arguments
 #' @return Function pdf(c) returning the marginal posterior density at c
 #' @keywords internal
 make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
-                                target = NULL, sigma_level = 3, ...) {
+                                target = NULL, cached_state = NULL,
+                                sigma_level = 3, ...) {
   .validate_capability_request(
     LSL = LSL,
     USL = USL,

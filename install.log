@@ -1,8 +1,0 @@
-* installing to library 'C:/Users/fbartos/AppData/Local/R/win-library/4.5'
-* installing *source* package 'qc' ...
-** this is package 'qc' version '0.0.0.9000'
-ERROR: cannot remove earlier installation, is it in use?
-* removing 'C:/Users/fbartos/AppData/Local/R/win-library/4.5/qc'
-* restoring previous 'C:/Users/fbartos/AppData/Local/R/win-library/4.5/qc'
-Warning in file.copy(lp, dirname(pkgdir), recursive = TRUE, copy.date = TRUE) :
-  problem copying C:\Users\fbartos\AppData\Local\R\win-library\4.5\00LOCK-qc\qc\libs\x64\qc.dll to C:\Users\fbartos\AppData\Local\R\win-library\4.5\qc\libs\x64\qc.dll: Permission denied

@@ -63,7 +63,7 @@ testthat::test_that("integration-backed capability metrics rebuild distributions
   results <- stats::setNames(lapply(seq_along(metric_names), function(i) {
     list(stats = metric_registry_stats(mean = 1 + i / 10))
   }), metric_names)
-  prior <- qc::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1)
+  prior <- qc:::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1)
   cached_state <- list(n = 8L, x_bar = 0.25, sse = 3.5)
   divergence <- stats::setNames(rep(list(list(
     mean_divergent = FALSE,

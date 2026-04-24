@@ -5,7 +5,7 @@
 \title{Bayesian Process Capability}
 \usage{
 bpc(
-  x,
+  x = NULL,
   LSL,
   target,
   USL,
@@ -19,7 +19,6 @@ bpc(
   cores = chains,
   parallel = FALSE,
   control = set_control(),
-  convergence_checks = set_convergence_checks(),
   seed = NULL,
   silent = TRUE,
   sample_priors = FALSE,
@@ -60,8 +59,6 @@ priors.}
 \item{parallel}{whether to run chains in parallel, defaults to FALSE}
 
 \item{control}{a list of control settings for the Stan model, see \code{\link[rstan]{sampling}} for details, defaults to \code{set_control()}}
-
-\item{convergence_checks}{a list of convergence checks for the Stan model, see \code{\link[rstan]{check_convergence}} for details, defaults to \code{set_convergence_checks()}}
 
 \item{seed}{a random seed for reproducibility, defaults to NULL}
 

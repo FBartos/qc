@@ -12,7 +12,7 @@ testthat::test_that("extract_point_estimates keeps finite density-backed modes w
     metric = factor(rep("Cp", nrow(entry$grid)), levels = "Cp")
   )
 
-  points <- qc::extract_point_estimates(
+  points <- qc:::extract_point_estimates(
     obj = NULL,
     what = "Cp",
     point_estimate = "mode",
@@ -70,7 +70,7 @@ testthat::test_that("extract_ci_data drops non-finite integration intervals", {
     metric = factor(c("Cp", "Cp"), levels = "Cp")
   )
 
-  ci_data <- qc::extract_ci_data(
+  ci_data <- qc:::extract_ci_data(
     obj = NULL,
     what = "Cp",
     ci = "HPD",
