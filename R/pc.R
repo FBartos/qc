@@ -256,12 +256,17 @@ pc_fit_distribution.t      <- function(distribution, data, control) {
                               sigma = object$sigma %||% 3) {
   has_bootstrap <- isTRUE(object$control[["bootstrap"]]) &&
     !is.null(object$fit[["boot_fit"]])
+  sigma_changed <- .qc_sigma_changed(object$metrics, sigma)
 
-  if (is.null(limits)) {
+  if (is.null(limits) && !sigma_changed) {
     return(list(
       metrics = object$metrics,
       metrics_boot = object$metrics_boot
     ))
+  }
+
+  if (is.null(limits)) {
+    limits <- .qc_metrics_limits(object$metrics)
   }
 
   list(

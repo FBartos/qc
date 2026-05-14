@@ -66,15 +66,27 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     if (any(use_forward)) {
       base <- pmax(c_valid[use_forward], support_lower)
       density[use_forward] <- (
-        vapply(base, S, numeric(1L)) -
-          vapply(upper[use_forward], S, numeric(1L))
+        .integration_eval_vectorized(
+          S, base,
+          context = "The integration survival solver"
+        ) -
+          .integration_eval_vectorized(
+            S, upper[use_forward],
+            context = "The integration survival solver"
+          )
       ) / (upper[use_forward] - base)
     }
 
     if (any(use_central)) {
       density[use_central] <- (
-        vapply(lower[use_central], S, numeric(1L)) -
-          vapply(upper[use_central], S, numeric(1L))
+        .integration_eval_vectorized(
+          S, lower[use_central],
+          context = "The integration survival solver"
+        ) -
+          .integration_eval_vectorized(
+            S, upper[use_central],
+            context = "The integration survival solver"
+          )
       ) / (upper[use_central] - lower[use_central])
     }
 
@@ -129,12 +141,23 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   # Cp: no integration needed (contour is a single sigma point)
   if (metric == "Cp") {
     return(function(c) {
-      if (c <= 0) return(0)
-      sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0) return(0)
-      log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_c) - beta_n / sigma_c^2
-      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
-      exp(log_p_sigma + log_jacobian - log_Z_sigma)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid <- is.finite(c) & c > 0
+      if (!any(valid)) return(result)
+
+      sigma_c <- tol / ((2 * sigma_level) * c[valid])
+      valid_sigma <- is.finite(sigma_c) & sigma_c > 0
+      vals <- numeric(length(sigma_c))
+      if (any(valid_sigma)) {
+        sv <- sigma_c[valid_sigma]
+        cv <- c[valid][valid_sigma]
+        log_p_sigma <- -(2 * alpha_n + 1) * log(sv) - beta_n / sv^2
+        log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(cv)
+        vals[valid_sigma] <- exp(log_p_sigma + log_jacobian - log_Z_sigma)
+      }
+      result[valid] <- vals
+      result
     })
   }
 
@@ -151,23 +174,36 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     d_theta <- theta_grid[2] - theta_grid[1]
 
     return(function(c) {
-      if (c <= 0) return(0)
-      R <- cpm_dist / (sigma_level * c)
-      if (R <= 0) return(0)
-      log_jacobian <- 2 * log(R) - log(c)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
 
-      sigma_v <- R * sin(theta_grid)
-      valid <- sigma_v > 1e-10
-      if (!any(valid)) return(0)
-      sv <- sigma_v[valid]
-      mu_v <- target + R * cos(theta_grid[valid])
-      sd_mu <- sv / sqrt(k_n)
-
-      log_p_sigma <- -(2 * alpha_n + 1) * log(sv) - beta_n / sv^2
-      log_p_mu <- stats::dnorm(mu_v, mu_n, sd_mu, log = TRUE)
-      vals <- exp(log_p_sigma + log_p_mu + log_jacobian - log_Z_sigma)
-      vals[!is.finite(vals)] <- 0
-      sum(vals) * d_theta
+      cv <- c[valid_c]
+      R <- cpm_dist / (sigma_level * cv)
+      valid_R <- is.finite(R) & R > 0
+      vals_out <- numeric(length(cv))
+      if (any(valid_R)) {
+        Rv <- R[valid_R]
+        cv_valid <- cv[valid_R]
+        sigma_mat <- outer(sin(theta_grid), Rv, `*`)
+        mu_mat <- target + outer(cos(theta_grid), Rv, `*`)
+        valid <- sigma_mat > 1e-10
+        sd_mu <- sigma_mat / sqrt(k_n)
+        log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_mat) - beta_n / sigma_mat^2
+        log_p_mu <- stats::dnorm(mu_mat, mu_n, sd_mu, log = TRUE)
+        log_jacobian <- matrix(
+          2 * log(Rv) - log(cv_valid),
+          nrow = length(theta_grid),
+          ncol = length(Rv),
+          byrow = TRUE
+        )
+        vals <- exp(log_p_sigma + log_p_mu + log_jacobian - log_Z_sigma)
+        vals[!is.finite(vals) | !valid] <- 0
+        vals_out[valid_R] <- colSums(vals) * d_theta
+      }
+      result[valid_c] <- vals_out
+      result
     })
   }
 
@@ -175,30 +211,45 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
     if (is.null(target)) target <- M
 
     return(function(c) {
-      if (c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
 
+      cv <- c[valid_c]
       integrand <- function(z) {
-        contour <- .cpc_contour_from_z(
-          z, c, tol, target,
-          sigma_level = sigma_level
+        z <- if (is.matrix(z)) as.numeric(z[1, ]) else as.numeric(z)
+        g_z <- .cpc_g(z)
+        sigma_mat <- tol / (
+          (2 * sigma_level) * sqrt(pi / 2) * outer(cv, g_z, `*`)
         )
-        sd_mu <- contour$sigma / sqrt(k_n)
-        log_p_sigma <- -(2 * alpha_n + 1) * log(contour$sigma) -
-          beta_n / contour$sigma^2
-        log_p_mu_L <- stats::dnorm(contour$mu_lower, mu_n, sd_mu, log = TRUE)
-        log_p_mu_U <- stats::dnorm(contour$mu_upper, mu_n, sd_mu, log = TRUE)
+        delta_mat <- sweep(sigma_mat, 2, z, `*`)
+        mu_lower <- target - delta_mat
+        mu_upper <- target + delta_mat
+        sd_mu <- sigma_mat / sqrt(k_n)
+        log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_mat) -
+          beta_n / sigma_mat^2
+        log_jacobian <- 2 * log(sigma_mat) - log(cv)
+        log_p_mu_L <- stats::dnorm(mu_lower, mu_n, sd_mu, log = TRUE)
+        log_p_mu_U <- stats::dnorm(mu_upper, mu_n, sd_mu, log = TRUE)
 
-        vals <- exp(log_p_sigma + log_p_mu_L + contour$log_jacobian - log_Z_sigma) +
-          exp(log_p_sigma + log_p_mu_U + contour$log_jacobian - log_Z_sigma)
+        vals <- exp(log_p_sigma + log_p_mu_L + log_jacobian - log_Z_sigma) +
+          exp(log_p_sigma + log_p_mu_U + log_jacobian - log_Z_sigma)
         vals[!is.finite(vals)] <- 0
         vals
       }
 
-      stats::integrate(
-        integrand, 0, 20,
-        rel.tol = 1e-5,
-        subdivisions = 400
-      )$value
+      vals <- cubature::pcubature(
+        integrand,
+        lowerLimit = 0,
+        upperLimit = 20,
+        tol = 1e-5,
+        fDim = length(cv),
+        vectorInterface = TRUE
+      )$integral
+      vals[!is.finite(vals)] <- 0
+      result[valid_c] <- vals
+      result
     })
   }
 
@@ -246,18 +297,25 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   # Cp: sigma is fixed on the contour, no integration needed
   if (metric == "Cp") {
     return(function(c) {
-      if (c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid <- is.finite(c) & c > 0
+      if (!any(valid)) return(result)
 
-      sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0 ||
-          sigma_c < sigma_lower ||
-          sigma_c > sigma_upper) {
-        return(0)
+      sigma_c <- tol / ((2 * sigma_level) * c[valid])
+      valid_sigma <- sigma_c > 0 &
+        sigma_c >= sigma_lower &
+        sigma_c <= sigma_upper
+      vals <- numeric(length(sigma_c))
+      if (any(valid_sigma)) {
+        sv <- sigma_c[valid_sigma]
+        cv <- c[valid][valid_sigma]
+        lps <- log_p_sigma(sv)
+        log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(cv)
+        vals[valid_sigma] <- exp(lps + log_jacobian - log_Z)
       }
-
-      lps <- log_p_sigma(sigma_c)
-      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
-      exp(lps + log_jacobian - log_Z)
+      result[valid] <- vals
+      result
     })
   }
 
@@ -267,62 +325,86 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     d_theta <- theta_grid[2] - theta_grid[1]
 
     return(function(c) {
-      if (c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
 
-      R <- cpm_dist / (sigma_level * c)
-      if (R <= 0) return(0)
+      cv <- c[valid_c]
+      R <- cpm_dist / (sigma_level * cv)
+      valid_R <- is.finite(R) & R > 0
+      vals_out <- numeric(length(cv))
+      if (any(valid_R)) {
+        Rv <- R[valid_R]
+        cv_valid <- cv[valid_R]
+        sigma_mat <- outer(sin(theta_grid), Rv, `*`)
+        mu_mat <- target + outer(cos(theta_grid), Rv, `*`)
+        valid <- sigma_mat >= sigma_lower &
+          sigma_mat <= sigma_upper &
+          sigma_mat > 1e-10
 
-      log_jacobian <- 2 * log(R) - log(c)
+        sd_mu <- sigma_mat / sqrt(k_n)
+        lps <- log_p_sigma(sigma_mat)
+        log_p_mu <- stats::dnorm(mu_mat, mu_n, sd_mu, log = TRUE)
+        log_jacobian <- matrix(
+          2 * log(Rv) - log(cv_valid),
+          nrow = length(theta_grid),
+          ncol = length(Rv),
+          byrow = TRUE
+        )
 
-      sigma_v <- R * sin(theta_grid)
-      mu_v <- target + R * cos(theta_grid)
-      valid <- sigma_v >= sigma_lower & sigma_v <= sigma_upper & sigma_v > 1e-10
-      if (!any(valid)) return(0)
-      sigma_v <- sigma_v[valid]
-      mu_v <- mu_v[valid]
-      sd_mu <- sigma_v / sqrt(k_n)
-
-      lps <- log_p_sigma(sigma_v)
-      log_p_mu <- stats::dnorm(mu_v, mu_n, sd_mu, log = TRUE)
-
-      vals <- exp(lps + log_p_mu + log_jacobian - log_Z)
-      vals[!is.finite(vals)] <- 0
-      sum(vals) * d_theta
+        vals <- exp(lps + log_p_mu + log_jacobian - log_Z)
+        vals[!is.finite(vals) | !valid] <- 0
+        vals_out[valid_R] <- colSums(vals) * d_theta
+      }
+      result[valid_c] <- vals_out
+      result
     })
   }
 
   if (metric == "Cpc") {
     return(function(c) {
-      if (c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
 
+      cv <- c[valid_c]
       integrand <- function(z) {
-        contour <- .cpc_contour_from_z(
-          z, c, tol, target,
-          sigma_level = sigma_level
+        z <- if (is.matrix(z)) as.numeric(z[1, ]) else as.numeric(z)
+        g_z <- .cpc_g(z)
+        sigma_mat <- tol / (
+          (2 * sigma_level) * sqrt(pi / 2) * outer(cv, g_z, `*`)
         )
-        valid <- contour$sigma >= sigma_lower &
-          contour$sigma <= sigma_upper &
-          contour$sigma > 0
-        vals <- numeric(length(contour$sigma))
-        if (!any(valid)) return(vals)
+        delta_mat <- sweep(sigma_mat, 2, z, `*`)
+        mu_lower <- target - delta_mat
+        mu_upper <- target + delta_mat
+        valid <- sigma_mat >= sigma_lower &
+          sigma_mat <= sigma_upper &
+          sigma_mat > 0
+        sd_mu <- sigma_mat / sqrt(k_n)
+        lps <- log_p_sigma(sigma_mat)
+        log_jacobian <- 2 * log(sigma_mat) - log(cv)
+        log_p_mu_L <- stats::dnorm(mu_lower, mu_n, sd_mu, log = TRUE)
+        log_p_mu_U <- stats::dnorm(mu_upper, mu_n, sd_mu, log = TRUE)
 
-        sigma_v <- contour$sigma[valid]
-        sd_mu <- sigma_v / sqrt(k_n)
-        lps <- log_p_sigma(sigma_v)
-        log_p_mu_L <- stats::dnorm(contour$mu_lower[valid], mu_n, sd_mu, log = TRUE)
-        log_p_mu_U <- stats::dnorm(contour$mu_upper[valid], mu_n, sd_mu, log = TRUE)
-
-        vals[valid] <- exp(lps + log_p_mu_L + contour$log_jacobian[valid] - log_Z) +
-          exp(lps + log_p_mu_U + contour$log_jacobian[valid] - log_Z)
-        vals[!is.finite(vals)] <- 0
+        vals <- exp(lps + log_p_mu_L + log_jacobian - log_Z) +
+          exp(lps + log_p_mu_U + log_jacobian - log_Z)
+        vals[!is.finite(vals) | !valid] <- 0
         vals
       }
 
-      stats::integrate(
-        integrand, 0, 20,
-        rel.tol = 1e-5,
-        subdivisions = 400
-      )$value
+      vals <- cubature::pcubature(
+        integrand,
+        lowerLimit = 0,
+        upperLimit = 20,
+        tol = 1e-5,
+        fDim = length(cv),
+        vectorInterface = TRUE
+      )$integral
+      vals[!is.finite(vals)] <- 0
+      result[valid_c] <- vals
+      result
     })
   }
 

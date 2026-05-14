@@ -243,7 +243,10 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
                                             rel.tol = 1e-5,
                                             subdivisions = 400) {
   S_vec <- function(c) {
-    vals <- vapply(c, function(ci) S(ci), numeric(1))
+    vals <- S(c)
+    if (length(vals) != length(c)) {
+      stop("The integration survival solver must return one value per input point.")
+    }
     vals[!is.finite(vals) | vals < 0] <- 0
     pmin(vals, 1)
   }

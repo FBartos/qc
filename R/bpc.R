@@ -421,6 +421,9 @@ bpc <- function(
   if (!is.null(x)) {
     BayesTools::check_real(x, name = "x", check_length = 0)
     x <- stats::na.omit(x)
+    if (length(x) == 0L && !allow_empty) {
+      stop("After removing missing values, `x` must contain at least one observation.", call. = FALSE)
+    }
     suff_state <- .as_qc_suff_stats_state(data = x)
 
     return(list(
@@ -567,16 +570,44 @@ bpc <- function(
 
 .bpc_requested_limits <- .qc_requested_limits
 
+.qc_metrics_limits <- function(metrics) {
+  limits <- list(
+    LSL = attr(metrics, "LSL"),
+    target = attr(metrics, "target"),
+    USL = attr(metrics, "USL")
+  )
+
+  if (any(vapply(limits, is.null, logical(1)))) {
+    stop(
+      "Cannot recompute capability metrics because the fitted object does not ",
+      "contain stored specification limits.",
+      call. = FALSE
+    )
+  }
+
+  limits
+}
+
+.qc_sigma_changed <- function(metrics, sigma) {
+  current_sigma <- attr(metrics, "sigma") %||% 3
+  !isTRUE(all.equal(as.numeric(sigma), as.numeric(current_sigma)))
+}
+
 .bpc_query_metrics <- function(object,
                                limits = NULL,
                                sigma = object$sigma %||% object$integration_result$sigma %||% 3) {
   is_integration <- identical(object$method, "integration")
+  sigma_changed <- .qc_sigma_changed(object$metrics, sigma)
 
-  if (is.null(limits)) {
+  if (is.null(limits) && !sigma_changed) {
     return(list(
       metrics = object$metrics,
       integration_result = if (is_integration) object$integration_result else NULL
     ))
+  }
+
+  if (is.null(limits)) {
+    limits <- .qc_metrics_limits(object$metrics)
   }
 
   if (is_integration) {

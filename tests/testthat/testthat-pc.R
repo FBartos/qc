@@ -25,6 +25,7 @@ test_that("pc frequentist t fits return finite parameters and summaries", {
 
   expect_s3_class(fit, "pc")
   expect_equal(fit$distribution, "t")
+  expect_equal(attr(fit$metrics, "method"), "pc")
   expect_true(all(is.finite(unlist(fit$fit$fit))))
   expect_gt(fit$fit$fit$scale, 0)
   expect_gt(fit$fit$fit$nu, 2)
@@ -51,6 +52,8 @@ test_that("pc t bootstrap supports shared density and support-interval contracts
   )
 
   expect_true(all(vapply(fit$metrics_boot, function(draws) all(is.finite(draws)), logical(1))))
+  expect_equal(attr(fit$metrics, "method"), "pc")
+  expect_equal(attr(fit$metrics_boot, "method"), "pc")
 
   ss <- summary(fit, interval_probability = c(0.8, 1.0, 1.33, 1.5))
   expect_true(all(is.finite(ss$summary$median)))

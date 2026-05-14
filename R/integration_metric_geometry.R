@@ -4,7 +4,11 @@
 
 # Helper function for log-space difference of exponentials
 log_diff_exp <- function(x, y) {
-  ifelse(x <= y, -Inf, x + log1p(-exp(y - x)))
+  out <- rep(-Inf, length(x))
+  dim(out) <- dim(x)
+  ok <- x > y
+  out[ok] <- x[ok] + log1p(-exp(y[ok] - x[ok]))
+  out
 }
 
 .cpc_lookup <- local({

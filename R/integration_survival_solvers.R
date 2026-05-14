@@ -84,6 +84,142 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     })
   }
 
+  if (metric %in% c("Cpm", "Cpc")) {
+    if (is.null(target)) target <- (LSL + USL) / 2
+    cpm_dist <- .cpm_spec_distance(LSL, USL, target)
+
+    cpc_width_matrix <- function(sigma, c_vec) {
+      A <- tol / ((2 * sigma_level) * sqrt(pi / 2))
+      sigma_mat <- matrix(rep(sigma, each = length(c_vec)), nrow = length(c_vec))
+      c_mat <- matrix(rep(c_vec, times = length(sigma)), nrow = length(c_vec))
+      K <- A / (c_mat * sigma_mat)
+
+      width <- matrix(NA_real_, nrow = length(c_vec), ncol = length(sigma))
+      feasible <- is.finite(K) & K >= .cpc_lookup$g0
+      if (!any(feasible)) {
+        return(width)
+      }
+
+      Kf <- K[feasible]
+      z <- numeric(length(Kf))
+      use_interp <- Kf <= .cpc_lookup$g_max
+      if (any(use_interp)) {
+        z[use_interp] <- stats::approx(
+          x = .cpc_lookup$g,
+          y = .cpc_lookup$z,
+          xout = Kf[use_interp],
+          ties = "ordered",
+          rule = 2
+        )$y
+      }
+      if (any(!use_interp)) {
+        z[!use_interp] <- Kf[!use_interp]
+      }
+
+      width[feasible] <- sigma_mat[feasible] * z
+      width
+    }
+
+    return(function(c) {
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      finite <- is.finite(c)
+      result[finite & c <= 0] <- 1
+
+      use <- finite & c > 0
+      if (!any(use)) {
+        return(result)
+      }
+
+      c_vec <- c[use]
+      if (length(c_vec) == 1L) {
+        ci <- c_vec
+        constr <- get_metric_constraints(metric, ci, LSL, USL, target,
+                                         sigma_level = sigma_level)
+        s_max <- constr$s_max_fn()
+        vals <- if (!is.infinite(s_max) && s_max <= 0) {
+          0
+        } else {
+          y_min <- if (is.infinite(s_max)) 0 else (2 * beta_n) / (s_max^2)
+          h_max <- stats::dchisq(max(df_p - 2, 1e-6), df_p, log = TRUE)
+          log_int <- function(y) {
+            sigma <- sqrt((2 * beta_n) / y)
+            sd_mu <- sigma / sqrt(k_n)
+            mb <- constr$mu_b_fn_vec(sigma)
+            z_U <- ifelse(is.infinite(mb$upper), Inf, (mb$upper - mu_n) / sd_mu)
+            z_L <- ifelse(is.infinite(mb$lower), -Inf, (mb$lower - mu_n) / sd_mu)
+            log_prob <- log_diff_exp(
+              stats::pnorm(z_U, log.p = TRUE),
+              stats::pnorm(z_L, log.p = TRUE)
+            )
+            invalid <- mb$lower >= mb$upper
+            log_prob[invalid] <- -Inf
+            log_prob + stats::dchisq(y, df_p, log = TRUE)
+          }
+          scaled <- stats::integrate(
+            function(y) {
+              vals <- exp(log_int(y) - h_max)
+              vals[!is.finite(vals)] <- 0
+              vals
+            },
+            y_min,
+            Inf
+          )$value
+          if (scaled <= 0) 0 else exp(h_max + log(scaled))
+        }
+        result[use] <- pmin(pmax(vals, 0), 1)
+        return(result)
+      }
+
+      eps <- 1e-10
+      u_grid <- sort(unique(c(
+        seq(eps, 1 - eps, length.out = 4096L),
+        1 - 10^seq(-10, -3, length.out = 512L)
+      )))
+      u_edges <- c(0, (u_grid[-1] + u_grid[-length(u_grid)]) / 2, 1)
+      u_weights <- diff(u_edges)
+
+      survival_matrix <- function(u) {
+        y <- stats::qchisq(u, df = df_p)
+        sigma <- sqrt((2 * beta_n) / y)
+        sd_mu <- sigma / sqrt(k_n)
+
+        if (metric == "Cpm") {
+          R <- cpm_dist / (sigma_level * c_vec)
+          width_sq <- outer(R^2, sigma^2, "-")
+          valid_width <- is.finite(width_sq) & width_sq > 0
+          width <- sqrt(pmax(width_sq, 0))
+        } else {
+          width <- cpc_width_matrix(sigma, c_vec)
+          valid_width <- is.finite(width)
+        }
+
+        lower <- target - width
+        upper <- target + width
+        lower[!valid_width] <- 0
+        upper[!valid_width] <- -1
+
+        z_U <- sweep(upper - mu_n, 2, sd_mu, "/")
+        z_L <- sweep(lower - mu_n, 2, sd_mu, "/")
+        log_prob <- log_diff_exp(
+          stats::pnorm(z_U, log.p = TRUE),
+          stats::pnorm(z_L, log.p = TRUE)
+        )
+        prob <- exp(log_prob)
+        prob[!is.finite(prob) | z_L >= z_U] <- 0
+        prob
+      }
+
+      vals <- tryCatch({
+        prob <- survival_matrix(u_grid)
+        as.numeric(prob %*% u_weights)
+      }, error = function(e) rep(NA_real_, length(c_vec)))
+      vals[!is.finite(vals)] <- 0
+      result[use] <- pmin(pmax(vals, 0), 1)
+      result
+    })
+  }
+
   # Pre-compute global h_max (chi-square mode density for numerical stability)
   y_mode <- max(df_p - 2, 1e-6)
   h_max_global <- stats::dchisq(y_mode, df_p, log = TRUE)

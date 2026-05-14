@@ -47,7 +47,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   if (backend$can_use_density) {
     prob <- tryCatch({
-      pdf_vec <- function(x) vapply(x, backend$pdf_fn, numeric(1L))
+      pdf_vec <- function(x) {
+        .integration_eval_vectorized(
+          backend$pdf_fn, x,
+          context = "The integration density solver"
+        )
+      }
 
       # Capability indices on this path have support on [0, Inf).
       lower <- max(min(bounds), 0)
@@ -126,7 +131,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   }
 
   if (inherits(prior, "PriorSemiConjugateSigma") &&
-      metric %in% c("Cpm", "Cpc")) {
+      metric %in% c("Cp", "Cpm", "Cpc")) {
     return(FALSE)
   }
 
@@ -241,7 +246,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   # E[1/sigma] from the sigma prior
   E_inv_sigma <- tryCatch({
     integrand_inv_sigma <- function(s) exp(log_dens_sigma(s)) / s
-    stats::integrate(Vectorize(integrand_inv_sigma), 1e-10, Inf,
+    stats::integrate(integrand_inv_sigma, 1e-10, Inf,
                      rel.tol = 1e-6, subdivisions = 500)$value
   }, error = function(e) Inf)
   if (!is.finite(E_inv_sigma)) return(0)
@@ -252,7 +257,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     # E[(USL - mu) * I(mu > USL)]: negative since USL - mu < 0 when mu > USL
     E_Cpu_neg <- tryCatch({
       integrand_cpu_neg <- function(mu) (USL - mu) * exp(log_dens_mu(mu))
-      stats::integrate(Vectorize(integrand_cpu_neg), USL, USL + 20 * tol,
+      stats::integrate(integrand_cpu_neg, USL, USL + 20 * tol,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
     corr_Cpu <- (1 / sigma_level) * E_Cpu_neg * E_inv_sigma
@@ -262,7 +267,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     # E[(mu - LSL) * I(mu < LSL)]: negative since mu - LSL < 0 when mu < LSL
     E_Cpl_neg <- tryCatch({
       integrand_cpl_neg <- function(mu) (mu - LSL) * exp(log_dens_mu(mu))
-      stats::integrate(Vectorize(integrand_cpl_neg), LSL - 20 * tol, LSL,
+      stats::integrate(integrand_cpl_neg, LSL - 20 * tol, LSL,
                        rel.tol = 1e-6)$value
     }, error = function(e) 0)
     corr_Cpl <- (1 / sigma_level) * E_Cpl_neg * E_inv_sigma
@@ -293,7 +298,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   for (attempt in seq_len(max_extend)) {
     coarse_x   <- seq(x_start, x_end, length.out = n_coarse)
     coarse_mid <- (coarse_x[-1] + coarse_x[-n_coarse]) / 2
-    coarse_pdf <- vapply(coarse_mid, pdf_fn, numeric(1))
+    coarse_pdf <- .integration_eval_vectorized(
+      pdf_fn, coarse_mid,
+      context = "The integration density solver"
+    )
     coarse_pdf[!is.finite(coarse_pdf) | coarse_pdf < 0] <- 0
 
     peak <- max(coarse_pdf)
@@ -322,7 +330,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     n_grid_po <- max(n_grid, 1024L)
     grid_x   <- exp(seq(log(max(x_start, 1e-4)), log(x_end), length.out = n_grid_po))
     mid_x    <- (grid_x[-1] + grid_x[-n_grid_po]) / 2
-    pdf_vals <- vapply(mid_x, pdf_fn, numeric(1))
+    pdf_vals <- .integration_eval_vectorized(
+      pdf_fn, mid_x,
+      context = "The integration density solver"
+    )
     pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
     dx   <- diff(grid_x)
     area <- sum(pdf_vals * dx)
@@ -361,7 +372,10 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   grid_x <- sort(unique(c(x_start, left_grid, fine_grid, right_grid, x_end)))
   mid_x    <- (grid_x[-1] + grid_x[-length(grid_x)]) / 2
-  pdf_vals <- vapply(mid_x, pdf_fn, numeric(1))
+  pdf_vals <- .integration_eval_vectorized(
+    pdf_fn, mid_x,
+    context = "The integration density solver"
+  )
   pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
   dx   <- diff(grid_x)
   area <- sum(pdf_vals * dx)
@@ -376,7 +390,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   left_tail_mass <- 0
 
   if (length(grid_x) >= 2L && is.finite(support_lower) && grid_x[1] > support_lower) {
-    pdf_vec <- function(x) vapply(x, pdf_fn, numeric(1L))
+    pdf_vec <- function(x) {
+      .integration_eval_vectorized(
+        pdf_fn, x,
+        context = "The integration density solver"
+      )
+    }
     left_tail_mass <- tryCatch(
       stats::integrate(pdf_vec, support_lower, grid_x[1], rel.tol = 1e-4)$value,
       error = function(e) NA_real_

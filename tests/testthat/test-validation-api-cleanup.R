@@ -78,6 +78,30 @@ testthat::test_that("data preparation centralizes summary-statistics validation 
   testthat::expect_equal(empty_t$cached_state$n, 0L)
 })
 
+testthat::test_that("raw data inputs cannot become empty after removing missing values", {
+  regexp <- "at least one observation"
+
+  testthat::expect_error(
+    qc:::.bpc_prepare_data(distribution = "normal", x = c(NA_real_, NA_real_)),
+    regexp = regexp
+  )
+  testthat::expect_error(
+    qc::bpc(c(NA_real_, NA_real_), LSL = 0, target = 1, USL = 2),
+    regexp = regexp
+  )
+  testthat::expect_error(
+    qc::pc(c(NA_real_, NA_real_), LSL = 0, target = 1, USL = 2, bootstrap = FALSE),
+    regexp = regexp
+  )
+
+  prepared <- qc:::.bpc_prepare_data(
+    distribution = "normal",
+    x = c(NA_real_, NA_real_),
+    allow_empty = TRUE
+  )
+  testthat::expect_equal(prepared$cached_state$n, 0L)
+})
+
 testthat::test_that("bpc accepts normal summary statistics without explicit x", {
   fit <- qc::bpc(
     LSL = 0,

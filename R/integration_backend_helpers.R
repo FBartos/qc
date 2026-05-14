@@ -17,6 +17,14 @@
   if (.metric_can_be_negative(metric)) -Inf else 0
 }
 
+.integration_eval_vectorized <- function(fn, x, context = "integration function") {
+  vals <- fn(x)
+  if (length(vals) != length(x)) {
+    stop(context, " must return one value per input point.", call. = FALSE)
+  }
+  as.numeric(vals)
+}
+
 .integration_request_args <- function(request) {
   request <- .as_qc_integration_request(request = request)
 

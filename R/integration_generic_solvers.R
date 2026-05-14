@@ -133,27 +133,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   log_post_vec <- cached_state$log_post_vec
   sigma_floor <- max(sigma_lower, 1e-10)
 
-  contour_density <- function(mu, sigma, log_jacobian) {
-    result <- numeric(length(mu))
-    if (length(result) == 0L) return(result)
-
-    if (length(log_jacobian) == 1L) {
-      log_jacobian <- rep(log_jacobian, length(mu))
-    }
-
-    valid <- is.finite(mu) & is.finite(sigma) &
-      sigma >= sigma_floor & sigma <= sigma_upper &
-      mu >= mu_lower & mu <= mu_upper
-    if (!any(valid)) return(result)
-
-    log_p <- log_post_vec(mu[valid], sigma[valid])
-    contrib <- exp(log_p + log_jacobian[valid] - h_max) / Z
-    contrib[!is.finite(contrib)] <- 0
-
-    result[valid] <- contrib
-    result
-  }
-
   survival_density <- function(metric_name) {
     .density_from_survival_fn(
       .integration_make_solver(
@@ -178,60 +157,115 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     return(survival_density(metric))
   }
 
-  # Cp: single point
   if (metric == "Cp") {
     return(function(c) {
-      if (c <= 0) return(0)
-
-      sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0) return(0)
-      if (sigma_c < sigma_floor || sigma_c > sigma_upper) return(0)
-      if (!is.finite(mu_lower) || !is.finite(mu_upper) || mu_upper <= mu_lower) return(0)
-
-      # At sigma_c, mu can be anything inside the cached normalization box.
-      # p(Cp = c) = ∫ p(mu, sigma_c) |dsigma/dc| dmu
-      # |dsigma/dc| = tol / (2 * sigma_level * c^2)
-      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
-
-      # Integrate over mu
-      mu_integrand <- function(mu) {
-        sigma_vec <- rep(sigma_c, length(mu))
-        log_p <- log_post_vec(mu, sigma_vec)
-        exp(log_p - h_max) / Z
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
+      if (!is.finite(mu_lower) || !is.finite(mu_upper) || mu_upper <= mu_lower) {
+        return(result)
       }
 
-      tryCatch({
-        mu_integral <- stats::integrate(mu_integrand, mu_lower, mu_upper, rel.tol = 1e-5)$value
-        mu_integral * exp(log_jacobian)
-      }, error = function(e) {
-        0
-      })
+      cv <- c[valid_c]
+      sigma_c <- tol / ((2 * sigma_level) * cv)
+      valid_sigma <- sigma_c > 0 &
+        sigma_c >= sigma_floor &
+        sigma_c <= sigma_upper
+      vals_out <- numeric(length(cv))
+      if (!any(valid_sigma)) {
+        result[valid_c] <- vals_out
+        return(result)
+      }
+
+      sv <- sigma_c[valid_sigma]
+      cv_valid <- cv[valid_sigma]
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(cv_valid)
+
+      integrand <- function(mu) {
+        mu <- if (is.matrix(mu)) as.numeric(mu[1, ]) else as.numeric(mu)
+        mu_mat <- matrix(rep(mu, each = length(sv)), nrow = length(sv))
+        sigma_mat <- matrix(rep(sv, times = length(mu)), nrow = length(sv))
+        log_p <- matrix(
+          log_post_vec(as.vector(mu_mat), as.vector(sigma_mat)),
+          nrow = length(sv)
+        )
+        vals <- exp(log_p - h_max + log_jacobian) / Z
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      vals <- tryCatch(
+        cubature::pcubature(
+          integrand,
+          lowerLimit = mu_lower,
+          upperLimit = mu_upper,
+          tol = 1e-5,
+          fDim = length(sv),
+          vectorInterface = TRUE
+        )$integral,
+        error = function(e) rep(0, length(sv))
+      )
+      vals_out[valid_sigma] <- vals
+      result[valid_c] <- vals_out
+      result
     })
   }
 
   if (metric == "Cpm") {
     return(function(c) {
-      if (c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid_c <- is.finite(c) & c > 0
+      if (!any(valid_c)) return(result)
 
-      # Contour radius uses the nearest target-to-spec distance.
-      R <- cpm_dist / (sigma_level * c)
-      if (R <= 0) return(0)
-
-      # Jacobian determinant for polar coordinates wrt c
-      # |J| = R^2 / c
-      log_jacobian <- 2 * log(R) - log(c)
-
-      integrand <- function(theta) {
-        sigma_v <- R * sin(theta)
-        mu_v <- target + R * cos(theta)
-        contour_density(mu_v, sigma_v, log_jacobian)
+      cv <- c[valid_c]
+      R <- cpm_dist / (sigma_level * cv)
+      valid_R <- is.finite(R) & R > 0
+      vals_out <- numeric(length(cv))
+      if (!any(valid_R)) {
+        result[valid_c] <- vals_out
+        return(result)
       }
 
-      tryCatch({
-        stats::integrate(integrand, 0, pi, rel.tol = 1e-5, subdivisions = 200)$value
-      }, error = function(e) {
-        0
-      })
+      Rv <- R[valid_R]
+      cv_valid <- cv[valid_R]
+      log_jacobian <- 2 * log(Rv) - log(cv_valid)
+
+      integrand <- function(theta) {
+        theta <- if (is.matrix(theta)) as.numeric(theta[1, ]) else as.numeric(theta)
+        sigma_mat <- outer(Rv, sin(theta), `*`)
+        mu_mat <- target + outer(Rv, cos(theta), `*`)
+        log_jacobian_mat <- matrix(
+          rep(log_jacobian, times = length(theta)),
+          nrow = length(Rv)
+        )
+        valid <- is.finite(mu_mat) & is.finite(sigma_mat) &
+          sigma_mat >= sigma_floor & sigma_mat <= sigma_upper &
+          mu_mat >= mu_lower & mu_mat <= mu_upper
+        vals <- matrix(0, nrow = length(Rv), ncol = length(theta))
+        if (any(valid)) {
+          log_p <- log_post_vec(mu_mat[valid], sigma_mat[valid])
+          vals[valid] <- exp(log_p + log_jacobian_mat[valid] - h_max) / Z
+        }
+        vals[!is.finite(vals)] <- 0
+        vals
+      }
+
+      vals <- tryCatch(
+        cubature::pcubature(
+          integrand,
+          lowerLimit = 0,
+          upperLimit = pi,
+          tol = 1e-5,
+          fDim = length(Rv),
+          vectorInterface = TRUE
+        )$integral,
+        error = function(e) rep(0, length(Rv))
+      )
+      vals_out[valid_R] <- vals
+      result[valid_c] <- vals_out
+      result
     })
   }
 

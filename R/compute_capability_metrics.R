@@ -324,6 +324,13 @@ samples_to_posterior_predictives.t      <- function(samples) {
 
   # extract samples from the fitted objects
   raw_samples <- extract_samples(fit, bootstrap = bootstrap)
+  method <- if (!is.null(fit$method)) {
+    fit$method
+  } else if (inherits(fit, "pc")) {
+    "pc"
+  } else {
+    "mcmc"
+  }
 
   # computes capability metrics using percentiles
   # (i.e., the q-version of the metric as a generalization to non-normal distributions)
@@ -344,7 +351,7 @@ samples_to_posterior_predictives.t      <- function(samples) {
     USL = USL,
     target = target,
     sigma = sigma,
-    method = "mcmc",
+    method = method,
     distributions = .sample_distributions_from_metrics(lst, what = names(lst))
   )
 }
