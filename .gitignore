@@ -50,3 +50,6 @@ rsconnect/
 
 /results
 /src
+/temp_lib
+/install.log
+/install_temp.log

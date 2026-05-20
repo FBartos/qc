@@ -2,3 +2,13 @@
 ^renv\.lock$
 ^qc\.Rproj$
 ^\.Rproj\.user$
+^dev$
+^data-raw$
+^results$
+^temp_lib$
+^install.*\.log$
+^\.Rhistory$
+^.*\.Rcheck$
+^qc_.*\.tar\.gz$
+^\.positai$
+^\.claude$

@@ -5,14 +5,13 @@
 \title{Bayesian Process Capability}
 \usage{
 bpc(
-  x,
+  x = NULL,
   LSL,
   target,
   USL,
   distribution = "normal",
-  prior_mu = "Jeffreys_mu",
-  prior_sigma = "Jeffreys_sigma",
-  prior_nu = NULL,
+  method = NULL,
+  prior = "DCSI",
   chains = 4,
   iter = 10000,
   warmup = 5000,
@@ -20,12 +19,10 @@ bpc(
   cores = chains,
   parallel = FALSE,
   control = set_control(),
-  convergence_checks = set_convergence_checks(),
   seed = NULL,
   silent = TRUE,
   sample_priors = FALSE,
   sigma = 3,
-  force_normal = FALSE,
   ...
 )
 }
@@ -40,11 +37,14 @@ bpc(
 
 \item{distribution}{distribution for fitting the data}
 
-\item{prior_mu}{prior for the process mean, can be a string or a prior object}
+\item{method}{computation method: "mcmc" for Stan-based MCMC sampling,
+"integration" for numerical integration, or \code{NULL} to use the
+distribution-specific default.}
 
-\item{prior_sigma}{prior for the process standard deviation, can be a string or a prior object}
-
-\item{prior_nu}{prior for the degrees of freedom, can be a string or a prior object}
+\item{prior}{unified prior specification. When omitted, the normal
+integration path uses \code{"DCSI"}, while MCMC and Student-t fits use
+\code{"Jeffreys"}. Use \code{prior_independent()} for parameter-wise
+priors.}
 
 \item{chains}{number of chains to run, defaults to 4}
 
@@ -60,8 +60,6 @@ bpc(
 
 \item{control}{a list of control settings for the Stan model, see \code{\link[rstan]{sampling}} for details, defaults to \code{set_control()}}
 
-\item{convergence_checks}{a list of convergence checks for the Stan model, see \code{\link[rstan]{check_convergence}} for details, defaults to \code{set_convergence_checks()}}
-
 \item{seed}{a random seed for reproducibility, defaults to NULL}
 
 \item{silent}{whether to suppress output during fitting, defaults to TRUE}
@@ -70,10 +68,66 @@ bpc(
 
 \item{sigma}{the number of standard deviations to use for the capability metrics, defaults to 3}
 
-\item{force_normal}{whether to force the calculation of capability metrics assuming normal distribution, defaults to FALSE}
-
-\item{...}{}
+\item{...}{additional arguments. When \code{x} is \code{NULL}, \code{mean},
+\code{sd}, and \code{N} can be supplied instead of raw observations for
+\code{distribution = "normal"}. No other named arguments are accepted. The
+Student-t model requires raw observations in \code{x}.}
 }
 \description{
 Bayesian Process Capability
+}
+\details{
+Priors are specified through the single \code{prior} argument. When
+\code{method} is omitted, the normal likelihood defaults to
+\code{method = "integration"} and \code{prior = "DCSI"}, which resolves to a
+conjugate Normal-Inverse-Gamma prior centered at the midpoint of the
+specification limits. Explicit MCMC fits with omitted \code{prior} use
+\code{prior = "Jeffreys"} because MCMC currently supports parameter-wise
+priors. Use \code{prior_independent()} for custom parameter-wise priors, or
+\code{prior_conjugate()}, \code{prior_joint()}, and
+\code{prior_semi_conjugate()} for normal-likelihood integration priors.
+}
+\examples{
+data("pistonrings", package = "qc")
+diameter <- subset(pistonrings, trial)[["diameter"]]
+
+# Default: normal likelihood, numerical integration, and DCSI prior.
+fit <- bpc(diameter, LSL = 73.98, target = 74.00, USL = 74.02)
+coef(fit)
+summary(fit)
+
+# Switch to the parameter-wise Jeffreys prior.
+fit_jeffreys <- bpc(
+  diameter,
+  LSL = 73.98, target = 74.00, USL = 74.02,
+  prior = "Jeffreys"
+)
+coef(fit_jeffreys)
+
+# Use a custom conjugate normal-likelihood prior with integration.
+fit_conjugate <- bpc(
+  diameter,
+  LSL = 73.98, target = 74.00, USL = 74.02,
+  prior = prior_conjugate(mu0 = 74, k0 = 2, alpha0 = 3, beta0 = 8.5e-5)
+)
+summary(fit_conjugate, LSL = 73.975, target = 74.00, USL = 74.025)
+
+\dontrun{
+data("pistonrings", package = "qc")
+diameter <- subset(pistonrings, trial)[["diameter"]]
+
+# MCMC uses parameter-wise priors.
+fit_mcmc <- bpc(
+  diameter,
+  LSL = 73.98, target = 74.00, USL = 74.02,
+  method = "mcmc",
+  prior = prior_independent(
+    mu = prior("normal", list(74, 0.02)),
+    sigma = prior("gamma", list(2, 200))
+  ),
+  chains = 2, iter = 2000, warmup = 1000, seed = 1
+)
+summary(fit_mcmc)
+}
+
 }
