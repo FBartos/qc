@@ -66,11 +66,11 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     if (any(use_forward)) {
       base <- pmax(c_valid[use_forward], support_lower)
       density[use_forward] <- (
-        .integration_eval_vectorized(
+        .integration_eval(
           S, base,
           context = "The integration survival solver"
         ) -
-          .integration_eval_vectorized(
+          .integration_eval(
             S, upper[use_forward],
             context = "The integration survival solver"
           )
@@ -79,11 +79,11 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
 
     if (any(use_central)) {
       density[use_central] <- (
-        .integration_eval_vectorized(
+        .integration_eval(
           S, lower[use_central],
           context = "The integration survival solver"
         ) -
-          .integration_eval_vectorized(
+          .integration_eval(
             S, upper[use_central],
             context = "The integration survival solver"
           )

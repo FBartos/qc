@@ -54,3 +54,6 @@ rsconnect/
 /install.log
 /install_temp.log
 .positai
+/.StatsVault
+AGENTS.md
+CLAUDE.md

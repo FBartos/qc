@@ -220,62 +220,49 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     })
   }
 
-  # Pre-compute global h_max (chi-square mode density for numerical stability)
-  y_mode <- max(df_p - 2, 1e-6)
-  h_max_global <- stats::dchisq(y_mode, df_p, log = TRUE)
+  if (metric == "Cpk") {
+    eps <- 1e-10
+    u_grid <- sort(unique(c(
+      seq(eps, 1 - eps, length.out = 4096L),
+      1 - 10^seq(-10, -3, length.out = 512L)
+    )))
+    u_edges <- c(0, (u_grid[-1] + u_grid[-length(u_grid)]) / 2, 1)
+    u_weights <- diff(u_edges)
+    y_grid <- stats::qchisq(u_grid, df = df_p)
+    sigma_grid <- sqrt((2 * beta_n) / y_grid)
+    sd_mu_grid <- sigma_grid / sqrt(k_n)
 
-  function(c) {
-    if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
+    return(function(c) {
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      result[is.infinite(c) & c < 0] <- 1
 
-    constr <- get_metric_constraints(metric, c, LSL, USL, target,
-                                     sigma_level = sigma_level)
-    s_max <- constr$s_max_fn()
-    if (!is.infinite(s_max) && s_max <= 0) return(0.0)
+      use <- is.finite(c)
+      if (!any(use)) {
+        return(result)
+      }
 
-    y_min <- if (is.infinite(s_max)) 0 else (2 * beta_n) / (s_max^2)
+      c_vec <- c[use]
+      delta_mat <- sigma_level * outer(c_vec, sigma_grid, `*`)
+      lower <- LSL + delta_mat
+      upper <- USL - delta_mat
+      valid <- lower < upper
 
-    # Vectorized log integrand
-    log_int <- function(y) {
-      # All operations vectorized
-      sigma <- sqrt((2 * beta_n) / y)
-      sd_mu <- sigma / sqrt(k_n)
+      z_U <- sweep(upper - mu_n, 2, sd_mu_grid, "/")
+      z_L <- sweep(lower - mu_n, 2, sd_mu_grid, "/")
+      log_prob <- log_diff_exp(
+        stats::pnorm(z_U, log.p = TRUE),
+        stats::pnorm(z_L, log.p = TRUE)
+      )
+      prob <- exp(log_prob)
+      prob[!is.finite(prob) | !valid] <- 0
 
-      # Get bounds for all sigma values at once
-      mb <- constr$mu_b_fn_vec(sigma)
-      mb_L <- mb$lower
-      mb_U <- mb$upper
-
-      # Identify valid intervals
-      valid <- mb_L < mb_U
-
-      # Initialize result with -Inf
-
-      result <- rep(-Inf, length(y))
-
-      if (!any(valid)) return(result)
-
-      # Compute z-scores (vectorized)
-      z_U <- ifelse(is.infinite(mb_U), Inf, (mb_U - mu_n) / sd_mu)
-      z_L <- ifelse(is.infinite(mb_L), -Inf, (mb_L - mu_n) / sd_mu)
-
-      # log_diff_exp(stats::pnorm(z_U, log.p=TRUE), stats::pnorm(z_L, log.p=TRUE)) + stats::dchisq(y, df_p, log=TRUE)
-      log_prob <- log_diff_exp(stats::pnorm(z_U, log.p = TRUE), stats::pnorm(z_L, log.p = TRUE))
-      result[valid] <- log_prob[valid] + stats::dchisq(y[valid], df_p, log = TRUE)
+      result[use] <- pmin(pmax(as.numeric(prob %*% u_weights), 0), 1)
       result
-    }
-
-    h_max <- h_max_global
-
-    safe_integrand <- function(y) {
-      vals <- exp(log_int(y) - h_max)
-      vals[!is.finite(vals)] <- 0
-      return(vals)
-    }
-
-    res <- stats::integrate(safe_integrand, y_min, Inf)$value
-    if (res <= 0) return(0.0)
-    return(exp(h_max + log(res)))
+    })
   }
+
+  stop("Unsupported metric for survival solver: ", metric)
 }
 
 #' @export

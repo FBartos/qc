@@ -191,47 +191,10 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   }
 
   if (metric == "Cpk") {
-    # Cpk = min(Cpu, Cpl) = (tol/2 - |mu - mid|) / (sigma_level * sigma)
-    # E[Cpk] = (tol/2) / sigma_level * E[1/sigma] -
-    #          E[|mu - mid|/sigma] / sigma_level
-
-    # E[|mu - mid|/sigma] requires integrating over sigma
-    # (mu - mid)|sigma ~ N(mu_n - mid, sigma^2/k_n)
-    # |X| where X ~ N(delta, tau^2): E[|X|] = tau*sqrt(2/pi)*exp(-delta^2/(2*tau^2)) + delta*(1 - 2*Phi(-delta/tau))
-    delta <- mu_n - mid
-    # tau = sigma/sqrt(k_n), so we need E[f(sigma)] over marginal of sigma
-
-    # Integrate E[|mu - mid| | sigma] * p(sigma) over sigma
-    # Using y = 2*beta/sigma^2 ~ chi^2(df_p), sigma = sqrt(2*beta/y)
-    integrand_abs <- function(y) {
-      sigma <- sqrt(2 * beta_n / y)
-      tau <- sigma / sqrt(k_n)
-      # Mean of |X| for X ~ N(delta, tau^2)
-      abs_mean <- tau * sqrt(2 / pi) * exp(-delta^2 / (2 * tau^2)) +
-                  delta * (1 - 2 * stats::pnorm(-delta / tau))
-      abs_mean / sigma * stats::dchisq(y, df_p)
-    }
-    E_abs_div_sigma <- stats::integrate(integrand_abs, 0, Inf, rel.tol = 1e-6)$value
-
-    E1 <- (tol / 2) / sigma_level * E_inv_sigma - E_abs_div_sigma / sigma_level
-
-    # E[Cpk^2] - more complex, use 1D numerical integration
-    integrand_sq <- function(y) {
-      sigma <- sqrt(2 * beta_n / y)
-      tau <- sigma / sqrt(k_n)
-      # E[(tol/2 - |mu - mid|)^2 | sigma] / (sigma_level^2 * sigma^2)
-      # = E[(tol/2)^2 - tol*|mu-mid| + |mu-mid|^2 | sigma] / (9*sigma^2)
-      abs_mean <- tau * sqrt(2 / pi) * exp(-delta^2 / (2 * tau^2)) +
-                  delta * (1 - 2 * stats::pnorm(-delta / tau))
-      # E[|X|^2] = E[X^2] = delta^2 + tau^2
-      abs2_mean <- delta^2 + tau^2
-      cpk2_given_sigma <- ((tol / 2)^2 - tol * abs_mean + abs2_mean) /
-        (sigma_level^2 * sigma^2)
-      cpk2_given_sigma * stats::dchisq(y, df_p)
-    }
-    E2 <- stats::integrate(integrand_sq, 0, Inf, rel.tol = 1e-6)$value
-
-    return(list(mean = E1, sd = sqrt(max(0, E2 - E1^2))))
+    return(.compute_moments_numerical_conjugate(
+      mu_n, k_n, alpha_n, beta_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
+    ))
   }
 
   stop("Unknown metric: ", metric)
@@ -351,6 +314,17 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   t_mode <- 0.5 * (log(beta_n) - log(alpha_n))
   h_max <- log_sigma_kernel(t_mode)
 
+  tail_prob <- 1e-10
+  y_lower <- stats::qchisq(tail_prob, df = 2 * alpha_n)
+  y_upper <- stats::qchisq(1 - tail_prob, df = 2 * alpha_n)
+  if (!is.finite(y_lower) || y_lower <= 0 || !is.finite(y_upper) || y_upper <= y_lower) {
+    t_lower <- -Inf
+    t_upper <- Inf
+  } else {
+    t_lower <- 0.5 * log(2 * beta_n / y_upper)
+    t_upper <- 0.5 * log(2 * beta_n / y_lower)
+  }
+
   scaled_weight <- function(t) {
     vals <- exp(log_sigma_kernel(t) - h_max)
     vals[!is.finite(vals)] <- 0
@@ -371,24 +345,24 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 
   Z <- stats::integrate(
     function(t) scaled_weight(t),
-    lower = -Inf,
-    upper = Inf,
+    lower = t_lower,
+    upper = t_upper,
     rel.tol = 1e-5,
     subdivisions = 400
   )$value
 
   E1 <- stats::integrate(
     function(t) moment_integrand(t, power = 1),
-    lower = -Inf,
-    upper = Inf,
+    lower = t_lower,
+    upper = t_upper,
     rel.tol = 1e-5,
     subdivisions = 400
   )$value / Z
 
   E2 <- stats::integrate(
     function(t) moment_integrand(t, power = 2),
-    lower = -Inf,
-    upper = Inf,
+    lower = t_lower,
+    upper = t_upper,
     rel.tol = 1e-5,
     subdivisions = 400
   )$value / Z

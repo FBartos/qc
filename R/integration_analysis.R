@@ -48,7 +48,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   if (backend$can_use_density) {
     prob <- tryCatch({
       pdf_vec <- function(x) {
-        .integration_eval_vectorized(
+        .integration_eval(
           backend$pdf_fn, x,
           context = "The integration density solver"
         )
@@ -298,7 +298,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   for (attempt in seq_len(max_extend)) {
     coarse_x   <- seq(x_start, x_end, length.out = n_coarse)
     coarse_mid <- (coarse_x[-1] + coarse_x[-n_coarse]) / 2
-    coarse_pdf <- .integration_eval_vectorized(
+    coarse_pdf <- .integration_eval(
       pdf_fn, coarse_mid,
       context = "The integration density solver"
     )
@@ -330,7 +330,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     n_grid_po <- max(n_grid, 1024L)
     grid_x   <- exp(seq(log(max(x_start, 1e-4)), log(x_end), length.out = n_grid_po))
     mid_x    <- (grid_x[-1] + grid_x[-n_grid_po]) / 2
-    pdf_vals <- .integration_eval_vectorized(
+    pdf_vals <- .integration_eval(
       pdf_fn, mid_x,
       context = "The integration density solver"
     )
@@ -372,7 +372,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   grid_x <- sort(unique(c(x_start, left_grid, fine_grid, right_grid, x_end)))
   mid_x    <- (grid_x[-1] + grid_x[-length(grid_x)]) / 2
-  pdf_vals <- .integration_eval_vectorized(
+  pdf_vals <- .integration_eval(
     pdf_fn, mid_x,
     context = "The integration density solver"
   )
@@ -391,7 +391,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   if (length(grid_x) >= 2L && is.finite(support_lower) && grid_x[1] > support_lower) {
     pdf_vec <- function(x) {
-      .integration_eval_vectorized(
+      .integration_eval(
         pdf_fn, x,
         context = "The integration density solver"
       )
@@ -647,19 +647,20 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     }
   }
 
-  # Negative-support metrics need explicit lower-tail coverage because the
-  # direct density backend only covers c > 0. We use survival quantiles to
-  # capture the full support before building the grid.
+  # Negative-support metrics need explicit lower-tail coverage only when the
+  # moment-based bound still leaves visible mass to its left.
   if (metric_can_be_negative || divergence_info$mean_divergent || x_end > 50) {
     try({
       S_fn <- .integration_make_solver(request = request)
 
       if (metric_can_be_negative) {
-        x_start <- min(x_start, -1)
-        for (try_limit in c(-1, -2, -5, -10, -20, -50, -100, -500, -1000)) {
-          if (S_fn(try_limit) > 0.999) {
-            x_start <- try_limit
-            break
+        start_prob <- tryCatch(S_fn(x_start), error = function(e) NA_real_)
+        if (!is.finite(start_prob) || start_prob < 0.995) {
+          for (try_limit in c(0, -1, -2, -5, -10, -20, -50, -100, -500, -1000)) {
+            if (S_fn(try_limit) > 0.999) {
+              x_start <- min(x_start, try_limit)
+              break
+            }
           }
         }
       }
@@ -712,7 +713,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
 
     # Evaluate grid
     grid_x <- seq(x_start, x_end, length.out = n_grid)
-    S_vals <- sapply(grid_x, backend$S)
+    S_vals <- .integration_eval(
+      backend$S,
+      grid_x,
+      context = "The integration survival solver"
+    )
 
     # Handle NaN in S_vals
     S_vals[!is.finite(S_vals)] <- 0

@@ -25,6 +25,34 @@
   as.numeric(vals)
 }
 
+.integration_eval <- function(fn, x, context = "integration function") {
+  tryCatch(
+    {
+      warnings <- character()
+      vals <- withCallingHandlers(
+        .integration_eval_vectorized(fn, x, context = context),
+        warning = function(w) {
+          warnings <<- c(warnings, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      )
+      for (message in warnings) {
+        warning(message, call. = FALSE)
+      }
+      vals
+    },
+    error = function(e) {
+      vapply(as.numeric(x), function(xi) {
+        vals <- fn(xi)
+        if (length(vals) != 1L) {
+          stop(context, " must return one value per input point.", call. = FALSE)
+        }
+        as.numeric(vals)
+      }, numeric(1))
+    }
+  )
+}
+
 .integration_request_args <- function(request) {
   request <- .as_qc_integration_request(request = request)
 

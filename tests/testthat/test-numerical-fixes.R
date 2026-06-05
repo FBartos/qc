@@ -182,6 +182,113 @@ testthat::test_that("#9: Gauss-Hermite quadrature is accurate for Cpk", {
                info = sprintf("GH Cpk mean=%.4f, 2D ref=%.4f", result$mean, E1_ref))
 })
 
+testthat::test_that("conjugate Cpk integration is stable for high-information off-center data", {
+  LSL <- 6
+  USL <- 9
+  target <- 7.5
+  prior <- qc:::.prior_DCSI(LSL, USL)
+  state <- qc:::.as_qc_suff_stats_state(
+    cached_state = list(
+      n = 1566,
+      x_bar = 7.452067,
+      sse = (1566 - 1) * 0.5162514^2
+    )
+  )
+
+  cpk_moments <- qc:::compute_metric_moments(
+    numeric(0), LSL, USL, prior,
+    metric = "Cpk", target = target,
+    cached_state = state
+  )
+  cp_moments <- qc:::compute_metric_moments(
+    numeric(0), LSL, USL, prior,
+    metric = "Cp", target = target,
+    cached_state = state
+  )
+
+  expect_lt(abs(cpk_moments$mean - 0.93847), 1e-4)
+  expect_lt(abs(cpk_moments$sd - 0.01874), 1e-4)
+  expect_lt(cpk_moments$mean, cp_moments$mean)
+
+  request <- qc:::.new_qc_integration_request(
+    data = numeric(0),
+    LSL = LSL,
+    USL = USL,
+    prior = prior,
+    metric = "Cpk",
+    target = target,
+    cached_state = state,
+    sigma_level = 3
+  )
+  S <- qc:::.integration_make_solver(request = request)
+  thresholds <- c(0.70, 0.75, 0.80, 0.88, 0.90, 0.94, 0.97, 1.00)
+  survival <- S(thresholds)
+
+  expect_true(all(diff(survival) <= 1e-8))
+  expect_gt(survival[thresholds == 0.75], 0.999)
+  expect_equal(survival[thresholds == 0.94], 0.467, tolerance = 0.005)
+
+  result <- qc:::analyze_capability_integration(
+    request = request,
+    n_grid = 512L
+  )
+  mode_x <- result$grid$x[which.max(result$grid$density)]
+
+  expect_gt(min(result$grid$x), 0.85)
+  expect_lt(max(result$grid$x), 1.01)
+  expect_equal(mode_x, 0.938, tolerance = 0.01)
+})
+
+testthat::test_that("conjugate Cpk numerical moments use finite high-information bounds", {
+  LSL <- 48
+  USL <- 52
+  target <- 50
+  prior <- qc:::.bayestools_to_integration_prior(
+    "Jeffreys_mu",
+    "Jeffreys_sigma"
+  )$prior
+  state <- qc:::.as_qc_suff_stats_state(
+    cached_state = list(
+      n = 100,
+      x_bar = 50,
+      sse = (100 - 1) * 0.001^2
+    )
+  )
+
+  cp_moments <- qc:::compute_metric_moments(
+    numeric(0), LSL, USL, prior,
+    metric = "Cp", target = target,
+    cached_state = state
+  )
+  cpk_moments <- qc:::compute_metric_moments(
+    numeric(0), LSL, USL, prior,
+    metric = "Cpk", target = target,
+    cached_state = state
+  )
+
+  expect_gt(cpk_moments$mean, 600)
+  expect_gt(cpk_moments$sd, 40)
+  expect_lt(abs(cp_moments$mean - cpk_moments$mean), 0.1)
+})
+
+testthat::test_that("survival-derived densities support scalar survival solvers", {
+  scalar_survival <- function(c) {
+    if (length(c) != 1L) {
+      stop("scalar only")
+    }
+    exp(-c)
+  }
+  density <- qc:::.density_from_survival_fn(
+    scalar_survival,
+    rel_step = 1e-5,
+    abs_step = 1e-6,
+    support_lower = 0
+  )
+  x <- c(0.1, 1, 2)
+
+  expect_equal(density(x), exp(-x), tolerance = 1e-4)
+})
+
 testthat::test_that("#1: gamma overflow is fixed for large n", {
   set.seed(1)
   x <- rnorm(500, 10, 2)
