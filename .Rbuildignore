@@ -12,3 +12,4 @@
 ^qc_.*\.tar\.gz$
 ^\.positai$
 ^\.claude$
+^.StatsVault$
