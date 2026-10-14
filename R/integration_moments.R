@@ -655,10 +655,16 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     probe_log <- log_integrand(probe_mu)
     finite_probe <- is.finite(probe_log)
 
+    # The probe window can still be widened on a side it has not yet pushed
+    # to the integration bound.
+    can_left <- bounds[["lower"]] > lower
+    can_right <- bounds[["upper"]] < upper
+
     if (any(finite_probe)) {
       finite_idx <- which(finite_probe)
       best_idx <- finite_idx[which.max(probe_log[finite_probe])]
       h_max <- probe_log[best_idx]
+      mode <- probe_mu[best_idx]
 
       local_lower <- probe_mu[max(best_idx - 1L, 1L)]
       local_upper <- probe_mu[min(best_idx + 1L, length(probe_mu))]
@@ -674,32 +680,29 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
           ),
           error = function(e) NULL
         )
-        if (!is.null(opt) && is.finite(opt$objective)) {
-          h_max <- max(h_max, opt$objective)
+        if (!is.null(opt) && is.finite(opt$objective) && opt$objective > h_max) {
+          h_max <- opt$objective
+          mode <- opt$maximum
         }
       }
 
-      at_left_edge <- best_idx <= 2L && !is.finite(lower)
-      at_right_edge <- best_idx >= length(probe_mu) - 1L && !is.finite(upper)
+      at_left_edge <- best_idx <= 2L && can_left
+      at_right_edge <- best_idx >= length(probe_mu) - 1L && can_right
       if (!at_left_edge && !at_right_edge) {
-        return(list(h_max = h_max))
+        return(list(h_max = h_max, mode = mode))
       }
-
-      width <- bounds[["upper"]] - bounds[["lower"]]
-      if (!is.finite(width) || width <= 0) {
-        width <- max(mu_domain$scale, 1, na.rm = TRUE)
-      }
-      if (at_left_edge) bounds[["lower"]] <- bounds[["lower"]] - width
-      if (at_right_edge) bounds[["upper"]] <- bounds[["upper"]] + width
-      next
+    } else {
+      if (!can_left && !can_right) break
+      at_left_edge <- can_left
+      at_right_edge <- can_right
     }
 
     width <- bounds[["upper"]] - bounds[["lower"]]
     if (!is.finite(width) || width <= 0) {
       width <- max(mu_domain$scale, 1, na.rm = TRUE)
     }
-    if (!is.finite(lower)) bounds[["lower"]] <- bounds[["lower"]] - width
-    if (!is.finite(upper)) bounds[["upper"]] <- bounds[["upper"]] + width
+    if (at_left_edge) bounds[["lower"]] <- max(lower, bounds[["lower"]] - width)
+    if (at_right_edge) bounds[["upper"]] <- min(upper, bounds[["upper"]] + width)
   }
 
   NULL

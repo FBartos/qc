@@ -319,22 +319,41 @@
 .integration_grid_entry <- function(metric, grid_df, area, backend,
                                     metric_can_be_negative,
                                     stats = NULL,
-                                    divergence_info = NULL) {
+                                    divergence_info = NULL,
+                                    make_S = NULL) {
   grid_x <- c(
     grid_df$x_left[1],
     grid_df$x_right
   )
   grid_mass <- max(min(area, 1), 0)
 
-  tail_info <- if (identical(backend$mode, "density")) {
-    .integration_density_tail_masses(
+  tail_info <- NULL
+  if (identical(backend$mode, "density")) {
+    tail_info <- .integration_density_tail_masses(
       pdf_fn = backend$pdf_fn,
       grid_x = grid_x,
       grid_mass = grid_mass,
-      support_lower = 0
+      support_lower = .integration_density_support_lower(metric)
     )
-  } else {
-    .integration_survival_tail_masses(
+    if (isTRUE(tail_info$failed)) {
+      # Measure the tails with the survival function instead.
+      if (is.null(backend$S) && is.function(make_S)) {
+        backend$S <- tryCatch(make_S(), error = function(e) NULL)
+      }
+      if (!is.null(backend$S)) {
+        tail_info <- NULL
+      } else {
+        warning(
+          "Tail mass of the ", metric, " density could not be integrated; ",
+          "interval and moment summaries may be inaccurate.",
+          call. = FALSE
+        )
+      }
+    }
+  }
+
+  if (is.null(tail_info)) {
+    tail_info <- .integration_survival_tail_masses(
       S = backend$S,
       grid_x = grid_x,
       grid_mass = grid_mass,

@@ -54,8 +54,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
         )
       }
 
-      # Capability indices on this path have support on [0, Inf).
-      lower <- max(min(bounds), 0)
+      lower <- max(min(bounds), .integration_density_support_lower(metric))
       upper <- max(bounds)
       if (upper <= lower) return(0)
 
@@ -126,10 +125,6 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 .integration_can_use_density <- function(prior, metric) {
-  if (.metric_can_be_negative(metric)) {
-    return(FALSE)
-  }
-
   if (inherits(prior, "PriorSemiConjugateSigma") &&
       metric %in% c("Cp", "Cpm", "Cpc")) {
     return(FALSE)
@@ -289,40 +284,56 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 # Returns a list with grid_x, mid_x, pdf_vals, dx, area — ready for
 # downstream statistics and plotting.
 .adaptive_density_grid <- function(pdf_fn, x_start, x_end, n_grid,
-                                   is_prior_only = FALSE) {
+                                   is_prior_only = FALSE, support_lower = 0) {
 
   n_coarse <- min(32L, n_grid)
+
+  # Count density evaluations that failed (non-finite), so the caller can
+  # fall back to the survival solver rather than plot a silent zero.
+  n_failed <- 0L
+  eval_pdf <- function(x) {
+    vals <- .integration_eval(
+      pdf_fn, x,
+      context = "The integration density solver"
+    )
+    n_failed <<- n_failed + sum(!is.finite(vals))
+    vals[!is.finite(vals) | vals < 0] <- 0
+    vals
+  }
+  # Every coarse evaluation is kept, so a peak located by an earlier pass is
+  # not lost when edge extension widens the coarse spacing past its width.
+  seen_x <- numeric(0)
+  seen_pdf <- numeric(0)
 
   # --- Pass 1: coarse grid + edge extension ---
   max_extend <- if (is_prior_only) 5L else 3L
   for (attempt in seq_len(max_extend)) {
     coarse_x   <- seq(x_start, x_end, length.out = n_coarse)
     coarse_mid <- (coarse_x[-1] + coarse_x[-n_coarse]) / 2
-    coarse_pdf <- .integration_eval(
-      pdf_fn, coarse_mid,
-      context = "The integration density solver"
-    )
-    coarse_pdf[!is.finite(coarse_pdf) | coarse_pdf < 0] <- 0
+    coarse_pdf <- eval_pdf(coarse_mid)
+    seen_x <- c(seen_x, coarse_mid)
+    seen_pdf <- c(seen_pdf, coarse_pdf)
 
     peak <- max(coarse_pdf)
     if (peak == 0) break
     edge_threshold <- 0.01 * peak
-    need_left  <- coarse_pdf[1] > edge_threshold && x_start > 0
+    need_left  <- coarse_pdf[1] > edge_threshold && x_start > support_lower
     need_right <- coarse_pdf[length(coarse_pdf)] > edge_threshold
 
     if (!need_left && !need_right) break
     width <- x_end - x_start
-    if (need_left)  x_start <- max(0, x_start - width)
+    if (need_left)  x_start <- max(support_lower, x_start - width)
     if (need_right) x_end   <- x_end + width
   }
 
+  peak <- max(seen_pdf)
   if (peak == 0) {
     grid_x   <- seq(x_start, x_end, length.out = n_grid)
     mid_x    <- (grid_x[-1] + grid_x[-n_grid]) / 2
     pdf_vals <- rep(0, length(mid_x))
     dx       <- diff(grid_x)
     return(list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
-                dx = dx, area = 0))
+                dx = dx, area = 0, n_failed = n_failed))
   }
 
   # For broad prior-only distributions, use log-spaced grid
@@ -330,25 +341,52 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     n_grid_po <- max(n_grid, 1024L)
     grid_x   <- exp(seq(log(max(x_start, 1e-4)), log(x_end), length.out = n_grid_po))
     mid_x    <- (grid_x[-1] + grid_x[-n_grid_po]) / 2
-    pdf_vals <- .integration_eval(
-      pdf_fn, mid_x,
-      context = "The integration density solver"
-    )
-    pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
+    pdf_vals <- eval_pdf(mid_x)
     dx   <- diff(grid_x)
     area <- sum(pdf_vals * dx)
     if (area > 0) pdf_vals <- pdf_vals / area
     return(list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
-                dx = dx, area = area))
+                dx = dx, area = area, n_failed = n_failed))
   }
 
   if (is_prior_only) n_grid <- max(n_grid, 1024L)
 
   # --- Pass 2: adaptive refinement ---
   # Identify significant region from coarse grid (pdf > 1% of peak)
+  edge_threshold <- 0.01 * peak
   sig <- coarse_pdf > edge_threshold
   sig_lo <- coarse_mid[which.max(sig)]
   sig_hi <- coarse_mid[length(sig) - which.max(rev(sig)) + 1L]
+
+  # A peak narrower than a few coarse cells would get a single fine-grid
+  # point. Zoom the coarse probe in on it (padded by one neighbouring
+  # evaluation per side) until the significant region is resolved.
+  min_sig <- min(4L, n_coarse %/% 2L)
+  zoom_mid <- coarse_mid
+  zoom_sig <- sig
+  for (zoom in seq_len(8L)) {
+    if (sum(zoom_sig) >= min_sig) break
+    ord <- order(seen_x)
+    sx <- seen_x[ord]
+    sig_idx <- which(seen_pdf[ord] > edge_threshold)
+    pad_lo <- if (min(sig_idx) > 1L) sx[min(sig_idx) - 1L] else x_start
+    pad_hi <- if (max(sig_idx) < length(sx)) sx[max(sig_idx) + 1L] else x_end
+    if (pad_hi <= pad_lo) break
+
+    zoom_x <- seq(pad_lo, pad_hi, length.out = n_coarse)
+    zoom_mid <- (zoom_x[-1] + zoom_x[-n_coarse]) / 2
+    zoom_pdf <- eval_pdf(zoom_mid)
+    seen_x <- c(seen_x, zoom_mid)
+    seen_pdf <- c(seen_pdf, zoom_pdf)
+    peak <- max(seen_pdf)
+    edge_threshold <- 0.01 * peak
+    zoom_sig <- zoom_pdf > edge_threshold
+  }
+  if (any(zoom_sig) && !identical(zoom_mid, coarse_mid)) {
+    step <- zoom_mid[2] - zoom_mid[1]
+    sig_lo <- max(x_start, zoom_mid[which.max(zoom_sig)] - step)
+    sig_hi <- min(x_end, zoom_mid[length(zoom_sig) - which.max(rev(zoom_sig)) + 1L] + step)
+  }
 
   # Allocate ~75% of budget to the significant region, ~25% to tails
   n_fine <- max(16L, as.integer(0.75 * n_grid))
@@ -372,45 +410,59 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   grid_x <- sort(unique(c(x_start, left_grid, fine_grid, right_grid, x_end)))
   mid_x    <- (grid_x[-1] + grid_x[-length(grid_x)]) / 2
-  pdf_vals <- .integration_eval(
-    pdf_fn, mid_x,
-    context = "The integration density solver"
-  )
-  pdf_vals[!is.finite(pdf_vals) | pdf_vals < 0] <- 0
+  pdf_vals <- eval_pdf(mid_x)
   dx   <- diff(grid_x)
   area <- sum(pdf_vals * dx)
   if (area > 0) pdf_vals <- pdf_vals / area
 
   list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals,
-       dx = dx, area = area)
+       dx = dx, area = area, n_failed = n_failed)
 }
 
 .integration_density_tail_masses <- function(pdf_fn, grid_x, grid_mass,
                                              support_lower = 0) {
   left_tail_mass <- 0
-
-  if (length(grid_x) >= 2L && is.finite(support_lower) && grid_x[1] > support_lower) {
-    pdf_vec <- function(x) {
-      .integration_eval(
-        pdf_fn, x,
-        context = "The integration density solver"
-      )
-    }
-    left_tail_mass <- tryCatch(
-      stats::integrate(pdf_vec, support_lower, grid_x[1], rel.tol = 1e-4)$value,
+  mass_nonpositive <- 0
+  pdf_vec <- function(x) {
+    .integration_eval(
+      pdf_fn, x,
+      context = "The integration density solver"
+    )
+  }
+  integrate_mass <- function(lower, upper) {
+    mass <- tryCatch(
+      stats::integrate(pdf_vec, lower, upper, rel.tol = 1e-4)$value,
       error = function(e) NA_real_
     )
+    # Tiny negative values are quadrature noise; NA marks a failure.
+    if (is.finite(mass)) max(mass, 0) else NA_real_
+  }
 
-    if (!is.finite(left_tail_mass) || left_tail_mass < 0) {
-      left_tail_mass <- 0
+  if (length(grid_x) >= 2L && grid_x[1] > support_lower) {
+    if (support_lower == -Inf && grid_x[1] > 0) {
+      mass_nonpositive <- integrate_mass(-Inf, 0)
+      left_tail_mass <- integrate_mass(0, grid_x[1])
+      support_lower <- 0
+    } else {
+      left_tail_mass <- integrate_mass(support_lower, grid_x[1])
+      # Grid consumers approximate unrepresented tail mass at a finite
+      # boundary; they must not treat -Inf as a moment or interval endpoint.
+      if (!is.finite(support_lower)) support_lower <- grid_x[1]
     }
   }
 
+  # The right tail is the remainder, so an unmeasured left mass would be
+  # silently moved there. Flag the failure so the caller can fall back.
+  failed <- !is.finite(mass_nonpositive) || !is.finite(left_tail_mass)
+  if (!is.finite(mass_nonpositive)) mass_nonpositive <- 0
+  if (!is.finite(left_tail_mass)) left_tail_mass <- 0
+
   list(
-    mass_nonpositive = 0,
+    mass_nonpositive = mass_nonpositive,
     left_tail_mass = left_tail_mass,
-    right_tail_mass = max(0, 1 - left_tail_mass - grid_mass),
-    support_lower = support_lower
+    right_tail_mass = max(0, 1 - mass_nonpositive - left_tail_mass - grid_mass),
+    support_lower = support_lower,
+    failed = failed
   )
 }
 
@@ -698,14 +750,30 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
       x_start,
       x_end,
       n_grid,
-      is_prior_only = is_prior_only
+      is_prior_only = is_prior_only,
+      support_lower = .integration_density_support_lower(metric)
     )
     grid_x <- result$grid_x
     mid_x <- result$mid_x
     pdf_vals <- result$pdf_vals
     dx <- result$dx
     area <- result$area
-  } else {
+
+    # The density solver could not evaluate some grid points; rebuild the
+    # grid from the survival function instead of keeping zero-filled holes.
+    if (result$n_failed > 0L) {
+      backend$S <- tryCatch(
+        .integration_make_solver(request = request),
+        error = function(e) NULL
+      )
+      if (!is.null(backend$S)) {
+        backend$mode <- "survival"
+        backend$can_use_density <- FALSE
+      }
+    }
+  }
+
+  if (!backend$can_use_density) {
     # Fallback: Survival function + finite differences
     if (is.null(backend$S)) {
       stop("Failed to construct an integration backend for metric '", metric, "'.")
@@ -750,7 +818,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     grid_df = grid_df,
     area = area,
     backend = backend,
-    metric_can_be_negative = metric_can_be_negative
+    metric_can_be_negative = metric_can_be_negative,
+    make_S = function() .integration_make_solver(request = request)
   )
 
   # Reuse the moment engine whenever it already produced a stable answer for

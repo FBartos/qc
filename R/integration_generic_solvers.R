@@ -142,7 +142,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
           cached_state = cached_state
         )
       ),
-      support_lower = if (.metric_can_be_negative(metric_name)) -Inf else 0
+      support_lower = 0
     )
   }
 
@@ -152,9 +152,13 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   cpm_dist <- .cpm_spec_distance(LSL, USL, target)
 
   if (metric %in% c("Cpk", "Cpu", "Cpl")) {
-    # These metrics can have negative support, so differentiating the survival
-    # function is the reliable way to cover the full line.
-    return(survival_density(metric))
+    return(.linear_metric_density(
+      function(mu, sigma) log_post_vec(mu, sigma) - h_max - log(Z),
+      LSL, USL, metric, sigma_level,
+      sigma_ref = cached_state$map_sig,
+      sigma_lower = sigma_floor, sigma_upper = sigma_upper,
+      mu_lower = mu_lower, mu_upper = mu_upper
+    ))
   }
 
   if (metric == "Cp") {
