@@ -1008,45 +1008,22 @@ compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
 
   cached_state <- precompute_generic_state(data, prior, cached_state = cached_state)
 
-  log_post_vec <- cached_state$log_post_vec
-  h_max <- cached_state$h_max
   Z <- cached_state$Z
-  mu_lower <- cached_state$mu_lower
-  mu_upper <- cached_state$mu_upper
-  sigma_lower <- max(cached_state$sigma_lower, 1e-10)
-  sigma_upper <- max(cached_state$sigma_upper, sigma_lower * 1.1)
 
-  # Fully vectorized integrand
-  integrand <- function(x, power = 1) {
-    mu <- x[1, ]
-    sigma <- x[2, ]
-
-    # Vectorized metric and log posterior computation
-    metric_val <- compute_metric_value(
-      mu, sigma, LSL, USL, target, metric,
-      sigma_level = sigma_level
-    )
-    log_p <- log_post_vec(mu, sigma)
-
-    result <- exp(log_p - h_max) * (metric_val^power)
-    result[!is.finite(result)] <- 0
-    matrix(result, nrow = 1)
+  metric_power <- function(power) {
+    function(mu, sigma) {
+      compute_metric_value(
+        mu, sigma, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )^power
+    }
   }
 
-  # Both the integral and Z use the same h_max normalization, so they cancel out
-  E1 <- cubature::pcubature(
-    function(x) integrand(x, power = 1),
-    lowerLimit = c(mu_lower, sigma_lower),
-    upperLimit = c(mu_upper, sigma_upper),
-    tol = 1e-4, vectorInterface = TRUE
-  )$integral / Z
-
-  E2 <- cubature::pcubature(
-    function(x) integrand(x, power = 2),
-    lowerLimit = c(mu_lower, sigma_lower),
-    upperLimit = c(mu_upper, sigma_upper),
-    tol = 1e-4, vectorInterface = TRUE
-  )$integral / Z
+  # The cached integrator (MAP-anchored nested quadrature with data, a finite
+  # box for prior-only state) is the one that defines Z, so the h_max
+  # normalization cancels.
+  E1 <- cached_state$int_2d(Inf, NULL, metric_power(1)) / Z
+  E2 <- cached_state$int_2d(Inf, NULL, metric_power(2)) / Z
 
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
