@@ -234,7 +234,10 @@ testthat::test_that("conjugate Cpk integration is stable for high-information of
   )
   mode_x <- result$grid$x[which.max(result$grid$density)]
 
-  expect_gt(min(result$grid$x), 0.85)
+  # The direct density grid can extend beyond the initial moment bounds.
+  # Its extra lower-tail cells must remain negligible, rather than spiking.
+  lower_tail <- result$grid$density[result$grid$x < 0.85]
+  expect_true(all(lower_tail < 0.01 * max(result$grid$density)))
   expect_lt(max(result$grid$x), 1.01)
   expect_equal(mode_x, 0.938, tolerance = 0.01)
 })

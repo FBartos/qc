@@ -54,8 +54,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
         )
       }
 
-      # Capability indices on this path have support on [0, Inf).
-      lower <- max(min(bounds), 0)
+      lower <- max(min(bounds), .integration_density_support_lower(metric))
       upper <- max(bounds)
       if (upper <= lower) return(0)
 
@@ -126,10 +125,6 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 .integration_can_use_density <- function(prior, metric) {
-  if (.metric_can_be_negative(metric)) {
-    return(FALSE)
-  }
-
   if (inherits(prior, "PriorSemiConjugateSigma") &&
       metric %in% c("Cp", "Cpm", "Cpc")) {
     return(FALSE)
@@ -289,7 +284,7 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 # Returns a list with grid_x, mid_x, pdf_vals, dx, area — ready for
 # downstream statistics and plotting.
 .adaptive_density_grid <- function(pdf_fn, x_start, x_end, n_grid,
-                                   is_prior_only = FALSE) {
+                                   is_prior_only = FALSE, support_lower = 0) {
 
   n_coarse <- min(32L, n_grid)
 
@@ -307,12 +302,12 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     peak <- max(coarse_pdf)
     if (peak == 0) break
     edge_threshold <- 0.01 * peak
-    need_left  <- coarse_pdf[1] > edge_threshold && x_start > 0
+    need_left  <- coarse_pdf[1] > edge_threshold && x_start > support_lower
     need_right <- coarse_pdf[length(coarse_pdf)] > edge_threshold
 
     if (!need_left && !need_right) break
     width <- x_end - x_start
-    if (need_left)  x_start <- max(0, x_start - width)
+    if (need_left)  x_start <- max(support_lower, x_start - width)
     if (need_right) x_end   <- x_end + width
   }
 
@@ -388,28 +383,38 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 .integration_density_tail_masses <- function(pdf_fn, grid_x, grid_mass,
                                              support_lower = 0) {
   left_tail_mass <- 0
-
-  if (length(grid_x) >= 2L && is.finite(support_lower) && grid_x[1] > support_lower) {
-    pdf_vec <- function(x) {
-      .integration_eval(
-        pdf_fn, x,
-        context = "The integration density solver"
-      )
-    }
-    left_tail_mass <- tryCatch(
-      stats::integrate(pdf_vec, support_lower, grid_x[1], rel.tol = 1e-4)$value,
+  mass_nonpositive <- 0
+  pdf_vec <- function(x) {
+    .integration_eval(
+      pdf_fn, x,
+      context = "The integration density solver"
+    )
+  }
+  integrate_mass <- function(lower, upper) {
+    mass <- tryCatch(
+      stats::integrate(pdf_vec, lower, upper, rel.tol = 1e-4)$value,
       error = function(e) NA_real_
     )
+    if (is.finite(mass) && mass >= 0) mass else 0
+  }
 
-    if (!is.finite(left_tail_mass) || left_tail_mass < 0) {
-      left_tail_mass <- 0
+  if (length(grid_x) >= 2L && grid_x[1] > support_lower) {
+    if (support_lower == -Inf && grid_x[1] > 0) {
+      mass_nonpositive <- integrate_mass(-Inf, 0)
+      left_tail_mass <- integrate_mass(0, grid_x[1])
+      support_lower <- 0
+    } else {
+      left_tail_mass <- integrate_mass(support_lower, grid_x[1])
+      # Grid consumers approximate unrepresented tail mass at a finite
+      # boundary; they must not treat -Inf as a moment or interval endpoint.
+      if (!is.finite(support_lower)) support_lower <- grid_x[1]
     }
   }
 
   list(
-    mass_nonpositive = 0,
+    mass_nonpositive = mass_nonpositive,
     left_tail_mass = left_tail_mass,
-    right_tail_mass = max(0, 1 - left_tail_mass - grid_mass),
+    right_tail_mass = max(0, 1 - mass_nonpositive - left_tail_mass - grid_mass),
     support_lower = support_lower
   )
 }
@@ -698,7 +703,8 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
       x_start,
       x_end,
       n_grid,
-      is_prior_only = is_prior_only
+      is_prior_only = is_prior_only,
+      support_lower = .integration_density_support_lower(metric)
     )
     grid_x <- result$grid_x
     mid_x <- result$mid_x

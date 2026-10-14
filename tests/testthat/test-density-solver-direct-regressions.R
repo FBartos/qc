@@ -143,17 +143,19 @@ testthat::test_that("generic negative-support densities cover Cpu, Cpl, and Cpk"
       numeric(0), -1, 1, prior,
       metric = metric
     )
-    solver <- qc:::make_solver(
-      numeric(0), -1, 1, prior,
-      metric = metric
-    )
-
     c0 <- -0.5
-    h <- max(abs(c0) * 1e-4, 1e-5)
-    approx <- (solver(c0 - h) - solver(c0 + h)) / (2 * h)
+    reference <- stats::integrate(function(sigma) {
+      upper_mu <- 1 - 3 * c0 * sigma
+      lower_mu <- -1 + 3 * c0 * sigma
+      upper_pdf <- stats::dnorm(upper_mu, cases[[metric]], 1)
+      lower_pdf <- stats::dnorm(lower_mu, cases[[metric]], 1)
+      mu_pdf <- switch(metric, Cpu = upper_pdf, Cpl = lower_pdf,
+                       Cpk = upper_pdf + lower_pdf)
+      3 * sigma * mu_pdf * stats::dgamma(sigma, 2, 1)
+    }, 0, Inf, rel.tol = 1e-7)$value
 
-    testthat::expect_gt(approx, 0)
-    testthat::expect_equal(pdf_fn(c0), approx, tolerance = 1e-4, info = metric)
+    testthat::expect_gt(reference, 0)
+    testthat::expect_equal(pdf_fn(c0), reference, tolerance = 1e-4, info = metric)
   }
 })
 
@@ -216,4 +218,58 @@ testthat::test_that("generic Cpm density defaults target to the midpoint", {
 
   testthat::expect_gt(pdf_mid(0.5), 0)
   testthat::expect_equal(pdf_null(0.5), pdf_mid(0.5), tolerance = 1e-8)
+})
+
+testthat::test_that("direct linear densities retain negative support and sigma scaling", {
+  testthat::local_mocked_bindings(
+    .density_from_survival_fn = function(...) stop("Unexpected finite differences"),
+    .package = "qc"
+  )
+
+  for (metric in c("Cpu", "Cpl")) {
+    mu0 <- if (metric == "Cpu") 1 else -1
+    prior <- qc:::create_prior_conjugate(mu0, k0 = 2, alpha0 = 2, beta0 = 1)
+    for (sigma_level in c(3, 4)) {
+      pdf_fn <- qc:::make_density_solver(
+        numeric(0), -1, 1, prior, metric = metric, sigma_level = sigma_level
+      )
+      # With mu0 on the relevant specification limit, the index is exactly
+      # Normal(0, 1/(sigma_level*sqrt(k0))), regardless of the sigma marginal.
+      points <- c(-0.5, 0, 0.5)
+      testthat::expect_equal(pdf_fn(points),
+                            stats::dnorm(points, 0, 1 / (sigma_level * sqrt(2))),
+                            tolerance = 1e-7, info = metric)
+      testthat::expect_equal(
+        qc:::compute_cpk_prob_integration(
+          numeric(0), -1, 1, c(-Inf, 0), prior,
+          metric = metric, sigma_level = sigma_level
+        ),
+        0.5, tolerance = 1e-6, info = metric
+      )
+    }
+  }
+})
+
+testthat::test_that("direct Cpk density combines both branches on nonpositive support", {
+  testthat::local_mocked_bindings(
+    .density_from_survival_fn = function(...) stop("Unexpected finite differences"),
+    .package = "qc"
+  )
+  priors <- list(
+    qc:::create_prior_conjugate(0, 1, 2, 1),
+    qc:::create_prior_semi_mu(0, 1, function(sigma) stats::dgamma(sigma, 2, 1, log = TRUE)),
+    qc:::create_prior_semi_sigma(2, 1, function(mu) stats::dnorm(mu, 0, 1, log = TRUE)),
+    qc:::create_prior_generic(function(mu, sigma) {
+      stats::dnorm(mu, 0, 1, log = TRUE) + stats::dgamma(sigma, 2, 1, log = TRUE)
+    })
+  )
+  for (prior in priors) {
+    pdfs <- lapply(c("Cpu", "Cpl", "Cpk"), function(metric) {
+      qc:::make_density_solver(numeric(0), -1, 1, prior, metric = metric)
+    })
+    points <- c(-0.5, 0)
+    testthat::expect_equal(pdfs[[3]](points), pdfs[[1]](points) + pdfs[[2]](points),
+                          tolerance = 1e-7, info = class(prior)[1])
+    testthat::expect_true(qc:::.integration_can_use_density(prior, "Cpk"))
+  }
 })

@@ -96,6 +96,101 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
   }
 }
 
+# For Cpu/Cpl, mu is USL - sigma_level*c*sigma or
+# LSL + sigma_level*c*sigma. The change-of-variables Jacobian is
+# sigma_level*sigma. Cpk adds both branches up to their meeting at the
+# specification midpoint (sigma <= (USL-LSL)/(2*sigma_level*c) when c > 0).
+.linear_metric_density <- function(log_joint, LSL, USL, metric, sigma_level,
+                                   sigma_ref, sigma_lower = 0, sigma_upper = Inf,
+                                   mu_lower = -Inf, mu_upper = Inf) {
+  force(log_joint)
+  branches <- switch(metric, Cpu = "upper", Cpl = "lower",
+                     Cpk = c("lower", "upper"))
+
+  branch_density <- function(c, branch) {
+    intercept <- if (branch == "upper") USL else LSL
+    slope <- if (branch == "upper") -sigma_level * c else sigma_level * c
+    lower <- sigma_lower
+    upper <- sigma_upper
+    if (metric == "Cpk" && c > 0) {
+      upper <- min(upper, (USL - LSL) / (2 * sigma_level * c))
+    }
+    # Generic posterior normalization uses a finite (mu, sigma) box.
+    # Restrict the contour to that same box, including for negative c.
+    if (slope == 0) {
+      if (intercept < mu_lower || intercept > mu_upper) return(0)
+    } else {
+      mu_bounds <- sort(c((mu_lower - intercept) / slope,
+                          (mu_upper - intercept) / slope))
+      lower <- max(lower, mu_bounds[1])
+      upper <- min(upper, mu_bounds[2])
+    }
+    if (upper <= lower || upper <= 0) return(0)
+
+    t_lower <- log(max(lower, 0))
+    t_upper <- log(upper)
+    log_kernel <- function(t) {
+      sigma <- exp(t)
+      mu <- intercept + slope * sigma
+      vals <- rep(-Inf, length(t))
+      valid <- is.finite(mu) & is.finite(sigma) & sigma > 0
+      if (any(valid)) {
+        # The second sigma factor is d sigma / d log(sigma).
+        vals[valid] <- log_joint(mu[valid], sigma[valid]) +
+          log(sigma_level) + 2 * t[valid]
+      }
+      vals[!is.finite(vals)] <- -Inf
+      vals
+    }
+
+    # Locate and scale the contour peak so quadrature does not miss a narrow
+    # posterior or underflow in the tails. Integrate on log(sigma), splitting
+    # at the peak, while retaining the full sigma support.
+    center <- min(max(log(sigma_ref), t_lower), t_upper)
+    probe_lower <- max(t_lower, center - 8)
+    probe_upper <- min(t_upper, center + 8)
+    for (attempt in seq_len(16L)) {
+      probe <- seq(probe_lower, probe_upper, length.out = 65L)
+      heights <- log_kernel(probe)
+      if (!any(is.finite(heights))) return(0)
+      i <- which.max(heights)
+      if (i == 1L && probe_lower > t_lower) {
+        probe_lower <- max(t_lower, probe_lower - 8)
+      } else if (i == length(probe) && probe_upper < t_upper) {
+        probe_upper <- min(t_upper, probe_upper + 8)
+      } else {
+        break
+      }
+    }
+    opt <- stats::optimize(
+      function(t) max(log_kernel(t), -.Machine$double.xmax),
+      c(probe[max(1L, i - 1L)], probe[min(length(probe), i + 1L)]),
+      maximum = TRUE
+    )
+    mode <- opt$maximum
+    h_max <- max(heights[i], opt$objective)
+    integrand <- function(u) exp(log_kernel(u + mode) - h_max)
+    integrate_part <- function(lower, upper) {
+      if (lower >= upper) return(0)
+      stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
+                       abs.tol = 1e-10, subdivisions = 400L)$value
+    }
+    scaled <- integrate_part(t_lower - mode, 0) +
+      integrate_part(0, t_upper - mode)
+    if (scaled <= 0) 0 else exp(h_max + log(scaled))
+  }
+
+  function(c) {
+    c <- as.numeric(c)
+    result <- numeric(length(c))
+    valid <- is.finite(c)
+    result[valid] <- vapply(c[valid], function(ci) {
+      sum(vapply(branches, function(branch) branch_density(ci, branch), numeric(1)))
+    }, numeric(1))
+    result
+  }
+}
+
 #' @export
 #' @export
 make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
@@ -162,9 +257,13 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   }
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
-    return(.density_from_survival_fn(
-      .integration_make_solver(request = request),
-      support_lower = -Inf
+    return(.linear_metric_density(
+      function(mu, sigma) {
+        -(2 * alpha_n + 1) * log(sigma) - beta_n / sigma^2 -
+          log_Z_sigma + stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
+      },
+      LSL, USL, metric, sigma_level,
+      sigma_ref = sqrt(beta_n / alpha_n)
     ))
   }
 
@@ -282,15 +381,14 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   sigma_upper <- min(sigma_support$upper, sigma_domain$upper)
 
   if (metric %in% c("Cpk", "Cpu", "Cpl")) {
-    return(.density_from_survival_fn(
-      make_solver(
-        data, LSL, USL, prior,
-        metric = metric,
-        target = target,
-        cached_state = cached_state,
-        sigma_level = sigma_level
-      ),
-      support_lower = -Inf
+    return(.linear_metric_density(
+      function(mu, sigma) {
+        log_p_sigma(sigma) - log_Z +
+          stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
+      },
+      LSL, USL, metric, sigma_level,
+      sigma_ref = exp((state$t_lower + state$t_upper) / 2),
+      sigma_lower = sigma_lower, sigma_upper = sigma_upper
     ))
   }
 
@@ -703,7 +801,15 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   }
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
-    return(survival_density(metric))
+    return(.linear_metric_density(
+      function(mu, sigma) {
+        beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
+        prior$log_dens_mu(mu) + log_C -
+          (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
+      },
+      LSL, USL, metric, sigma_level,
+      sigma_ref = state$sigma_scale
+    ))
   }
 
   if (metric == "Cp") {

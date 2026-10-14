@@ -331,7 +331,7 @@
       pdf_fn = backend$pdf_fn,
       grid_x = grid_x,
       grid_mass = grid_mass,
-      support_lower = 0
+      support_lower = .integration_density_support_lower(metric)
     )
   } else {
     .integration_survival_tail_masses(
