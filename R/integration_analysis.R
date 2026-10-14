@@ -388,6 +388,13 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     sig_hi <- min(x_end, zoom_mid[length(zoom_sig) - which.max(rev(zoom_sig)) + 1L] + step)
   }
 
+  # The 1% region spans only ~±3 sd of a normal peak, and the coarse tail
+  # cells beyond it are too wide for the midpoint rule on the shoulders.
+  # Extend the fine region to every probed point above 1e-6 of the peak.
+  shoulder_x <- seen_x[seen_pdf > 1e-6 * peak]
+  sig_lo <- max(x_start, min(sig_lo, shoulder_x))
+  sig_hi <- min(x_end, max(sig_hi, shoulder_x))
+
   # Allocate ~75% of budget to the significant region, ~25% to tails
   n_fine <- max(16L, as.integer(0.75 * n_grid))
   n_tail <- n_grid - n_fine
@@ -457,10 +464,29 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   if (!is.finite(mass_nonpositive)) mass_nonpositive <- 0
   if (!is.finite(left_tail_mass)) left_tail_mass <- 0
 
+  remainder <- max(0, 1 - mass_nonpositive - left_tail_mass - grid_mass)
+  right_tail_mass <- remainder
+
+  # The midpoint sum misses a little mass in coarse cells next to a narrow
+  # peak. Measure the right tail directly, so that quadrature error stays
+  # with the grid instead of landing in the far (x_end, Inf) bin.
+  n_x <- length(grid_x)
+  if (!failed && n_x >= 2L && is.finite(grid_x[n_x])) {
+    direct_right <- integrate_mass(grid_x[n_x], Inf)
+    residual <- 1 - mass_nonpositive - left_tail_mass - grid_mass - direct_right
+    # A large residual signals a pdf or grid problem rather than quadrature
+    # error; keep the remainder so it is not hidden by rescaling the grid.
+    if (is.finite(direct_right) && abs(residual) < 1e-3) {
+      right_tail_mass <- direct_right
+      grid_mass <- max(min(grid_mass + residual, 1), 0)
+    }
+  }
+
   list(
     mass_nonpositive = mass_nonpositive,
     left_tail_mass = left_tail_mass,
-    right_tail_mass = max(0, 1 - mass_nonpositive - left_tail_mass - grid_mass),
+    right_tail_mass = right_tail_mass,
+    grid_mass = grid_mass,
     support_lower = support_lower,
     failed = failed
   )

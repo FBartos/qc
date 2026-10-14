@@ -166,8 +166,8 @@ testthat::test_that("selected prior-family combinations keep matched-prior backe
     )
 
     if (scenario$expect_failure) {
-      expect_s3_class(fit_int, "error", info = scenario$name)
-      expect_s3_class(fit_mcmc, "error", info = scenario$name)
+      expect_s3_class(fit_int, "error")
+      expect_s3_class(fit_mcmc, "error")
       next
     }
 

@@ -365,7 +365,8 @@
   .new_integration_grid_entry(
     metric = metric,
     grid = grid_df,
-    area = grid_mass,
+    # Density tails may move quadrature error from the tails into the grid.
+    area = tail_info$grid_mass %||% grid_mass,
     tail_info = tail_info,
     stats = stats,
     divergence_info = divergence_info

@@ -186,6 +186,12 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       cv_valid <- cv[valid_sigma]
       log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(cv_valid)
 
+      if (is.function(cached_state$int_mu)) {
+        vals_out[valid_sigma] <- cached_state$int_mu(sv) * exp(log_jacobian) / Z
+        result[valid_c] <- vals_out
+        return(result)
+      }
+
       integrand <- function(mu) {
         mu <- if (is.matrix(mu)) as.numeric(mu[1, ]) else as.numeric(mu)
         mu_mat <- matrix(rep(mu, each = length(sv)), nrow = length(sv))
@@ -232,22 +238,44 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         return(result)
       }
 
+      # Restrict each circle of radius R to the arc that crosses the
+      # (mu, sigma) box and map it onto v in [0, 1]. For a narrow posterior
+      # that arc is a tiny fraction of [0, pi], which a fixed-range
+      # pcubature misses entirely.
+      theta_lo <- pmax(
+        acos(pmin(1, pmax(-1, (mu_upper - target) / R[valid_R]))),
+        asin(pmin(1, sigma_floor / R[valid_R]))
+      )
+      theta_hi <- pmin(
+        acos(pmin(1, pmax(-1, (mu_lower - target) / R[valid_R]))),
+        pi - asin(pmin(1, sigma_floor / R[valid_R]))
+      )
+      has_arc <- theta_hi > theta_lo
+      valid_R[valid_R] <- has_arc
+      if (!any(valid_R)) {
+        result[valid_c] <- vals_out
+        return(result)
+      }
+      theta_lo <- theta_lo[has_arc]
+      theta_width <- theta_hi[has_arc] - theta_lo
+
       Rv <- R[valid_R]
       cv_valid <- cv[valid_R]
-      log_jacobian <- 2 * log(Rv) - log(cv_valid)
+      log_jacobian <- 2 * log(Rv) - log(cv_valid) + log(theta_width)
 
-      integrand <- function(theta) {
-        theta <- if (is.matrix(theta)) as.numeric(theta[1, ]) else as.numeric(theta)
-        sigma_mat <- outer(Rv, sin(theta), `*`)
-        mu_mat <- target + outer(Rv, cos(theta), `*`)
+      integrand <- function(v) {
+        v <- if (is.matrix(v)) as.numeric(v[1, ]) else as.numeric(v)
+        theta <- theta_lo + outer(theta_width, v)
+        sigma_mat <- Rv * sin(theta)
+        mu_mat <- target + Rv * cos(theta)
         log_jacobian_mat <- matrix(
-          rep(log_jacobian, times = length(theta)),
+          rep(log_jacobian, times = length(v)),
           nrow = length(Rv)
         )
         valid <- is.finite(mu_mat) & is.finite(sigma_mat) &
           sigma_mat >= sigma_floor & sigma_mat <= sigma_upper &
           mu_mat >= mu_lower & mu_mat <= mu_upper
-        vals <- matrix(0, nrow = length(Rv), ncol = length(theta))
+        vals <- matrix(0, nrow = length(Rv), ncol = length(v))
         if (any(valid)) {
           log_p <- log_post_vec(mu_mat[valid], sigma_mat[valid])
           vals[valid] <- exp(log_p + log_jacobian_mat[valid] - h_max) / Z
@@ -260,7 +288,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         cubature::pcubature(
           integrand,
           lowerLimit = 0,
-          upperLimit = pi,
+          upperLimit = 1,
           tol = 1e-5,
           fDim = length(Rv),
           vectorInterface = TRUE
@@ -298,6 +326,252 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
     num <- int_2d(constr$s_max_fn(), constr$mu_b_fn_vec)
     return(num / Z)
   }
+}
+
+
+# ==============================================================================
+# Local (MAP-anchored) quadrature for Generic Posteriors with Data
+# ==============================================================================
+
+.gauss_legendre_rule <- function(k) {
+  i <- seq_len(k - 1L)
+  off_diag <- i / sqrt(4 * i^2 - 1)
+  jacobi <- matrix(0, k, k)
+  jacobi[cbind(i, i + 1L)] <- off_diag
+  jacobi[cbind(i + 1L, i)] <- off_diag
+  eig <- eigen(jacobi, symmetric = TRUE)
+  ord <- order(eig$values)
+  list(nodes = eig$values[ord], weights = 2 * eig$vectors[1, ord]^2)
+}
+
+# Composite Gauss-Legendre rule on [0, 1] with equal-width panels.
+.composite_gauss_legendre_unit <- function(panels, k = 10L) {
+  rule <- .gauss_legendre_rule(k)
+  edges <- seq(0, 1, length.out = panels + 1L)
+  half <- diff(edges) / 2
+  mid <- edges[-1L] - half
+  list(
+    nodes = as.vector(outer(rule$nodes, half) + rep(mid, each = k)),
+    weights = as.vector(outer(rule$weights, half))
+  )
+}
+
+# Builds the integration machinery for a generic posterior with informative data
+# (n >= 2, sse > 0). Everything is anchored on the posterior mode in
+# (mu, log sigma) and scaled by local posterior widths, so a narrow posterior is
+# resolved regardless of the measurement units.
+#
+# The posterior is integrated as an outer Gauss-Legendre rule over
+# t = log(sigma) and, for every sigma node, an inner Gauss-Legendre rule over a
+# mu window centred on the conditional mode and sized by the conditional
+# curvature. Metric constraints enter as limits of the inner window rather than
+# as indicators, keeping survival functions smooth in the metric value.
+#
+# Returns NULL when the local structure cannot be established, in which case
+# the caller falls back to the box-based integration.
+.generic_local_posterior <- function(log_post_vec, n, x_bar, sse,
+                                     init_mu, init_sd,
+                                     mu_window = 12,
+                                     tail_log_drop = 45,
+                                     n_profile = 129L,
+                                     t_panels = 16L,
+                                     mu_panels = 8L,
+                                     gl_order = 10L) {
+  s_ref <- sqrt(sse / (n - 1))
+  t_ref <- log(s_ref)
+  sentinel <- -.Machine$double.xmax
+
+  lp_t <- function(mu, t) {
+    vals <- log_post_vec(mu, exp(t)) + t
+    vals[is.na(vals)] <- -Inf
+    vals
+  }
+
+  # Mode in standardized coordinates z = ((mu - x_bar) / s_ref, t - t_ref)
+  objective <- function(z) {
+    val <- lp_t(x_bar + s_ref * z[1], t_ref + z[2])
+    if (is.finite(val)) -val else .Machine$double.xmax
+  }
+  starts <- list(c(0, 0))
+  if (is.finite(init_mu) && is.finite(init_sd) && init_sd > 0) {
+    starts[[2L]] <- c((init_mu - x_bar) / s_ref, log(init_sd) - t_ref)
+  }
+  start_vals <- vapply(starts, objective, numeric(1))
+  if (!any(start_vals < .Machine$double.xmax)) return(NULL)
+  opt <- stats::optim(
+    starts[[which.min(start_vals)]], objective,
+    method = "Nelder-Mead",
+    control = list(reltol = 1e-12, maxit = 2000L)
+  )
+  opt_bfgs <- tryCatch(
+    stats::optim(opt$par, objective, method = "BFGS",
+                 control = list(reltol = 1e-14, maxit = 500L)),
+    error = function(e) NULL
+  )
+  if (!is.null(opt_bfgs) && is.finite(opt_bfgs$value) &&
+      opt_bfgs$value <= opt$value) {
+    opt <- opt_bfgs
+  }
+  if (!is.finite(opt$value) || opt$value >= .Machine$double.xmax) return(NULL)
+  z_star <- opt$par
+  mu_star <- x_bar + s_ref * z_star[1]
+  t_star <- t_ref + z_star[2]
+
+  # Laplace covariance in standardized coordinates
+  hess <- tryCatch(stats::optimHess(z_star, objective), error = function(e) NULL)
+  cov_z <- NULL
+  if (!is.null(hess) && all(is.finite(hess))) {
+    eig <- eigen(hess, symmetric = TRUE, only.values = TRUE)$values
+    if (all(eig > 0)) cov_z <- solve(hess)
+  }
+  if (is.null(cov_z)) cov_z <- diag(c(1 / n, 1 / (2 * n)))
+  sd_t <- sqrt(cov_z[2, 2])
+  slope_mu_t <- s_ref * cov_z[1, 2] / cov_z[2, 2]
+
+  # Conditional mode and curvature scale of mu given t
+  lik_scale <- function(t) exp(t) / sqrt(n)
+  cond_peak <- function(t) {
+    h0 <- lik_scale(t)
+    guess <- mu_star + slope_mu_t * (t - t_star)
+    lo <- min(guess, x_bar) - 30 * h0
+    hi <- max(guess, x_bar) + 30 * h0
+    probe <- seq(lo, hi, length.out = 121L)
+    heights <- lp_t(probe, rep(t, length(probe)))
+    if (!any(is.finite(heights))) {
+      return(list(center = guess, scale = h0, height = -Inf))
+    }
+    i <- which.max(heights)
+    f <- function(mu) {
+      val <- lp_t(mu, t)
+      if (is.finite(val)) val else sentinel
+    }
+    opt_mu <- stats::optimize(
+      f,
+      c(probe[max(1L, i - 1L)], probe[min(length(probe), i + 1L)]),
+      maximum = TRUE,
+      tol = h0 * 1e-8
+    )
+    center <- probe[i]
+    height <- heights[i]
+    if (opt_mu$objective > height) {
+      center <- opt_mu$maximum
+      height <- opt_mu$objective
+    }
+    delta <- 0.05 * h0
+    curv <- (f(center + delta) - 2 * height + f(center - delta)) / delta^2
+    scale <- if (is.finite(curv) && curv < 0) 1 / sqrt(-curv) else h0
+    scale <- min(max(scale, 1e-3 * h0), 3 * h0)
+    list(center = center, scale = scale, height = height)
+  }
+
+  p_star <- cond_peak(t_star)$height
+  if (!is.finite(p_star)) return(NULL)
+  h_max <- p_star - t_star
+
+  # Extend log(sigma) until the profile has dropped by tail_log_drop or the
+  # prior support ends (located by bisection).
+  find_edge <- function(direction) {
+    step <- sd_t / 2
+    inside <- t_star
+    for (i in seq_len(400L)) {
+      t <- t_star + direction * i * step
+      p <- cond_peak(t)$height
+      if (!is.finite(p) || p <= sentinel) {
+        outside <- t
+        for (j in seq_len(60L)) {
+          mid <- (inside + outside) / 2
+          if (is.finite(cond_peak(mid)$height)) inside <- mid else outside <- mid
+        }
+        return(inside)
+      }
+      if (p <= p_star - tail_log_drop) return(t)
+      inside <- t
+    }
+    NA_real_
+  }
+  t_lo <- find_edge(-1)
+  t_hi <- find_edge(1)
+  if (!is.finite(t_lo) || !is.finite(t_hi) || t_hi <= t_lo) return(NULL)
+
+  # Conditional mu windows on a log(sigma) grid, clipped to the prior support
+  t_grid <- seq(t_lo, t_hi, length.out = n_profile)
+  peaks <- lapply(t_grid, cond_peak)
+  centers <- vapply(peaks, `[[`, numeric(1), "center")
+  scales <- vapply(peaks, `[[`, numeric(1), "scale")
+  win_lo <- centers - mu_window * scales
+  win_hi <- centers + mu_window * scales
+  support_edge <- function(t, inside, outside) {
+    if (is.finite(lp_t(outside, t))) return(outside)
+    for (j in seq_len(60L)) {
+      mid <- (inside + outside) / 2
+      if (is.finite(lp_t(mid, t))) inside <- mid else outside <- mid
+    }
+    inside
+  }
+  for (i in seq_along(t_grid)) {
+    if (!is.finite(lp_t(centers[i], t_grid[i]))) next
+    win_lo[i] <- support_edge(t_grid[i], centers[i], win_lo[i])
+    win_hi[i] <- support_edge(t_grid[i], centers[i], win_hi[i])
+  }
+  win_lo_fn <- stats::approxfun(t_grid, win_lo, rule = 2)
+  win_hi_fn <- stats::approxfun(t_grid, win_hi, rule = 2)
+
+  rule_t <- .composite_gauss_legendre_unit(t_panels, gl_order)
+  rule_mu <- .composite_gauss_legendre_unit(mu_panels, gl_order)
+  m_nodes <- length(rule_mu$nodes)
+
+  # Integral over mu of exp(log_post - h_max) * g at each sigma
+  # (sigma-scale density, no Jacobian), restricted by the optional constraint.
+  int_mu <- function(sigma, m_fn = NULL, g = NULL) {
+    sigma <- as.numeric(sigma)
+    out <- numeric(length(sigma))
+    t <- suppressWarnings(log(sigma))
+    ok <- is.finite(t) & t >= t_lo & t <= t_hi
+    if (!any(ok)) return(out)
+    a <- win_lo_fn(t[ok])
+    b <- win_hi_fn(t[ok])
+    if (!is.null(m_fn)) {
+      mb <- m_fn(sigma[ok])
+      a <- pmax(a, mb$lower)
+      b <- pmin(b, mb$upper)
+    }
+    keep <- is.finite(a) & is.finite(b) & b > a
+    if (!any(keep)) return(out)
+    width <- b[keep] - a[keep]
+    mu <- as.vector(outer(rule_mu$nodes, width) + rep(a[keep], each = m_nodes))
+    sig <- rep(sigma[ok][keep], each = m_nodes)
+    vals <- exp(log_post_vec(mu, sig) - h_max)
+    if (!is.null(g)) vals <- vals * g(mu, sig)
+    vals[!is.finite(vals)] <- 0
+    idx <- which(ok)[keep]
+    out[idx] <- colSums(matrix(vals * rule_mu$weights, nrow = m_nodes)) * width
+    out
+  }
+
+  int_2d <- function(s_lim, m_fn, g = NULL) {
+    t_top <- if (is.finite(s_lim)) {
+      if (s_lim > 0) min(t_hi, log(s_lim)) else -Inf
+    } else {
+      t_hi
+    }
+    if (!(t_top > t_lo)) return(0)
+    span <- t_top - t_lo
+    t_nodes <- t_lo + span * rule_t$nodes
+    sigma_nodes <- exp(t_nodes)
+    sum(span * rule_t$weights * sigma_nodes * int_mu(sigma_nodes, m_fn, g))
+  }
+
+  list(
+    h_max = h_max,
+    map_mu = mu_star,
+    map_sig = exp(t_star),
+    mu_lower = min(win_lo),
+    mu_upper = max(win_hi),
+    sigma_lower = exp(t_lo),
+    sigma_upper = exp(t_hi),
+    int_mu = int_mu,
+    int_2d = int_2d
+  )
 }
 
 
@@ -365,6 +639,42 @@ precompute_generic_state <- function(data, prior, cached_state = NULL) {
     }
     log_prior <- prior$log_dens(mu, sigma)
     log_lik + log_prior
+  }
+
+  # With informative data, integrate around the posterior mode on local
+  # scales; a fixed (mu, sigma) box misses narrow posteriors.
+  if (n >= 2 && is.finite(sse) && sse > 0) {
+    local <- .generic_local_posterior(
+      log_post_vec, n = n, x_bar = x_bar, sse = sse,
+      init_mu = init_mu, init_sd = init_sd
+    )
+    if (!is.null(local)) {
+      Z <- local$int_2d(Inf, NULL)
+      if (is.finite(Z) && Z > 0) {
+        state <- .new_generic_backend_state(
+          log_post = log_post,
+          log_post_vec = log_post_vec,
+          h_max = local$h_max,
+          uni_s = local$sigma_upper,
+          map_mu = local$map_mu,
+          mu_scale = NULL,
+          int_2d = local$int_2d,
+          int_mu = local$int_mu,
+          Z = Z,
+          n = n,
+          x_bar = x_bar,
+          sse = sse,
+          mu_lower = local$mu_lower,
+          mu_upper = local$mu_upper,
+          sigma_lower = local$sigma_lower,
+          sigma_upper = local$sigma_upper,
+          map_sig = local$map_sig,
+          bayestools_priors = prior$bayestools_priors %||% NULL
+        )
+        .validate_qc_generic_cached_state(state)
+        return(state)
+      }
+    }
   }
 
   # Find MAP using constrained optimization (sigma > 0)
@@ -471,7 +781,7 @@ precompute_generic_state <- function(data, prior, cached_state = NULL) {
 
   integrate_box <- function(mu_lower_box, mu_upper_box,
                             sigma_lower_box, sigma_upper_box,
-                            s_lim, m_fn) {
+                            s_lim, m_fn, g = NULL) {
     s_top <- if (is.infinite(s_lim)) sigma_upper_box else min(s_lim, sigma_upper_box)
     sigma_floor <- max(sigma_lower_box, 1e-10)
     if (!is.finite(s_top) || s_top <= sigma_floor || mu_upper_box <= mu_lower_box) {
@@ -483,11 +793,15 @@ precompute_generic_state <- function(data, prior, cached_state = NULL) {
       sigma <- x[2, ]
 
       log_p <- log_post_vec(mu, sigma)
-      mb <- m_fn(sigma)
-      valid <- (mu >= mb$lower) & (mu <= mb$upper)
+      valid <- rep(TRUE, length(mu))
+      if (!is.null(m_fn)) {
+        mb <- m_fn(sigma)
+        valid <- (mu >= mb$lower) & (mu <= mb$upper)
+      }
 
       result <- rep(0, length(mu))
       result[valid] <- exp(log_p[valid] - h_max)
+      if (!is.null(g)) result[valid] <- result[valid] * g(mu[valid], sigma[valid])
       result[!is.finite(result)] <- 0
       matrix(result, nrow = 1)
     }
@@ -505,8 +819,8 @@ precompute_generic_state <- function(data, prior, cached_state = NULL) {
   }
 
   # cubature 2D integration with fully vectorized interface
-  int_2d <- function(s_lim, m_fn) {
-    integrate_box(mu_lower, mu_upper, sigma_lower, sigma_upper, s_lim, m_fn)
+  int_2d <- function(s_lim, m_fn, g = NULL) {
+    integrate_box(mu_lower, mu_upper, sigma_lower, sigma_upper, s_lim, m_fn, g)
   }
 
   unconstrained_mu_box <- function(s) {

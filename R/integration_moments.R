@@ -541,10 +541,11 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     list(lower = -Inf, upper = Inf)
   }
 
+  # Without prior metadata the mu prior's scale is unknown; do not invent one.
   init <- if (!is.null(mu_prior)) {
     .extract_prior_init(mu_prior)
   } else {
-    list(value = x_bar, scale = 1)
+    list(value = x_bar, scale = NA_real_)
   }
 
   qs <- .safe_prior_quantiles(mu_prior, quantile_probs)
@@ -562,7 +563,12 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     0
   }
 
-  ref_scale <- max(c(init$scale, data_scale, beta_scale, quantile_scale, 1), na.rm = TRUE)
+  # The scale must follow the data's units: an absolute floor (e.g. 1) makes
+  # the probe window far too coarse for measurements with sd ~ 0.01. Fall
+  # back to 1 only when nothing informs the scale.
+  scales <- c(init$scale, data_scale, beta_scale, quantile_scale)
+  scales <- scales[is.finite(scales) & scales > 0]
+  ref_scale <- if (length(scales) > 0L) max(scales) else 1
   data_radius <- scale_multiplier * max(data_scale, beta_scale, 0)
   prior_radius <- scale_multiplier * ref_scale
 
@@ -588,7 +594,7 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     center_candidates <- c(x_bar, init$value, qs_finite)
     center_candidates <- center_candidates[is.finite(center_candidates)]
     center <- if (length(center_candidates) > 0L) stats::median(center_candidates) else 0
-    radius <- max(ref_scale, 1)
+    radius <- ref_scale
     lower <- max(center - radius, support$lower)
     upper <- min(center + radius, support$upper)
   }
@@ -708,53 +714,270 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   NULL
 }
 
-.semi_sigma_integrate_log_kernel <- function(log_integrand, mu_domain,
-                                             lower = -Inf, upper = Inf,
-                                             rel.tol = 1e-6,
-                                             subdivisions = 400,
-                                             context = NULL) {
-  peak <- .semi_sigma_find_log_peak(
-    log_integrand, mu_domain,
-    lower = lower, upper = upper
-  )
+# Locate the mass of the mu marginal of the semi-conjugate sigma posterior,
+#   log w(mu) = log p(mu) - alpha_n * log(beta0 + (sse + n * (mu - x_bar)^2) / 2),
+# in the units of the data. With n observations w is roughly a Student-t with
+# scale sqrt((beta0 + sse / 2) / (alpha_n * n)), i.e. about s / sqrt(n), which
+# can be orders of magnitude narrower than the mu prior. Returns the mode,
+# a per-side local scale (within a factor of two of the half-width at which
+# log w drops by 1/2), and the range outside which log w has dropped by
+# `tail_log_drop` (infinite when a heavy tail never does).
+.semi_sigma_mu_frame <- function(log_weight, mu_domain, n, x_bar, sse, beta0,
+                                 alpha_n_eff, tail_log_drop = 40,
+                                 max_steps = 64L) {
+  eval_lw <- function(mu) {
+    vals <- as.numeric(log_weight(mu))
+    vals[is.na(vals)] <- -Inf
+    vals
+  }
 
-  if (is.null(peak) || !is.finite(peak$h_max)) {
-    if (is.null(context)) {
-      return(list(value = 0, log_value = -Inf, h_max = -Inf))
+  beta_floor <- beta0 + sse / 2
+  lik_scale <- if (n > 0 && beta_floor > 0) {
+    sqrt(beta_floor / (alpha_n_eff * n))
+  } else {
+    NA_real_
+  }
+
+  domain <- .semi_sigma_probe_interval(mu_domain)
+  probe <- seq(domain[["lower"]], domain[["upper"]], length.out = 1025L)
+  if (is.finite(lik_scale) && lik_scale > 0) {
+    probe <- c(probe, x_bar + lik_scale * seq(-64, 64, length.out = 513L))
+  }
+  probe <- sort(unique(probe[is.finite(probe)]))
+  probe_lw <- eval_lw(probe)
+  if (!any(is.finite(probe_lw))) {
+    return(NULL)
+  }
+
+  best <- which.max(probe_lw)
+  h_max <- probe_lw[best]
+  bracket <- probe[c(max(best - 1L, 1L), min(best + 1L, length(probe)))]
+
+  # A best probe on the window edge means the kernel is still rising there.
+  # March outward until it turns down so the mode is bracketed.
+  if (best == 1L || best == length(probe)) {
+    dir <- if (best == 1L) -1 else 1
+    step <- if (is.finite(lik_scale) && lik_scale > 0) {
+      lik_scale
+    } else {
+      diff(range(probe)) / 64
     }
-    stop(
-      sprintf("%s is improper for the supplied data and prior.", context),
-      call. = FALSE
+    prev <- probe[best]
+    prev_lw <- h_max
+    for (i in seq_len(max_steps)) {
+      cand <- prev + dir * step
+      cand_lw <- eval_lw(cand)
+      if (!is.finite(cand_lw) || cand_lw <= prev_lw) {
+        bracket <- sort(c(prev - dir * step / 2, cand))
+        break
+      }
+      bracket <- sort(c(prev, cand))
+      prev <- cand
+      prev_lw <- cand_lw
+      step <- 2 * step
+    }
+    h_max <- prev_lw
+    best_mu <- prev
+  } else {
+    best_mu <- probe[best]
+  }
+
+  mode <- best_mu
+  if (bracket[2] > bracket[1]) {
+    opt <- tryCatch(
+      stats::optimize(
+        function(mu) {
+          val <- eval_lw(mu)
+          if (is.finite(val)) val else -.Machine$double.xmax
+        },
+        interval = bracket,
+        maximum = TRUE,
+        tol = 1e-10 * max(abs(bracket), 1e-300)
+      ),
+      error = function(e) NULL
+    )
+    if (!is.null(opt) && is.finite(opt$objective) && opt$objective > h_max) {
+      h_max <- opt$objective
+      mode <- opt$maximum
+    }
+  }
+
+  drop_at <- function(dir, d) {
+    val <- eval_lw(mode + dir * d)
+    if (is.finite(val)) h_max - val else Inf
+  }
+
+  # Find d with drop(d / 2) < 1/2 <= drop(d), starting from the data scale.
+  side_scale <- function(dir) {
+    d <- if (is.finite(lik_scale) && lik_scale > 0) {
+      lik_scale
+    } else {
+      diff(range(probe)) / 1024
+    }
+    if (drop_at(dir, d) >= 0.5) {
+      for (i in seq_len(60L)) {
+        if (drop_at(dir, d / 2) < 0.5) break
+        d <- d / 2
+      }
+    } else {
+      for (i in seq_len(max_steps)) {
+        d <- 2 * d
+        if (drop_at(dir, d) >= 0.5) break
+      }
+    }
+    d
+  }
+  scale <- c(lower = side_scale(-1), upper = side_scale(1))
+
+  tail_bound <- function(dir, d) {
+    for (i in seq_len(max_steps)) {
+      if (drop_at(dir, d) >= tail_log_drop) {
+        return(mode + dir * d)
+      }
+      d <- 2 * d
+    }
+    dir * Inf
+  }
+  lower <- tail_bound(-1, scale[["lower"]])
+  upper <- tail_bound(1, scale[["upper"]])
+
+  # Keep any separate mode the probe saw above the tail threshold.
+  heavy <- which(probe_lw > h_max - tail_log_drop)
+  if (length(heavy) > 0L) {
+    lower <- min(lower, probe[max(min(heavy) - 1L, 1L)])
+    upper <- max(upper, probe[min(max(heavy) + 1L, length(probe))])
+  }
+
+  list(
+    mode = mode,
+    h_max = h_max,
+    scale = scale,
+    lower = lower,
+    upper = upper
+  )
+}
+
+# Quadrature breakpoints anchored on the frame's mode and local scale, so a
+# narrow peak is never left between Gauss-Kronrod nodes of a wide interval.
+.semi_sigma_mu_breaks <- function(frame, lower = -Inf, upper = Inf) {
+  a <- max(lower, frame$lower)
+  b <- min(upper, frame$upper)
+  if (is.na(a) || is.na(b) || !(b > a)) {
+    return(NULL)
+  }
+
+  offsets <- c(1, 4, 16, 64, 256)
+  pts <- c(
+    frame$mode,
+    frame$mode - offsets * frame$scale[["lower"]],
+    frame$mode + offsets * frame$scale[["upper"]]
+  )
+  pts <- pts[is.finite(pts) & pts > a & pts < b]
+  sort(unique(c(a, pts, b)))
+}
+
+.semi_sigma_integrate_breaks <- function(fn, breaks,
+                                         rel.tol = 1e-8,
+                                         subdivisions = 400L) {
+  if (is.null(breaks)) {
+    return(0)
+  }
+
+  integrate_piece <- function(lower, upper, tol) {
+    tryCatch(
+      stats::integrate(
+        fn, lower, upper,
+        rel.tol = tol,
+        subdivisions = subdivisions,
+        stop.on.error = FALSE
+      ),
+      error = function(e) NULL
     )
   }
 
-  scaled <- tryCatch(
-    stats::integrate(
-      function(mu) {
-        vals <- exp(log_integrand(mu) - peak$h_max)
-        vals[!is.finite(vals)] <- 0
-        vals
-      },
-      lower = lower,
-      upper = upper,
-      rel.tol = rel.tol,
-      subdivisions = subdivisions
-    )$value,
-    error = function(e) NA_real_
-  )
-
-  if (!is.finite(scaled) || scaled <= 0) {
-    if (is.null(context)) {
-      return(list(value = 0, log_value = -Inf, h_max = peak$h_max))
+  total <- 0
+  for (k in seq_len(length(breaks) - 1L)) {
+    res <- integrate_piece(breaks[k], breaks[k + 1L], rel.tol)
+    # Integrands built from interpolated geometry (e.g. Cpc) are not smooth
+    # enough for a tight tolerance; QUADPACK then flags roundoff. Retry looser.
+    if (is.null(res) || !identical(res$message, "OK")) {
+      res <- integrate_piece(breaks[k], breaks[k + 1L], max(rel.tol, 1e-5))
     }
-    stop(
-      sprintf("%s could not be normalized numerically.", context),
-      call. = FALSE
-    )
+    ok <- !is.null(res) && is.finite(res$value) &&
+      !grepl("divergent|non-finite", res$message)
+    piece <- if (ok) res$value else NA_real_
+    total <- total + piece
+  }
+  total
+}
+
+# Integrate exp(log_integrand(mu)) over [lower, upper] within the frame's
+# effective range. The integrand is rescaled by its own maximum over probes
+# placed between the breakpoints, so a factor that shifts mass away from the
+# frame's mode (e.g. a sigma-interval probability) does not underflow.
+.semi_sigma_integrate_log_mu <- function(log_integrand, frame,
+                                         lower = -Inf, upper = Inf,
+                                         rel.tol = 1e-8,
+                                         subdivisions = 400L) {
+  breaks <- .semi_sigma_mu_breaks(frame, lower, upper)
+  if (is.null(breaks)) {
+    return(list(value = 0, log_value = -Inf))
   }
 
-  log_value <- log(scaled) + peak$h_max
-  list(value = exp(log_value), log_value = log_value, h_max = peak$h_max)
+  finite_breaks <- breaks[is.finite(breaks)]
+  probe <- finite_breaks
+  if (length(finite_breaks) > 1L) {
+    probe <- unlist(lapply(seq_len(length(finite_breaks) - 1L), function(k) {
+      seq(finite_breaks[k], finite_breaks[k + 1L], length.out = 17L)
+    }))
+  }
+  probe_vals <- as.numeric(log_integrand(probe))
+  probe_vals <- probe_vals[is.finite(probe_vals)]
+  if (length(probe_vals) == 0L) {
+    return(list(value = 0, log_value = -Inf))
+  }
+  h <- max(probe_vals)
+
+  scaled <- .semi_sigma_integrate_breaks(
+    function(mu) {
+      vals <- exp(log_integrand(mu) - h)
+      vals[!is.finite(vals)] <- 0
+      vals
+    },
+    breaks,
+    rel.tol = rel.tol,
+    subdivisions = subdivisions
+  )
+
+  if (!is.finite(scaled)) {
+    return(list(value = NA_real_, log_value = NA_real_))
+  }
+  if (scaled <= 0) {
+    return(list(value = 0, log_value = -Inf))
+  }
+
+  log_value <- log(scaled) + h
+  list(value = exp(log_value), log_value = log_value)
+}
+
+# E[g(mu, sigma)^k | mu] for k = 1, 2 under sigma^2 | mu ~ InvGamma(alpha,
+# beta_n(mu)), on a fixed log(sigma) grid around each conditional mode. The
+# log(sigma) density is smooth and decays double-exponentially on the left
+# and at rate 2 * alpha on the right, so a self-normalized trapezoid rule on
+# that grid is accurate.
+.semi_sigma_conditional_metric_moments <- function(mu, beta_n, alpha, metric_fn,
+                                                   n_points = 401L) {
+  sd_t <- 1 / (2 * sqrt(alpha))
+  offsets <- seq(-12 * sd_t, max(12 * sd_t, 50 / (2 * alpha)),
+                 length.out = n_points)
+  t <- outer(0.5 * log(beta_n / alpha), offsets, "+")
+  log_p <- -2 * alpha * t - beta_n * exp(-2 * t)
+  w <- exp(log_p - apply(log_p, 1L, max))
+  w[, c(1L, n_points)] <- w[, c(1L, n_points)] / 2
+  w <- w / rowSums(w)
+
+  vals <- metric_fn(matrix(mu, nrow = length(mu), ncol = n_points), exp(t))
+  list(E1 = rowSums(w * vals), E2 = rowSums(w * vals^2))
 }
 
 .semi_sigma_support_contains_point <- function(log_dens_mu, point) {
@@ -840,13 +1063,51 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   )
   mu_domain <- .semi_sigma_mu_domain(prior, n, x_bar, sse, beta0)
 
-  sigma_scale_num <- sse + 2 * max(beta0, 0)
-  if (n > 0) {
-    sigma_scale_num <- sigma_scale_num + n * mu_domain$scale^2
+  # Unnormalized log marginal of mu after integrating sigma analytically.
+  log_weight <- function(mu) {
+    beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
+    vals <- prior$log_dens_mu(mu) - alpha_n_eff * log(beta_n)
+    vals[!is.finite(vals)] <- -Inf
+    vals
   }
-  sigma_scale <- sqrt(max(sigma_scale_num, 0) / max(n + 1, 1))
+
+  mu_frame <- .semi_sigma_mu_frame(
+    log_weight, mu_domain, n, x_bar, sse, beta0, alpha_n_eff
+  )
+  if (is.null(mu_frame) || !is.finite(mu_frame$h_max)) {
+    stop(
+      sprintf("%s is improper for the supplied data and prior.", context),
+      call. = FALSE
+    )
+  }
+  # The frame doubles its tail search out to ~2^64 local scales; a marginal
+  # that has still not decayed by then (e.g. a flat mu prior without data)
+  # cannot be normalized.
+  if (!is.finite(mu_frame$lower) || !is.finite(mu_frame$upper)) {
+    stop(
+      sprintf(
+        "%s is improper for the supplied data and prior (the mu marginal does not decay).",
+        context
+      ),
+      call. = FALSE
+    )
+  }
+
+  log_Z <- .semi_sigma_integrate_log_mu(log_weight, mu_frame)$log_value
+  if (!is.finite(log_Z)) {
+    stop(
+      sprintf("%s could not be normalized numerically.", context),
+      call. = FALSE
+    )
+  }
+
+  # Conditional sigma scale at the mu mode: sigma^2 | mu ~ InvGamma(alpha_n,
+  # beta_n(mu)) has mode beta_n / (alpha_n + 1); sqrt(beta_n / alpha_n) is a
+  # matching reference in the data's units.
+  beta_at_mode <- beta0 + (sse + n * (mu_frame$mode - x_bar)^2) / 2
+  sigma_scale <- sqrt(beta_at_mode / alpha_n_eff)
   if (!is.finite(sigma_scale) || sigma_scale <= 0) {
-    sigma_scale <- max(mu_domain$scale, 1)
+    sigma_scale <- mu_domain$scale
   }
 
   list(
@@ -860,6 +1121,9 @@ compute_metric_moments.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     jeffreys_adj = jeffreys_adj,
     alpha_0_times_logbeta0 = if (beta0 == 0) 0 else alpha0 * log(beta0),
     mu_domain = mu_domain,
+    log_weight = log_weight,
+    mu_frame = mu_frame,
+    log_Z = log_Z,
     sigma_scale = sigma_scale
   )
 }
@@ -906,42 +1170,32 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
   sse <- state$sse
   beta0 <- state$beta0
   alpha_n_eff <- state$alpha_n_eff
+  log_weight <- state$log_weight
+  frame <- state$mu_frame
+  h_max <- frame$h_max
 
-  if (metric %in% c("Cpm", "Cpc")) {
-    return(.integration_compute_metric_moments(
-      use_analytic = FALSE,
-      request = .integration_request_update(
-        request,
-        prior = .semi_sigma_as_generic_prior(prior)
-      )
-    ))
-  }
-
-  if (!metric %in% c("Cp", "Cpu", "Cpl", "Cpk")) {
+  if (!metric %in% c("Cp", "Cpu", "Cpl", "Cpk", "Cpm", "Cpc")) {
     stop("Unknown metric: ", metric)
   }
 
-  log_kernel <- function(mu) {
-    sse_mu <- sse + n * (mu - x_bar)^2
-    beta_n <- beta0 + sse_mu / 2
-    vals <- prior$log_dens_mu(mu) - alpha_n_eff * log(beta_n)
-    vals[!is.finite(vals)] <- -Inf
-    vals
-  }
-
-  weight_info <- .semi_sigma_integrate_log_kernel(
-    log_kernel,
-    state$mu_domain,
-    lower = -Inf,
-    upper = Inf,
-    rel.tol = 1e-5,
-    subdivisions = 400,
-    context = "The semi-conjugate sigma posterior for metric computation"
-  )
-  log_Z <- weight_info$log_value
-  h_max <- weight_info$h_max
-
+  # E[metric^k | mu] after integrating sigma^2 | mu ~ InvGamma(alpha_n, beta_n).
   metric_conditional_moments <- function(mu, beta_n) {
+    if (metric %in% c("Cpm", "Cpc")) {
+      cpm_dist <- .cpm_spec_distance(LSL, USL, target)
+      tol <- USL - LSL
+      metric_fn <- if (metric == "Cpm") {
+        function(mu, sigma) cpm_dist / (sigma_level * sqrt(sigma^2 + (mu - target)^2))
+      } else {
+        function(mu, sigma) {
+          tol / ((2 * sigma_level) * sqrt(pi / 2) *
+                   .cpc_E_abs_dev_normal(mu, sigma, target))
+        }
+      }
+      return(.semi_sigma_conditional_metric_moments(
+        mu, beta_n, alpha_n_eff, metric_fn
+      ))
+    }
+
     E_inv_sigma <- exp(
       lgamma(alpha_n_eff + 0.5) - lgamma(alpha_n_eff) - 0.5 * log(beta_n)
     )
@@ -961,13 +1215,17 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
   }
 
   integrand_Ek <- function(mu, power) {
-    sse_mu <- sse + n * (mu - x_bar)^2
-    beta_n <- beta0 + sse_mu / 2
-    scaled_weight <- exp(log_kernel(mu) - h_max)
+    beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
+    scaled_weight <- exp(log_weight(mu) - h_max)
     result <- numeric(length(mu))
     ok <- is.finite(scaled_weight) & scaled_weight > 0 &
       is.finite(beta_n) & beta_n > 0
     if (!any(ok)) {
+      return(result)
+    }
+
+    if (power == 0) {
+      result[ok] <- scaled_weight[ok]
       return(result)
     }
 
@@ -978,21 +1236,25 @@ compute_metric_moments.PriorSemiConjugateSigma <- function(data, LSL, USL, prior
     result
   }
 
-  scale_back <- exp(h_max - log_Z)
-  E1 <- scale_back * stats::integrate(
-    function(mu) integrand_Ek(mu, 1),
-    lower = -Inf,
-    upper = Inf,
-    rel.tol = 1e-5,
-    subdivisions = 400
-  )$value
-  E2 <- scale_back * stats::integrate(
-    function(mu) integrand_Ek(mu, 2),
-    lower = -Inf,
-    upper = Inf,
-    rel.tol = 1e-5,
-    subdivisions = 400
-  )$value
+  # Normalize with the same breakpoints so quadrature error cancels in the
+  # ratios.
+  breaks <- .semi_sigma_mu_breaks(frame)
+  moment_integral <- function(power) {
+    .semi_sigma_integrate_breaks(
+      function(mu) integrand_Ek(mu, power),
+      breaks,
+      rel.tol = 1e-8
+    )
+  }
+  Z_scaled <- moment_integral(0)
+  if (!is.finite(Z_scaled) || Z_scaled <= 0) {
+    stop(
+      "The semi-conjugate sigma posterior for metric computation could not be normalized numerically.",
+      call. = FALSE
+    )
+  }
+  E1 <- moment_integral(1) / Z_scaled
+  E2 <- moment_integral(2) / Z_scaled
 
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
@@ -1008,45 +1270,22 @@ compute_metric_moments.PriorGeneric <- function(data, LSL, USL, prior,
 
   cached_state <- precompute_generic_state(data, prior, cached_state = cached_state)
 
-  log_post_vec <- cached_state$log_post_vec
-  h_max <- cached_state$h_max
   Z <- cached_state$Z
-  mu_lower <- cached_state$mu_lower
-  mu_upper <- cached_state$mu_upper
-  sigma_lower <- max(cached_state$sigma_lower, 1e-10)
-  sigma_upper <- max(cached_state$sigma_upper, sigma_lower * 1.1)
 
-  # Fully vectorized integrand
-  integrand <- function(x, power = 1) {
-    mu <- x[1, ]
-    sigma <- x[2, ]
-
-    # Vectorized metric and log posterior computation
-    metric_val <- compute_metric_value(
-      mu, sigma, LSL, USL, target, metric,
-      sigma_level = sigma_level
-    )
-    log_p <- log_post_vec(mu, sigma)
-
-    result <- exp(log_p - h_max) * (metric_val^power)
-    result[!is.finite(result)] <- 0
-    matrix(result, nrow = 1)
+  metric_power <- function(power) {
+    function(mu, sigma) {
+      compute_metric_value(
+        mu, sigma, LSL, USL, target, metric,
+        sigma_level = sigma_level
+      )^power
+    }
   }
 
-  # Both the integral and Z use the same h_max normalization, so they cancel out
-  E1 <- cubature::pcubature(
-    function(x) integrand(x, power = 1),
-    lowerLimit = c(mu_lower, sigma_lower),
-    upperLimit = c(mu_upper, sigma_upper),
-    tol = 1e-4, vectorInterface = TRUE
-  )$integral / Z
-
-  E2 <- cubature::pcubature(
-    function(x) integrand(x, power = 2),
-    lowerLimit = c(mu_lower, sigma_lower),
-    upperLimit = c(mu_upper, sigma_upper),
-    tol = 1e-4, vectorInterface = TRUE
-  )$integral / Z
+  # The cached integrator (MAP-anchored nested quadrature with data, a finite
+  # box for prior-only state) is the one that defines Z, so the h_max
+  # normalization cancels.
+  E1 <- cached_state$int_2d(Inf, NULL, metric_power(1)) / Z
+  E2 <- cached_state$int_2d(Inf, NULL, metric_power(2)) / Z
 
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
