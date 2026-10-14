@@ -404,115 +404,6 @@ make_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   log_prob
 }
 
-.compute_semi_sigma_log_Z_survival <- function(n, x_bar, sse, alpha0, beta0,
-                                               log_dens_mu, jeffreys_adj = 0,
-                                               mu_domain,
-                                               context = "The semi-conjugate sigma posterior") {
-  alpha_n_eff <- alpha0 + n / 2 + jeffreys_adj
-
-  .validate_semi_sigma_posterior(
-    n, x_bar, sse, alpha0, beta0, log_dens_mu,
-    jeffreys_adj = jeffreys_adj,
-    context = context
-  )
-
-  log_integrand <- function(mu) {
-    sse_mu <- sse + n * (mu - x_bar)^2
-    beta_n <- beta0 + sse_mu / 2
-    vals <- log_dens_mu(mu) - alpha_n_eff * log(beta_n)
-    vals[!is.finite(vals)] <- -Inf
-    vals
-  }
-
-  eff_bounds <- .semi_sigma_effective_bounds(
-    log_integrand,
-    mu_domain,
-    lower = -Inf,
-    upper = Inf
-  )
-
-  .semi_sigma_integrate_log_kernel(
-    log_integrand,
-    mu_domain,
-    lower = eff_bounds[["lower"]],
-    upper = eff_bounds[["upper"]],
-    rel.tol = 1e-6,
-    subdivisions = 400,
-    context = context
-  )$log_value
-}
-
-.semi_sigma_effective_bounds <- function(log_integrand, mu_domain,
-                                         lower = -Inf, upper = Inf,
-                                         probe_n = 1025L,
-                                         tail_log_drop = 36,
-                                         max_expansions = 32L) {
-  probe_bounds <- .semi_sigma_probe_interval(mu_domain, lower, upper)
-  lower_limit <- probe_bounds[["lower"]]
-  upper_limit <- probe_bounds[["upper"]]
-  if (!is.finite(lower_limit) || !is.finite(upper_limit) || upper_limit <= lower_limit) {
-    return(c(lower = lower, upper = upper))
-  }
-
-  probe_mu <- seq(lower_limit, upper_limit, length.out = probe_n)
-  probe_log <- log_integrand(probe_mu)
-  finite_idx <- which(is.finite(probe_log))
-  if (!length(finite_idx)) {
-    return(c(lower = lower_limit, upper = upper_limit))
-  }
-
-  best_idx <- finite_idx[which.max(probe_log[finite_idx])]
-  center <- probe_mu[best_idx]
-  h_max <- probe_log[best_idx]
-
-  local_lower <- probe_mu[max(best_idx - 1L, 1L)]
-  local_upper <- probe_mu[min(best_idx + 1L, probe_n)]
-  if (local_upper > local_lower) {
-    opt <- tryCatch(
-      stats::optimize(
-        function(mu) {
-          val <- log_integrand(mu)
-          if (is.finite(val)) -val else .Machine$double.xmax
-        },
-        interval = c(local_lower, local_upper)
-      ),
-      error = function(e) NULL
-    )
-    if (!is.null(opt)) {
-      center <- opt$minimum
-      h_max <- max(h_max, -opt$objective)
-    }
-  }
-
-  step <- max((upper_limit - lower_limit) / max(probe_n - 1L, 1L), 1) * 8
-  eff_lower <- center
-  eff_upper <- center
-
-  for (i in seq_len(max_expansions)) {
-    if (is.finite(lower) && eff_lower <= lower) break
-    candidate <- eff_lower - step
-    if (is.finite(lower)) {
-      candidate <- max(lower, candidate)
-    }
-    val <- log_integrand(candidate)
-    eff_lower <- candidate
-    if (!is.finite(val) || val <= h_max - tail_log_drop) break
-  }
-
-  for (i in seq_len(max_expansions)) {
-    if (is.finite(upper) && eff_upper >= upper) break
-    candidate <- eff_upper + step
-    if (is.finite(upper)) {
-      candidate <- min(upper, candidate)
-    }
-    val <- log_integrand(candidate)
-    eff_upper <- candidate
-    if (!is.finite(val) || val <= h_max - tail_log_drop) break
-  }
-
-  c(lower = eff_lower, upper = eff_upper)
-}
-
 #' @export
 make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
                                                  metric = "Cpk", target = NULL,
@@ -529,16 +420,10 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   x_bar <- state$x_bar
   sse <- state$sse
   beta0 <- state$beta0
-  jeffreys_adj <- state$jeffreys_adj
   alpha_n_eff <- state$alpha_n_eff
   if (is.null(target)) target <- (LSL + USL) / 2
   # Normalize to the same posterior mass used by the density solver.
-  log_Z <- .compute_semi_sigma_log_Z_survival(
-    n, x_bar, sse, state$alpha0, beta0,
-    prior$log_dens_mu, jeffreys_adj,
-    mu_domain = state$mu_domain,
-    context = "The semi-conjugate sigma posterior for normalization"
-  )
+  log_Z <- state$log_Z
 
   function(c) {
     if (!.metric_can_be_negative(metric) && c <= 0) return(1.0)
@@ -578,20 +463,11 @@ make_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       vals[!is.finite(vals)] <- -Inf
       vals
     }
-    eff_bounds <- .semi_sigma_effective_bounds(
+    prob <- .semi_sigma_integrate_log_mu(
       log_integrand,
-      state$mu_domain,
+      state$mu_frame,
       lower = mu_low,
       upper = mu_high
-    )
-
-    prob <- .semi_sigma_integrate_log_kernel(
-      log_integrand,
-      state$mu_domain,
-      lower = eff_bounds[["lower"]],
-      upper = eff_bounds[["upper"]],
-      rel.tol = 1e-5,
-      subdivisions = 400
     )$value
     if (!is.finite(prob) || prob <= 0) return(0)
 

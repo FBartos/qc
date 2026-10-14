@@ -772,13 +772,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   if (is.null(target)) target <- M
   tol <- USL - LSL
 
-  # Compute normalization constant Z
-  log_Z <- .compute_semi_sigma_log_Z_survival(
-    n, x_bar, sse, alpha0, beta0,
-    prior$log_dens_mu, state$jeffreys_adj,
-    mu_domain = state$mu_domain,
-    context = "The semi-conjugate sigma posterior for normalization"
-  )
+  # Normalization constant of the mu marginal (sigma integrated analytically).
+  log_Z <- state$log_Z
 
   # Constant for the unnormalized sigma kernel
   log_C <- log(2) - lgamma(alpha_n_eff)
@@ -825,21 +820,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
         vals[!is.finite(vals)] <- -Inf
         vals
       }
-      eff_bounds <- .semi_sigma_effective_bounds(
-        log_integrand,
-        state$mu_domain,
-        lower = -Inf,
-        upper = Inf
-      )
-
-      .semi_sigma_integrate_log_kernel(
-        log_integrand,
-        state$mu_domain,
-        lower = eff_bounds[["lower"]],
-        upper = eff_bounds[["upper"]],
-        rel.tol = 1e-5,
-        subdivisions = 400
-      )$value
+      .semi_sigma_integrate_log_mu(log_integrand, state$mu_frame)$value
     })
   }
 
