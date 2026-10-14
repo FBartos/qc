@@ -238,22 +238,44 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         return(result)
       }
 
+      # Restrict each circle of radius R to the arc that crosses the
+      # (mu, sigma) box and map it onto v in [0, 1]. For a narrow posterior
+      # that arc is a tiny fraction of [0, pi], which a fixed-range
+      # pcubature misses entirely.
+      theta_lo <- pmax(
+        acos(pmin(1, pmax(-1, (mu_upper - target) / R[valid_R]))),
+        asin(pmin(1, sigma_floor / R[valid_R]))
+      )
+      theta_hi <- pmin(
+        acos(pmin(1, pmax(-1, (mu_lower - target) / R[valid_R]))),
+        pi - asin(pmin(1, sigma_floor / R[valid_R]))
+      )
+      has_arc <- theta_hi > theta_lo
+      valid_R[valid_R] <- has_arc
+      if (!any(valid_R)) {
+        result[valid_c] <- vals_out
+        return(result)
+      }
+      theta_lo <- theta_lo[has_arc]
+      theta_width <- theta_hi[has_arc] - theta_lo
+
       Rv <- R[valid_R]
       cv_valid <- cv[valid_R]
-      log_jacobian <- 2 * log(Rv) - log(cv_valid)
+      log_jacobian <- 2 * log(Rv) - log(cv_valid) + log(theta_width)
 
-      integrand <- function(theta) {
-        theta <- if (is.matrix(theta)) as.numeric(theta[1, ]) else as.numeric(theta)
-        sigma_mat <- outer(Rv, sin(theta), `*`)
-        mu_mat <- target + outer(Rv, cos(theta), `*`)
+      integrand <- function(v) {
+        v <- if (is.matrix(v)) as.numeric(v[1, ]) else as.numeric(v)
+        theta <- theta_lo + outer(theta_width, v)
+        sigma_mat <- Rv * sin(theta)
+        mu_mat <- target + Rv * cos(theta)
         log_jacobian_mat <- matrix(
-          rep(log_jacobian, times = length(theta)),
+          rep(log_jacobian, times = length(v)),
           nrow = length(Rv)
         )
         valid <- is.finite(mu_mat) & is.finite(sigma_mat) &
           sigma_mat >= sigma_floor & sigma_mat <= sigma_upper &
           mu_mat >= mu_lower & mu_mat <= mu_upper
-        vals <- matrix(0, nrow = length(Rv), ncol = length(theta))
+        vals <- matrix(0, nrow = length(Rv), ncol = length(v))
         if (any(valid)) {
           log_p <- log_post_vec(mu_mat[valid], sigma_mat[valid])
           vals[valid] <- exp(log_p + log_jacobian_mat[valid] - h_max) / Z
@@ -266,7 +288,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
         cubature::pcubature(
           integrand,
           lowerLimit = 0,
-          upperLimit = pi,
+          upperLimit = 1,
           tol = 1e-5,
           fDim = length(Rv),
           vectorInterface = TRUE
