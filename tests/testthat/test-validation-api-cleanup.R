@@ -315,3 +315,78 @@ testthat::test_that("beta prior log-density respects supported boundaries", {
   testthat::expect_gt(unname(beta_right_singular(1)), 0)
   testthat::expect_equal(unname(beta_zero_boundary(c(0, 1))), c(-Inf, -Inf))
 })
+
+testthat::test_that("capability entry points reject unknown metrics and invalid limits", {
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = 0, USL = 10, target = 5, metric = "Cpx"),
+    regexp = "'Cpx' values are not recognized"
+  )
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = NA, USL = 10, target = NULL, metric = "Cp"),
+    regexp = "cannot contain NA"
+  )
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = 0, USL = 10, target = NULL,
+                             metric = "Cp", sigma_level = 0),
+    regexp = "`sigma_level` must be greater than 0"
+  )
+
+  # Swapped limits are rejected by every entry point.
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = 10, USL = 0, target = NULL, metric = "Cp"),
+    regexp = "`LSL` must be lower than `USL`"
+  )
+  testthat::expect_error(
+    qc::bpc(rnorm(8), LSL = 1, target = 0.5, USL = 0, method = "integration"),
+    regexp = "`LSL` must be lower than `USL`"
+  )
+  testthat::expect_error(
+    qc::pc(rnorm(8), LSL = 1, target = 0.5, USL = 0, bootstrap = FALSE),
+    regexp = "`LSL` must be lower than `USL`"
+  )
+
+  # A zero-width tolerance makes every index 0/0.
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 1, sigma = 1, LSL = 1, USL = 1, target = NULL, metric = "Cp"),
+    regexp = "`LSL` must be lower than `USL`"
+  )
+  testthat::expect_error(
+    qc::bpc(rnorm(8), LSL = 0.5, target = 0.5, USL = 0.5, method = "integration"),
+    regexp = "`LSL` must be lower than `USL`"
+  )
+
+  # An infinite limit gives an infinite tolerance, not a one-sided index.
+  testthat::expect_error(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = 0, USL = Inf, target = NULL, metric = "Cpl"),
+    regexp = "`LSL` and `USL` must be finite"
+  )
+  testthat::expect_error(
+    qc::bpc(rnorm(8), LSL = 0, target = 0.5, USL = Inf, method = "integration"),
+    regexp = "`LSL` and `USL` must be finite"
+  )
+  testthat::expect_error(
+    qc::pc(rnorm(8), LSL = -Inf, target = 0.5, USL = 1, bootstrap = FALSE),
+    regexp = "`LSL` and `USL` must be finite"
+  )
+})
+
+testthat::test_that("Cpm and Cpc default to the specification midpoint as target", {
+  # LSL = 0, USL = 10: midpoint 5, half-tolerance 5.
+  # Cpm = 5 / (3 * sqrt(sigma^2 + (mu - 5)^2)).
+  testthat::expect_equal(
+    qc::compute_metric_value(mu = 5, sigma = 1, LSL = 0, USL = 10, target = NULL, metric = "Cpm"),
+    5 / 3
+  )
+  testthat::expect_equal(
+    qc::compute_metric_value(mu = 8, sigma = 4, LSL = 0, USL = 10, target = NULL, metric = "Cpm"),
+    5 / 15
+  )
+
+  # Cpc = 10 / (6 * sqrt(pi / 2) * E|X - 5|) with X ~ Normal(6, 1), where
+  # E|X - 5| = sqrt(2 / pi) * exp(-1 / 2) + (2 * pnorm(1) - 1).
+  mean_abs_dev <- sqrt(2 / pi) * exp(-1 / 2) + (2 * stats::pnorm(1) - 1)
+  testthat::expect_equal(
+    qc::compute_metric_value(mu = 6, sigma = 1, LSL = 0, USL = 10, target = NULL, metric = "Cpc"),
+    10 / (6 * sqrt(pi / 2) * mean_abs_dev)
+  )
+})

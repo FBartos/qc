@@ -147,36 +147,32 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     # posterior or underflow in the tails. Integrate on log(sigma), splitting
     # at the peak, while retaining the full sigma support.
     center <- min(max(log(sigma_ref), t_lower), t_upper)
-    probe_lower <- max(t_lower, center - 8)
-    probe_upper <- min(t_upper, center + 8)
-    for (attempt in seq_len(16L)) {
-      probe <- seq(probe_lower, probe_upper, length.out = 65L)
-      heights <- log_kernel(probe)
-      if (!any(is.finite(heights))) return(0)
-      i <- which.max(heights)
-      if (i == 1L && probe_lower > t_lower) {
-        probe_lower <- max(t_lower, probe_lower - 8)
-      } else if (i == length(probe) && probe_upper < t_upper) {
-        probe_upper <- min(t_upper, probe_upper + 8)
-      } else {
-        break
-      }
-    }
-    opt <- stats::optimize(
-      function(t) max(log_kernel(t), -.Machine$double.xmax),
-      c(probe[max(1L, i - 1L)], probe[min(length(probe), i + 1L)]),
-      maximum = TRUE
+    peak <- .semi_sigma_find_log_peak(
+      log_kernel,
+      mu_domain = list(lower = center - 8, upper = center + 8, scale = 8),
+      lower = t_lower,
+      upper = t_upper,
+      probe_n = 65L,
+      max_expansions = 16L
     )
-    mode <- opt$maximum
-    h_max <- max(heights[i], opt$objective)
+    # No finite kernel value anywhere on the contour: it misses the support.
+    if (is.null(peak)) return(0)
+
+    mode <- peak$mode
+    h_max <- peak$h_max
     integrand <- function(u) exp(log_kernel(u + mode) - h_max)
     integrate_part <- function(lower, upper) {
       if (lower >= upper) return(0)
       stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
                        abs.tol = 1e-10, subdivisions = 400L)$value
     }
-    scaled <- integrate_part(t_lower - mode, 0) +
-      integrate_part(0, t_upper - mode)
+    # A failed quadrature is reported as NA (not 0) so callers can fall back
+    # to the survival solver instead of silently dropping density.
+    scaled <- tryCatch(
+      integrate_part(t_lower - mode, 0) + integrate_part(0, t_upper - mode),
+      error = function(e) NA_real_
+    )
+    if (!is.finite(scaled)) return(NA_real_)
     if (scaled <= 0) 0 else exp(h_max + log(scaled))
   }
 
@@ -787,6 +783,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   # Constant for the unnormalized sigma kernel
   log_C <- log(2) - lgamma(alpha_n_eff)
 
+  # Used only for Cpm and Cpc, which are supported on [0, Inf).
   survival_density <- function(metric_name) {
     .density_from_survival_fn(
       make_solver(
@@ -796,7 +793,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
         cached_state = cached_state,
         sigma_level = sigma_level
       ),
-      support_lower = if (.metric_can_be_negative(metric_name)) -Inf else 0
+      support_lower = 0
     )
   }
 

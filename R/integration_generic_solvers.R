@@ -142,7 +142,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
           cached_state = cached_state
         )
       ),
-      support_lower = if (.metric_can_be_negative(metric_name)) -Inf else 0
+      support_lower = 0
     )
   }
 

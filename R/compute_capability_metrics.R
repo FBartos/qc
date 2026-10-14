@@ -1,6 +1,35 @@
+.validate_specification_limits <- function(LSL, USL) {
+  BayesTools::check_real(LSL, name = "LSL", check_length = 1, allow_NA = FALSE)
+  BayesTools::check_real(USL, name = "USL", check_length = 1, allow_NA = FALSE)
+
+  # Capability indices divide by the tolerance USL - LSL, so it must be a
+  # finite, positive width.
+  if (!is.finite(LSL) || !is.finite(USL)) {
+    stop(
+      sprintf(
+        "`LSL` and `USL` must be finite. Received LSL = %s and USL = %s.",
+        format(LSL, digits = 10),
+        format(USL, digits = 10)
+      ),
+      call. = FALSE
+    )
+  }
+  if (LSL >= USL) {
+    stop(
+      sprintf(
+        "`LSL` must be lower than `USL`. Received LSL = %s and USL = %s.",
+        format(LSL, digits = 10),
+        format(USL, digits = 10)
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(list(LSL = LSL, USL = USL))
+}
+
 .validate_LSL_USL_target <- function(LSL, USL, target) {
-  BayesTools::check_real(LSL,    name = "LSL",    check_length = 1, allow_NA = FALSE, upper = USL)
-  BayesTools::check_real(USL,    name = "USL",    check_length = 1, allow_NA = FALSE, lower = LSL)
+  .validate_specification_limits(LSL = LSL, USL = USL)
   BayesTools::check_real(target, name = "target", check_length = 1, allow_NA = FALSE)
 
   if (target < LSL || target > USL) {
@@ -57,8 +86,7 @@
   if (target_required || !is.null(target)) {
     limits <- .validate_LSL_USL_target(LSL = LSL, USL = USL, target = target)
   } else {
-    BayesTools::check_real(LSL, name = "LSL", check_length = 1, allow_NA = FALSE, upper = USL)
-    BayesTools::check_real(USL, name = "USL", check_length = 1, allow_NA = FALSE, lower = LSL)
+    .validate_specification_limits(LSL = LSL, USL = USL)
     limits <- list(LSL = LSL, USL = USL, target = target)
   }
 
