@@ -37,7 +37,6 @@ testthat::test_that("distribution interval probabilities keep point masses on th
     c(1, 0)
   )
   testthat::expect_equal(
-    qc:::.qc_metric_distribution_interval_probs(dist, breaks),
     qc:::.integration_interval_probs_from_entry(
       entry = dist$entry,
       interval_breaks = breaks,
@@ -48,7 +47,8 @@ testthat::test_that("distribution interval probabilities keep point masses on th
       USL = 1,
       target = NULL,
       sigma_level = 3
-    )
+    ),
+    c(1, 0)
   )
 })
 

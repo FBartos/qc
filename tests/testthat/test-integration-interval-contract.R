@@ -245,7 +245,6 @@ test_that("integration interval probability helper falls back to grid probabilit
     grid = data.frame(x = c(0, 1, 2), density = c(1, 2, 1)),
     area = 1
   )
-  expected <- qc:::.integration_interval_probs_from_grid(entry, breaks)
 
   testthat::local_mocked_bindings(
     compute_cpk_prob_integration = function(...) NA_real_,
@@ -264,7 +263,8 @@ test_that("integration interval probability helper falls back to grid probabilit
     sigma_level = 3
   )
 
-  expect_equal(actual, expected)
+  # Cell masses are (1, 2, 1)/4 on [-0.5, 0.5], [0.5, 1.5], [1.5, 2.5].
+  expect_equal(actual, c(0.25, 0.5, 0.25))
 })
 
 test_that("integration interval probability helper uses solver probabilities when no grid is available", {

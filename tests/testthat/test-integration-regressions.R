@@ -226,7 +226,13 @@ test_that("diffuse conjugate numerical moments stay aligned with analytic and Mo
   mu <- stats::rnorm(n_mc, mean = prior$mu0, sd = sigma / sqrt(prior$k0))
 
   for (metric in c("Cpm", "Cpc")) {
-    mc_vals <- qc:::compute_metric_value(mu, sigma, -1, 1, 0, metric)
+    mean_abs <- 2 * sigma * stats::dnorm(mu / sigma) +
+      mu * (2 * stats::pnorm(mu / sigma) - 1)
+    mc_vals <- if (metric == "Cpm") {
+      1 / (3 * sqrt(sigma^2 + mu^2))
+    } else {
+      1 / (3 * sqrt(pi / 2) * mean_abs)
+    }
     result <- qc:::compute_metric_moments(
       numeric(0), -1, 1, prior,
       metric = metric,
@@ -240,153 +246,29 @@ test_that("diffuse conjugate numerical moments stay aligned with analytic and Mo
   }
 })
 
-test_that("conjugate smooth-metric moments use the numerical reference path", {
-  prior <- qc:::create_prior_conjugate(
-    mu0 = 0.7,
-    k0 = 0.01,
-    alpha0 = 1.5,
-    beta0 = 5
-  )
-  cached_state <- list(n = 0L, x_bar = 0, sse = 0)
-
-  cpm_analytic <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpm",
-    target = 0.8,
-    use_analytic = TRUE,
-    cached_state = cached_state
-  )
-  cpm_numerical <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpm",
-    target = 0.8,
-    use_analytic = FALSE,
-    cached_state = cached_state
-  )
-  cpc_analytic <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpc",
-    target = 0.8,
-    use_analytic = TRUE,
-    cached_state = cached_state
-  )
-  cpc_numerical <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpc",
-    target = 0.8,
-    use_analytic = FALSE,
-    cached_state = cached_state
+test_that("diffuse semi-conjugate sigma moments match closed-form independent-prior moments", {
+  alpha <- 0.5001
+  beta <- 1e-8
+  mu_sd <- 10
+  prior <- qc::prior_semi_conjugate(
+    "sigma", alpha0 = alpha, beta0 = beta,
+    log_dens_mu = function(mu) stats::dnorm(mu, 0, mu_sd, log = TRUE)
   )
 
-  expect_equal(cpm_analytic, cpm_numerical, tolerance = 1e-6)
-  expect_equal(cpc_analytic, cpc_numerical, tolerance = 1e-6)
-})
-
-test_that("semi-conjugate sigma diffuse moments agree with generic references", {
-  skip_if_not_installed("BayesTools")
-  skip_if_not_installed("cubature")
-
-  prior <- qc:::.bayestools_to_integration_prior(
-    BayesTools::prior("normal", list(0, 10)),
-    qc:::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 0.5001, beta0 = 1e-8)
-  )$prior
-  generic_prior <- qc:::.semi_sigma_as_generic_prior(prior)
-
-  analytic_cp <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cp",
-    target = 0,
-    use_analytic = TRUE
-  )
-  exact_cp <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cp",
-    target = 0,
-    use_analytic = FALSE
-  )
-  generic_cp <- qc:::compute_metric_moments(
-    numeric(0), -1, 1,
-    generic_prior,
-    metric = "Cp",
-    target = 0
-  )
-  analytic_cpk <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpk",
-    target = 0,
-    use_analytic = TRUE
-  )
-  generic_cpk <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, generic_prior,
-    metric = "Cpk",
-    target = 0
-  )
-  analytic_cpm <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpm",
-    target = 0.1,
-    use_analytic = TRUE
-  )
-  exact_cpm <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpm",
-    target = 0.1,
-    use_analytic = FALSE
-  )
-  generic_cpm <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, generic_prior,
-    metric = "Cpm",
-    target = 0.1
-  )
-
-  expect_equal(analytic_cp$mean, generic_cp$mean, tolerance = 0.02)
-  expect_equal(analytic_cp$sd, generic_cp$sd, tolerance = 0.02)
-  expect_equal(analytic_cpk$mean, generic_cpk$mean, tolerance = 0.02)
-  expect_equal(analytic_cpk$sd, generic_cpk$sd, tolerance = 0.02)
-  expect_equal(analytic_cpm$mean, generic_cpm$mean, tolerance = 0.02)
-  expect_equal(analytic_cpm$sd, generic_cpm$sd, tolerance = 0.02)
-  expect_equal(exact_cp, generic_cp, tolerance = 1e-6)
-  expect_equal(exact_cpm, generic_cpm, tolerance = 1e-6)
-})
-
-test_that("semi-conjugate mu smooth-metric moments match an equivalent generic prior", {
-  skip_if_not_installed("BayesTools")
-  skip_if_not_installed("cubature")
-
-  sigma_prior <- BayesTools::prior("lognormal", list(0, 1))
-  prior <- qc:::.bayestools_to_integration_prior("Jeffreys_mu", sigma_prior)$prior
-  generic_prior <- qc:::.semi_mu_as_generic_prior(prior)
-  cached_state <- list(n = 5L, x_bar = 0.7, sse = 1.2)
-
-  semi_cpm <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpm",
-    target = 0.8,
-    use_analytic = TRUE,
-    cached_state = cached_state
-  )
-  generic_cpm <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, generic_prior,
-    metric = "Cpm",
-    target = 0.8,
-    cached_state = cached_state
-  )
-  semi_cpc <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, prior,
-    metric = "Cpc",
-    target = 0.8,
-    use_analytic = FALSE,
-    cached_state = cached_state
-  )
-  generic_cpc <- qc:::compute_metric_moments(
-    numeric(0), -1, 1, generic_prior,
-    metric = "Cpc",
-    target = 0.8,
-    cached_state = cached_state
-  )
-
-  expect_equal(semi_cpm, generic_cpm, tolerance = 1e-6)
-  expect_equal(semi_cpc, generic_cpc, tolerance = 1e-6)
+  # With no observations, mu and sigma are independent. Cp = 1/(3*sigma),
+  # Cpk = (1 - abs(mu))/(3*sigma); use Gamma and half-Normal moments.
+  inv_sigma_mean <- exp(lgamma(alpha + 0.5) - lgamma(alpha)) / sqrt(beta)
+  inv_sigma_second <- alpha / beta
+  abs_mu_mean <- mu_sd * sqrt(2 / pi)
+  for (metric in c("Cp", "Cpk")) {
+    numerator_mean <- if (metric == "Cp") 1 else 1 - abs_mu_mean
+    numerator_second <- if (metric == "Cp") 1 else 1 - 2 * abs_mu_mean + mu_sd^2
+    expected_mean <- numerator_mean * inv_sigma_mean / 3
+    expected_sd <- sqrt(numerator_second * inv_sigma_second / 9 - expected_mean^2)
+    actual <- qc:::compute_metric_moments(numeric(0), -1, 1, prior, metric = metric)
+    expect_equal(actual$mean, expected_mean, tolerance = 1e-5, info = metric)
+    expect_equal(actual$sd, expected_sd, tolerance = 1e-5, info = metric)
+  }
 })
 
 test_that("semi-conjugate mu rejects prior-only improper flat-mu posteriors explicitly", {

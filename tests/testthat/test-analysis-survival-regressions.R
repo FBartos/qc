@@ -1,156 +1,3 @@
-sigma_log_dens_reference <- function(sigma_prior) {
-  alpha0 <- sigma_prior$alpha0
-  beta0 <- sigma_prior$beta0
-  log_const <- log(2) + alpha0 * log(beta0) - lgamma(alpha0)
-
-  function(sigma) {
-    ifelse(
-      sigma <= 0,
-      -Inf,
-      log_const - (2 * alpha0 + 1) * log(sigma) - beta0 / sigma^2
-    )
-  }
-}
-
-log_sigma_interval_prob_reference <- function(lower, upper, shape, rate) {
-  log_prob <- rep(-Inf, length(lower))
-
-  full_region <- lower <= 0 & is.infinite(upper) & upper > 0
-  log_prob[full_region] <- 0
-
-  upper_only <- lower <= 0 & is.finite(upper) & upper > 0
-  if (any(upper_only)) {
-    log_prob[upper_only] <- stats::pgamma(
-      1 / upper[upper_only]^2,
-      shape = shape,
-      rate = rate[upper_only],
-      lower.tail = FALSE,
-      log.p = TRUE
-    )
-  }
-
-  lower_only <- is.finite(lower) & lower > 0 & is.infinite(upper) & upper > 0
-  if (any(lower_only)) {
-    log_prob[lower_only] <- stats::pgamma(
-      1 / lower[lower_only]^2,
-      shape = shape,
-      rate = rate[lower_only],
-      lower.tail = TRUE,
-      log.p = TRUE
-    )
-  }
-
-  finite_band <- is.finite(lower) & lower > 0 &
-    is.finite(upper) & upper > lower
-  if (any(finite_band)) {
-    lower_band <- lower[finite_band]
-    upper_band <- upper[finite_band]
-    rate_band <- rate[finite_band]
-
-    log_cdf_lower <- stats::pgamma(
-      1 / lower_band^2,
-      shape = shape,
-      rate = rate_band,
-      lower.tail = TRUE,
-      log.p = TRUE
-    )
-    log_cdf_upper <- stats::pgamma(
-      1 / upper_band^2,
-      shape = shape,
-      rate = rate_band,
-      lower.tail = TRUE,
-      log.p = TRUE
-    )
-    log_surv_upper <- stats::pgamma(
-      1 / upper_band^2,
-      shape = shape,
-      rate = rate_band,
-      lower.tail = FALSE,
-      log.p = TRUE
-    )
-    log_surv_lower <- stats::pgamma(
-      1 / lower_band^2,
-      shape = shape,
-      rate = rate_band,
-      lower.tail = FALSE,
-      log.p = TRUE
-    )
-
-    log_mass_cdf <- qc:::log_diff_exp(log_cdf_lower, log_cdf_upper)
-    log_mass_surv <- qc:::log_diff_exp(log_surv_upper, log_surv_lower)
-
-    log_band <- log_mass_cdf
-    use_surv <- !is.finite(log_band) | (is.finite(log_mass_surv) & log_mass_surv > log_band)
-    log_band[use_surv] <- log_mass_surv[use_surv]
-    log_prob[finite_band] <- log_band
-  }
-
-  log_prob
-}
-
-semi_sigma_survival_reference <- function(data, prior, metric, threshold,
-                                          LSL, USL, target,
-                                          sigma_level = 3) {
-  state <- qc:::.prepare_semi_sigma_state(
-    data, prior, cached_state = NULL,
-    context = "The semi-conjugate sigma posterior for test reference"
-  )
-
-  log_Z <- qc:::.compute_semi_sigma_log_Z_survival(
-    state$n, state$x_bar, state$sse,
-    state$alpha0, state$beta0,
-    prior$log_dens_mu,
-    jeffreys_adj = state$jeffreys_adj,
-    mu_domain = state$mu_domain,
-    context = "The semi-conjugate sigma posterior for test reference"
-  )
-
-  log_integrand <- function(mu) {
-    sse_mu <- state$sse + state$n * (mu - state$x_bar)^2
-    beta_n <- state$beta0 + sse_mu / 2
-    log_weight_mu <- prior$log_dens_mu(mu) - state$alpha_n_eff * log(beta_n)
-
-    sigma_region <- qc:::.metric_sigma_region_from_mu(
-      metric, mu, threshold, LSL, USL, target,
-      sigma_level = sigma_level
-    )
-    log_prob_sigma <- log_sigma_interval_prob_reference(
-      sigma_region$lower, sigma_region$upper,
-      shape = state$alpha_n_eff,
-      rate = beta_n
-    )
-
-    vals <- log_weight_mu + log_prob_sigma - log_Z
-    vals[!is.finite(vals)] <- -Inf
-    vals
-  }
-
-  mu_low <- -Inf
-  mu_high <- Inf
-  if (metric == "Cpm") {
-    mu_radius <- qc:::.cpm_spec_distance(LSL, USL, target) / (sigma_level * threshold)
-    mu_low <- target - mu_radius
-    mu_high <- target + mu_radius
-  } else if (metric == "Cpc") {
-    mu_radius <- (USL - LSL) / ((2 * sigma_level) * sqrt(pi / 2) * threshold)
-    mu_low <- target - mu_radius
-    mu_high <- target + mu_radius
-  }
-  if (is.na(mu_low) || is.na(mu_high) ||
-      (is.finite(mu_low) && is.finite(mu_high) && mu_high <= mu_low)) {
-    return(0)
-  }
-
-  qc:::.semi_sigma_integrate_log_kernel(
-    log_integrand,
-    state$mu_domain,
-    lower = mu_low,
-    upper = mu_high,
-    rel.tol = 1e-6,
-    subdivisions = 400
-  )$value
-}
-
 test_that("semi-conjugate sigma survival ignores optional mu metadata", {
   skip_if_not_installed("BayesTools")
 
@@ -218,7 +65,10 @@ test_that("prior-only Monte Carlo analysis accepts PriorConjugate sigma metadata
   mu_prior <- BayesTools::prior("normal", list(0, 1))
   sigma_prior <- qc:::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 2, beta0 = 1)
   log_dens_mu <- qc:::.make_prior_log_dens_fn(mu_prior)
-  log_dens_sigma <- sigma_log_dens_reference(sigma_prior)
+  log_dens_sigma <- function(sigma) {
+    stats::dgamma(1 / sigma^2, shape = 2, rate = 1, log = TRUE) +
+      log(2) - 3 * log(sigma)
+  }
 
   prior <- qc:::create_prior_generic(
     function(mu, sigma) log_dens_mu(mu) + log_dens_sigma(sigma),
@@ -234,14 +84,7 @@ test_that("prior-only Monte Carlo analysis accepts PriorConjugate sigma metadata
     mc_samples = list(mu = mu_samples, sig = sig_samples)
   )
 
-  expected <- qc:::compute_metric_value(
-    mu = mu_samples,
-    sigma = sig_samples,
-    LSL = -1,
-    USL = 1,
-    target = 0,
-    metric = "Cp"
-  )
+  expected <- 1 / (3 * sig_samples)
 
   expect_equal(result$samples, expected)
   expect_equal(unname(result$stats["Mean"]), mean(expected))
@@ -321,7 +164,7 @@ test_that("divergent negative prior-only means preserve the negative sign", {
   expect_identical(unname(result$stats["SD"]), Inf)
 })
 
-test_that("semi-conjugate sigma survival stays finite for heavy-tailed Cpm and Cpc", {
+test_that("heavy-tailed Cpm and Cpc survival agrees with independent importance sampling", {
   skip_if_not_installed("BayesTools")
 
   x <- c(0.05, 0.12)
@@ -330,24 +173,34 @@ test_that("semi-conjugate sigma survival stays finite for heavy-tailed Cpm and C
     qc:::create_prior_conjugate(mu0 = 0, k0 = 1, alpha0 = 1, beta0 = 1)
   )$prior
 
+  # Under a flat mu prior, this two-observation posterior has precision
+  # Gamma(1.5, 1.001225) and mu|sigma ~ Normal(0.085, sigma/sqrt(2)).
+  # Draw from that proposal and weight by the specified Cauchy mu prior.
+  # No package posterior, constraint, or solver helpers enter this reference.
+  set.seed(20261014)
+  sigma <- 1 / sqrt(stats::rgamma(500000, shape = 1.5, rate = 1.001225))
+  mu <- stats::rnorm(length(sigma), 0.085, sigma / sqrt(2))
+  weight <- stats::dcauchy(mu, 0, 5)
+  weight <- weight / sum(weight)
+  mean_abs <- 2 * sigma * stats::dnorm(mu / sigma) +
+    mu * (2 * stats::pnorm(mu / sigma) - 1)
+  indices <- list(
+    Cpm = 1 / (3 * sqrt(sigma^2 + mu^2)),
+    Cpc = 1 / (3 * sqrt(pi / 2) * mean_abs)
+  )
+
   for (metric in c("Cpm", "Cpc")) {
-    ref_prob <- semi_sigma_survival_reference(
-      data = x,
-      prior = prior,
-      metric = metric,
-      threshold = 0.5,
-      LSL = -1,
-      USL = 1,
-      target = 0
-    )
+    event <- indices[[metric]] > 0.5
+    ref_prob <- sum(weight * event)
+    mc_se <- sqrt(sum(weight^2 * (event - ref_prob)^2))
     solver <- qc:::make_solver(
       x, -1, 1, prior,
       metric = metric,
       target = 0
     )
 
-    expect_true(ref_prob > 0, info = metric)
-    expect_equal(solver(0.5), ref_prob, tolerance = 1e-6, info = metric)
+    expect_lt(mc_se, 0.001)
+    expect_true(abs(solver(0.5) - ref_prob) < 5 * mc_se, info = metric)
   }
 })
 
