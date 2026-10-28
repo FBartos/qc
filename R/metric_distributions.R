@@ -399,6 +399,20 @@
   )
 }
 
+.qc_metric_distribution_probability <- function(dist, lower, upper) {
+  samples <- dist$samples
+  entry <- dist$entry
+  if (is.null(samples) && is.list(entry)) samples <- entry$samples
+  if (!is.null(samples)) return(mean(samples >= lower & samples <= upper))
+  if (is.list(entry) && identical(entry$degenerate$type, "point"))
+    return(as.numeric(entry$degenerate$value >= lower && entry$degenerate$value <= upper))
+  if (lower == upper) return(0)
+  if (identical(lower, -Inf) && identical(upper, Inf)) return(1)
+  breaks <- sort(unique(c(-Inf, lower, upper, Inf)))
+  probabilities <- .qc_metric_distribution_interval_probs(dist, breaks)
+  sum(probabilities[head(breaks, -1L) >= lower & tail(breaks, -1L) <= upper])
+}
+
 .qc_metric_distribution_divergence <- function(dist) {
   if (is.list(dist$entry) && !is.null(dist$entry$divergence_info)) {
     return(dist$entry$divergence_info)
