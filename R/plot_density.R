@@ -198,6 +198,11 @@ extract_ci_data <- function(obj, what, ci, ci_level, dfDensity,
     metric = factor(as.character(dfCi0$metric[seq(1, nrow(dfCi0), by = 2)]), levels = what)
   )
   dfCi <- dfCi[is.finite(dfCi$xmin) & is.finite(dfCi$xmax), , drop = FALSE]
+  if (ci == "custom") {
+    dfCi$coverage <- vapply(as.character(dfCi$metric), function(metric) {
+      .qc_metric_distribution_probability(distributions[[metric]], ci_custom_left, ci_custom_right)
+    }, numeric(1))
+  }
 
   # Build dfArea (filled polygon under curve)
   dfArea <- vctrs::vec_rbind(!!!lapply(what, function(name) {
@@ -410,7 +415,7 @@ build_density_plot <- function(
     ggplot2::scale_linetype_manual(
       name = NULL,
       values = c("posterior" = "solid", "prior" = "dashed"),
-      labels = c("posterior" = "Posterior", "prior" = "Prior")
+      labels = c("posterior" = gettext("Posterior"), "prior" = gettext("Prior"))
     )
   } else {
     NULL
@@ -498,9 +503,10 @@ build_density_plot <- function(
 
     if (show_ci_text && !is.null(dfCi) && nrow(dfCi) > 0L) {
       ci_lookup <- switch(ci,
-                          "central" = sprintf("%.1f%% CI [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                          "HPD"     = sprintf("%.1f%% CI<sub>HPD</sub> [%.3f, %.3f]", 100 * ci_level, dfCi$xmin, dfCi$xmax),
-                          "custom"  = sprintf("Custom CI [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
+                          "central" = gettextf("%1$s%% CI: [%2$.3f, %3$.3f]", format(100 * ci_level, trim = TRUE), dfCi$xmin, dfCi$xmax),
+                          "HPD"     = gettextf("%1$s%% CI<sub>HPD</sub>: [%2$.3f, %3$.3f]", format(100 * ci_level, trim = TRUE), dfCi$xmin, dfCi$xmax),
+                          "custom"  = gettextf("P(%1$.3f \u2264 %2$s \u2264 %3$.3f) = %4$.1f%%",
+                                               dfCi$xmin, as.character(dfCi$metric), dfCi$xmax, 100 * dfCi$coverage),
                           "support" = sprintf("Support [%.3f, %.3f]", dfCi$xmin, dfCi$xmax),
                           "")
       names(ci_lookup) <- as.character(dfCi$metric)
@@ -516,6 +522,11 @@ build_density_plot <- function(
 
     df_text$labels <- labels
     df_text <- df_text[nzchar(df_text$labels), , drop = FALSE]
+    if (single_panel && length(what) > 1L && nrow(df_text) > 0L) {
+      df_text$labels <- paste0(as.character(df_text$metric), ": ", df_text$labels)
+      df_text$x <- if (is.na(x_center)) mean(range(dfLines$x)) else x_center
+      df_text$y <- max(dfLines$y) * (ci_mult + 0.18 * (seq_len(nrow(df_text)) - 1L))
+    }
 
     if (nrow(df_text) > 0L) {
       layer_text <- ggtext::geom_richtext(
@@ -604,11 +615,11 @@ build_density_plot <- function(
 
   plt <- plt +
     ggplot2::labs(
-      group = "Capability Metric",
-      color = "Capability Metric",
+      group = gettext("Metric"),
+      color = gettext("Metric"),
       fill = NULL,
-      x = "Value",
-      y = "Density"
+      x = gettext("Value"),
+      y = gettext("Density")
     ) +
     scale_x +
     scale_y +
