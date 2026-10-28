@@ -7,6 +7,8 @@
 #' \code{"DCSI"} / \code{prior_DCSI()},
 #' \code{"Jeffreys"} / \code{prior_jeffreys()}, and
 #' \code{"unit_information"} / \code{prior_unit_information()}.
+#' Use \code{prior_unit_information(n0 = ...)} to adjust its information weight;
+#' the string specification uses \code{n0 = 1}.
 #'
 #' Parameter-wise priors are supplied with \code{prior_independent()}, for
 #' example \code{prior_independent(mu = ..., sigma = ...)} for the normal
@@ -36,6 +38,7 @@
 #' prior_DCSI()
 #' prior_jeffreys()
 #' prior_unit_information()
+#' prior_unit_information(n0 = 5)
 #' prior_independent(
 #'   mu = BayesTools::prior("normal", list(0, 1)),
 #'   sigma = "Jeffreys_sigma"
@@ -74,10 +77,21 @@ prior_jeffreys <- function() {
 #' The prior is resolved by \code{\link{bpc}} from the supplied observations or
 #' normal summary statistics.
 #'
+#' @param n0 Positive, finite information weight. The default \code{1}
+#'   gives the unit-information prior; larger values give a stronger prior,
+#'   and values between zero and one give a weaker prior.
+#' @details The Normal-Inverse-Gamma prior uses
+#'   \eqn{\mu \mid \sigma^2 \sim N(\bar{x}, \sigma^2 / n_0)} and
+#'   \eqn{\sigma^2 \sim \mathrm{InvGamma}(n_0 / 2, n_0 s^2 / 2)},
+#'   where \eqn{s^2} is the unbiased sample variance and the inverse-gamma
+#'   density is proportional to \eqn{v^{-\alpha-1}\exp(-\beta/v)}.
 #' @return A prior specification object.
 #' @export
-prior_unit_information <- function() {
-  structure(list(name = "unit_information"), class = c("PriorUnitInformation", "PriorSpecification"))
+prior_unit_information <- function(n0 = 1) {
+  if (!is.numeric(n0) || length(n0) != 1L || !is.finite(n0) || n0 <= 0) {
+    stop(gettext("`n0` must be a positive, finite number."), call. = FALSE)
+  }
+  structure(list(name = "unit_information", n0 = n0), class = c("PriorUnitInformation", "PriorSpecification"))
 }
 
 #' Independent parameter prior specification
@@ -226,7 +240,7 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   )
 }
 
-.prior_unit_information_from_state <- function(cached_state) {
+.prior_unit_information_from_state <- function(cached_state, n0 = 1) {
   n <- cached_state$n %||% 0L
   if (n < 2L) {
     stop(
@@ -239,9 +253,9 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   s2 <- cached_state$sse / (n - 1L)
   create_prior_conjugate(
     mu0 = cached_state$x_bar,
-    k0 = 1,
-    alpha0 = 0.5,
-    beta0 = s2 / 2
+    k0 = n0,
+    alpha0 = n0 / 2,
+    beta0 = n0 * s2 / 2
   )
 }
 
@@ -311,7 +325,7 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
       )
     }
 
-    prior_obj <- .prior_unit_information_from_state(cached_state)
+    prior_obj <- .prior_unit_information_from_state(cached_state, n0 = specification$n0)
     return(list(
       specification = specification,
       prior = prior_obj,

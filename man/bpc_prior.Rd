@@ -12,6 +12,8 @@ Named specifications can be supplied as strings or constructors:
 \code{"DCSI"} / \code{prior_DCSI()},
 \code{"Jeffreys"} / \code{prior_jeffreys()}, and
 \code{"unit_information"} / \code{prior_unit_information()}.
+Use \code{prior_unit_information(n0 = ...)} to adjust its information weight;
+the string specification uses \code{n0 = 1}.
 
 Parameter-wise priors are supplied with \code{prior_independent()}, for
 example \code{prior_independent(mu = ..., sigma = ...)} for the normal
@@ -41,6 +43,7 @@ width \eqn{W = U - L}, DCSI uses
 prior_DCSI()
 prior_jeffreys()
 prior_unit_information()
+prior_unit_information(n0 = 5)
 prior_independent(
   mu = BayesTools::prior("normal", list(0, 1)),
   sigma = "Jeffreys_sigma"
