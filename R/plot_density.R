@@ -297,6 +297,34 @@ default_region_cutoffs <- function() {
   result
 }
 
+# Keep the central 99.9% of each plotted density, with room for annotations.
+# This only trims plotting data, never the distributions used for inference.
+.density_plot_window <- function(dfLines, dfPoints, ci_data) {
+  pieces <- lapply(split(dfLines, dfLines$metric, drop = TRUE), function(d) {
+    bounds <- unlist(lapply(split(d, d$type), function(curve) {
+      curve <- curve[order(curve$x), ]
+      mass <- c(0, cumsum(diff(curve$x) * (head(curve$y, -1L) + tail(curve$y, -1L)) / 2))
+      if (!is.finite(tail(mass, 1L)) || tail(mass, 1L) <= 0)
+        return(range(curve$x))
+      mass <- mass / tail(mass, 1L)
+      c(curve$x[max(1L, which(mass >= 0.0005)[1L] - 1L)],
+        curve$x[which(mass >= 0.9995)[1L]])
+    }))
+    metric <- as.character(d$metric[1L])
+    bounds <- range(bounds, dfPoints$x[dfPoints$metric == metric],
+                    ci_data$dfCi$xmin[ci_data$dfCi$metric == metric],
+                    ci_data$dfCi$xmax[ci_data$dfCi$metric == metric], finite = TRUE)
+    bounds <- bounds + c(-1, 1) * 0.05 * diff(bounds)
+    # Keep one neighbouring grid point at either end of each curve.
+    do.call(rbind, lapply(split(d, d$type), function(curve) {
+      curve <- curve[order(curve$x), ]
+      inside <- which(curve$x >= bounds[1L] & curve$x <= bounds[2L])
+      curve[seq.int(max(1L, min(inside) - 1L), min(nrow(curve), max(inside) + 1L)), ]
+    }))
+  })
+  do.call(rbind, pieces)
+}
+
 #' Build density plot from prepared data
 #'
 #' Single ggplot skeleton that creates the density plot from prepared dataframes.
@@ -346,10 +374,23 @@ build_density_plot <- function(
     show_cutoff_lines = TRUE
 ) {
 
+  if (axes != "custom" || is.null(axes_custom[["xmin"]]) || is.null(axes_custom[["xmax"]]))
+    dfLines <- .density_plot_window(dfLines, dfPoints, ci_data)
+
   # Region coloring layers
   layer_region <- layer_cutoffs <- NULL
   if (show_regions) {
     dfRegions <- .process_regions(dfLines[dfLines$type == "posterior", ], region_cutoffs, region_colors)
+    # Off-screen process criteria must not stretch automatic facet axes.
+    metric_ranges <- lapply(split(dfLines$x, dfLines$metric, drop = TRUE), range)
+    plot_range <- range(dfLines$x, dfPoints$x, ci_data$dfCi$xmin, ci_data$dfCi$xmax, finite = TRUE)
+    in_range <- function(x, metric) {
+      if (axes == "custom")
+        return(TRUE)
+      bounds <- if (single_panel || axes == "fixed") plot_range else metric_ranges[[as.character(metric)]]
+      x >= bounds[1L] & x <= bounds[2L]
+    }
+    dfRegions <- dfRegions[mapply(in_range, dfRegions$x, dfRegions$metric), ]
 
     layer_region <- ggplot2::geom_area(
       data = dfRegions,
@@ -375,6 +416,7 @@ build_density_plot <- function(
           )
         }))
         dfCutoffSegments$y <- 0
+        dfCutoffSegments <- dfCutoffSegments[mapply(in_range, dfCutoffSegments$x, dfCutoffSegments$metric), ]
 
         layer_cutoffs <- ggplot2::geom_segment(
           data = dfCutoffSegments,
@@ -384,8 +426,11 @@ build_density_plot <- function(
           inherit.aes = FALSE
         )
       } else {
+        dfCutoffs <- expand.grid(x = region_cutoffs, metric = unique(dfLines$metric))
+        dfCutoffs <- dfCutoffs[mapply(in_range, dfCutoffs$x, dfCutoffs$metric), ]
         layer_cutoffs <- ggplot2::geom_vline(
-          xintercept = region_cutoffs,
+          data = dfCutoffs,
+          mapping = ggplot2::aes(xintercept = x),
           linetype = "dashed",
           linewidth = 0.8
         )
@@ -453,9 +498,11 @@ build_density_plot <- function(
     if (show_ci_bar) {
       metric_heights <- tapply(dfLines$y, dfLines$metric, max)
       dfCi$y <- 1.15 * unname(metric_heights[as.character(dfCi$metric)])
+      dfCi$cap_height <- 0.04 * if (single_panel || axes %in% c("fixed", "custom")) max(metric_heights) else unname(metric_heights[as.character(dfCi$metric)])
       layer_cibar <- ggplot2::geom_errorbar(
         data = dfCi,
-        mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, group = metric, color = metric),
+        mapping = ggplot2::aes(xmin = xmin, xmax = xmax, y = y, width = cap_height, group = metric, color = metric),
+        orientation = "y",
         linewidth = linewidth,
         inherit.aes = FALSE
       )
@@ -479,7 +526,7 @@ build_density_plot <- function(
       }, numeric(1)),
       x = vapply(metric_levels, function(metric_name) {
         if (is.na(x_center)) {
-          stats::median(dfLines$x[dfLines$metric == metric_name])
+          mean(range(dfLines$x[dfLines$metric == metric_name]))
         } else {
           x_center
         }
@@ -546,8 +593,8 @@ build_density_plot <- function(
       xBreaks <- getPrettyAxisBreaks(c(axes_custom[["xmin"]], axes_custom[["xmax"]]))
       scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = sort(c(axes_custom[["xmin"]], axes_custom[["xmax"]])))
     } else {
-      xBreaks <- getPrettyAxisBreaks(dfLines$x)
-      xLimits <- range(dfLines$x)
+      xLimits <- range(dfLines$x, dfPoints$x, ci_data$dfCi$xmin, ci_data$dfCi$xmax, finite = TRUE)
+      xBreaks <- getPrettyAxisBreaks(xLimits)
       scale_x <- ggplot2::scale_x_continuous(breaks = xBreaks, limits = xLimits)
     }
     if (axes == "custom" && !is.null(axes_custom[["ymin"]]) && !is.null(axes_custom[["ymax"]])) {
