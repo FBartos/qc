@@ -16,3 +16,9 @@ and \code{USL} values.}
 \description{
 Plot density for the posterior distribution of one or more capability metrics
 }
+\details{
+Custom intervals use \code{ci = "custom"} with \code{ci_custom_left}
+and \code{ci_custom_right}. Both MCMC and numerical integration results
+display the supplied bounds and shade the density between them. The interval
+mass is determined by these bounds rather than \code{ci_level}.
+}

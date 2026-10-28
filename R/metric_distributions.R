@@ -324,6 +324,10 @@
                                              ci_custom_left = NULL,
                                              ci_custom_right = NULL,
                                              bf_support = NULL) {
+  if (ci == "custom") {
+    return(c(ci_custom_left, ci_custom_right))
+  }
+
   if (!is.null(dist$samples)) {
     return(.sample_metric_interval(
       dist$samples,

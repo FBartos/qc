@@ -4,7 +4,12 @@
 \alias{prior_unit_information}
 \title{Unit-information prior specification}
 \usage{
-prior_unit_information()
+prior_unit_information(n0 = 1)
+}
+\arguments{
+\item{n0}{Positive, finite information weight. The default \code{1}
+gives the unit-information prior; larger values give a stronger prior,
+and values between zero and one give a weaker prior.}
 }
 \value{
 A prior specification object.
@@ -13,4 +18,11 @@ A prior specification object.
 Requests a data-derived unit-information prior for the normal likelihood.
 The prior is resolved by \code{\link{bpc}} from the supplied observations or
 normal summary statistics.
+}
+\details{
+The Normal-Inverse-Gamma prior uses
+  \eqn{\mu \mid \sigma^2 \sim N(\bar{x}, \sigma^2 / n_0)} and
+  \eqn{\sigma^2 \sim \mathrm{InvGamma}(n_0 / 2, n_0 s^2 / 2)},
+  where \eqn{s^2} is the unbiased sample variance and the inverse-gamma
+  density is proportional to \eqn{v^{-\alpha-1}\exp(-\beta/v)}.
 }

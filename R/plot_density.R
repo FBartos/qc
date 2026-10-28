@@ -344,7 +344,7 @@ build_density_plot <- function(
   # Region coloring layers
   layer_region <- layer_cutoffs <- NULL
   if (show_regions) {
-    dfRegions <- .process_regions(dfLines, region_cutoffs, region_colors)
+    dfRegions <- .process_regions(dfLines[dfLines$type == "posterior", ], region_cutoffs, region_colors)
 
     layer_region <- ggplot2::geom_area(
       data = dfRegions,
@@ -625,6 +625,12 @@ build_density_plot <- function(
 #'   \code{pc} objects this may include replacement \code{LSL}, \code{target},
 #'   and \code{USL} values.
 #'
+#' @md
+#' @details
+#' Custom intervals use \code{ci = "custom"} with \code{ci_custom_left}
+#' and \code{ci_custom_right}. Both MCMC and numerical integration results
+#' display the supplied bounds and shade the density between them. The interval
+#' mass is determined by these bounds rather than \code{ci_level}.
 #' @export
 #'
 plot_density <- function(obj, ...) {
@@ -716,16 +722,16 @@ plot_density.capability_metrics <- function(
   BayesTools::check_bool(show_ci_bar,     name = "show_ci_bar",     check_length = 1, allow_NA = FALSE)
   BayesTools::check_bool(show_point_text, name = "show_point_text", check_length = 1, allow_NA = FALSE)
 
-  if (is_integration && ci %in% c("custom", "support")) {
-    stop("Integration-backed capability metrics only support ci = 'none', 'central', or 'HPD'.")
+  if (is_integration && ci == "support") {
+    stop("Integration-backed capability metrics do not support support intervals.")
   }
 
   # Extract density data
   dfDensity <- extract_density_data(obj, what = what)
   dfDensity$type <- "posterior"
 
-  # Extract prior density if available and not showing regions
-  if (!is.null(priorSummaryObject) && !show_regions) {
+  # Extract prior density independently of process region shading
+  if (!is.null(priorSummaryObject)) {
     dfDensityPrior <- extract_density_data(priorSummaryObject, what = what)
     dfDensityPrior$type <- "prior"
     dfDensity <- vctrs::vec_rbind(dfDensity, dfDensityPrior)
