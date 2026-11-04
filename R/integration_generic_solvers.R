@@ -356,6 +356,21 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
   )
 }
 
+# Nodes and weights on [0, reach] with spacing that grows geometrically from
+# about `scale` next to 0, one column per element of reach. The spacing stays
+# proportional to the distance from 0, so a narrow peak and a long tail are
+# resolved together.
+.geometric_side_rule <- function(rule, reach, scale) {
+  scale <- pmax(scale, reach * 1e-12, .Machine$double.xmin)
+  log_ratio <- log(pmax(reach / scale, 1 + 1e-6))
+  growth <- exp(outer(rule$nodes, log_ratio))
+  list(
+    offsets = sweep(growth - 1, 2, reach / expm1(log_ratio), `*`),
+    weights = sweep(growth * rule$weights, 2,
+                    reach * log_ratio / expm1(log_ratio), `*`)
+  )
+}
+
 # Builds the integration machinery for a generic posterior with informative data
 # (n >= 2, sse > 0). Everything is anchored on the posterior mode in
 # (mu, log sigma) and scaled by local posterior widths, so a narrow posterior is

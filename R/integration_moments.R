@@ -138,10 +138,9 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
 
   if (metric %in% c("Cpm", "Cpc")) {
     # Smooth conjugate metrics do not admit a stable closed-form shortcut.
-    # Compute moments from the exact survival function instead of truncating
-    # the diffuse joint posterior to a finite box.
-    return(.positive_moments_from_survival(
-      .integration_make_solver(request = request)
+    return(.conjugate_smooth_metric_moments(
+      mu_n, k_n, alpha_n, beta_n, LSL, USL, target, metric,
+      sigma_level = sigma_level
     ))
   }
 
@@ -200,40 +199,58 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   stop("Unknown metric: ", metric)
 }
 
-#' Compute the first two moments of a non-negative metric from its survival function
+#' Moments of Cpm or Cpc by tensor quadrature over (log(sigma), z)
+#'
+#' With z = sqrt(k_n) * (mu - mu_n) / sigma, the posterior factorizes into a
+#' log-gamma density for log(sigma) and a standard normal for z. Both metrics
+#' peak on a ridge at mu = target that narrows with sqrt(k_n) on the z scale,
+#' so the z nodes are clustered at the ridge for every sigma node.
 #' @keywords internal
-.positive_moments_from_survival <- function(S,
-                                            rel.tol = 1e-5,
-                                            subdivisions = 400) {
-  S_vec <- function(c) {
-    vals <- S(c)
-    if (length(vals) != length(c)) {
-      stop("The integration survival solver must return one value per input point.")
-    }
-    vals[!is.finite(vals) | vals < 0] <- 0
-    pmin(vals, 1)
-  }
+.conjugate_smooth_metric_moments <- function(mu_n, k_n, alpha_n, beta_n,
+                                             LSL, USL, target, metric,
+                                             sigma_level = 3,
+                                             tail_prob = 1e-14,
+                                             z_limit = 9) {
+  rule <- .composite_gauss_legendre_unit(4L, 10L)
 
-  E1 <- stats::integrate(
-    function(c) S_vec(c),
-    lower = 0,
-    upper = Inf,
-    rel.tol = rel.tol,
-    subdivisions = subdivisions
-  )$value
+  df <- 2 * alpha_n
+  y_lower <- max(stats::qchisq(tail_prob, df = df), .Machine$double.xmin)
+  y_upper <- stats::qchisq(tail_prob, df = df, lower.tail = FALSE)
+  t_mode <- 0.5 * (log(beta_n) - log(alpha_n))
+  t_scale <- 1 / (2 * sqrt(alpha_n))
+  t_below <- .geometric_side_rule(
+    rule, t_mode - 0.5 * log(2 * beta_n / y_upper), t_scale
+  )
+  t_above <- .geometric_side_rule(
+    rule, 0.5 * log(2 * beta_n / y_lower) - t_mode, t_scale
+  )
 
-  E2 <- stats::integrate(
-    function(c) {
-      vals <- 2 * c * S_vec(c)
-      vals[!is.finite(vals)] <- 0
-      vals
-    },
-    lower = 0,
-    upper = Inf,
-    rel.tol = rel.tol,
-    subdivisions = subdivisions
-  )$value
+  t <- t_mode + c(-t_below$offsets, t_above$offsets)
+  log_sigma_density <- -df * t - beta_n * exp(-2 * t)
+  sigma_weights <- c(t_below$weights, t_above$weights) *
+    exp(log_sigma_density - max(log_sigma_density))
+  sigma <- exp(t)
 
+  ridge <- pmin(z_limit, pmax(-z_limit, sqrt(k_n) * (target - mu_n) / sigma))
+  z_scale <- min(1, sqrt(k_n))
+  z_below <- .geometric_side_rule(rule, ridge + z_limit, z_scale)
+  z_above <- .geometric_side_rule(rule, z_limit - ridge, z_scale)
+  ridge_nodes <- rep(ridge, each = length(rule$nodes))
+  z <- rbind(ridge_nodes - z_below$offsets, ridge_nodes + z_above$offsets)
+  z_weights <- rbind(z_below$weights, z_above$weights)
+
+  sigma_nodes <- rep(sigma, each = nrow(z))
+  values <- compute_metric_value(
+    mu_n + as.vector(z) * sigma_nodes / sqrt(k_n),
+    sigma_nodes, LSL, USL, target, metric,
+    sigma_level = sigma_level
+  )
+  weights <- stats::dnorm(as.vector(z)) * as.vector(z_weights) *
+    rep(sigma_weights, each = nrow(z))
+  weights <- weights / sum(weights)
+
+  E1 <- sum(weights * values)
+  E2 <- sum(weights * values^2)
   list(mean = E1, sd = sqrt(max(0, E2 - E1^2)))
 }
 

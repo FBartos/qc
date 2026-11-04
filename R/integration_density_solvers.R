@@ -100,39 +100,57 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
 # LSL + sigma_level*c*sigma. The change-of-variables Jacobian is
 # sigma_level*sigma. Cpk adds both branches up to their meeting at the
 # specification midpoint (sigma <= (USL-LSL)/(2*sigma_level*c) when c > 0).
+#
+# Every step works on a matrix with one column of log(sigma) values per c, so
+# the kernel is evaluated in a handful of batches regardless of length(c).
 .linear_metric_density <- function(log_joint, LSL, USL, metric, sigma_level,
                                    sigma_ref, sigma_lower = 0, sigma_upper = Inf,
-                                   mu_lower = -Inf, mu_upper = Inf) {
+                                   mu_lower = -Inf, mu_upper = Inf,
+                                   tail_log_drop = 40) {
   force(log_joint)
   branches <- switch(metric, Cpu = "upper", Cpl = "lower",
                      Cpk = c("lower", "upper"))
 
+  probe_unit <- seq(0, 1, length.out = 65L)
+  zoom_unit <- seq(0, 1, length.out = 17L)
+  reach_offsets <- 2^seq(-20, 10)
+  rule <- .composite_gauss_legendre_unit(4L, 10L)
+  check_rule <- .composite_gauss_legendre_unit(7L, 10L)
+
   branch_density <- function(c, branch) {
     intercept <- if (branch == "upper") USL else LSL
     slope <- if (branch == "upper") -sigma_level * c else sigma_level * c
-    lower <- sigma_lower
-    upper <- sigma_upper
-    if (metric == "Cpk" && c > 0) {
-      upper <- min(upper, (USL - LSL) / (2 * sigma_level * c))
+    lower <- rep(sigma_lower, length(c))
+    upper <- rep(sigma_upper, length(c))
+    if (metric == "Cpk") {
+      positive <- c > 0
+      upper[positive] <- pmin(
+        upper[positive],
+        (USL - LSL) / (2 * sigma_level * c[positive])
+      )
     }
     # Generic posterior normalization uses a finite (mu, sigma) box.
     # Restrict the contour to that same box, including for negative c.
-    if (slope == 0) {
-      if (intercept < mu_lower || intercept > mu_upper) return(0)
-    } else {
-      mu_bounds <- sort(c((mu_lower - intercept) / slope,
-                          (mu_upper - intercept) / slope))
-      lower <- max(lower, mu_bounds[1])
-      upper <- min(upper, mu_bounds[2])
+    flat <- slope == 0
+    if (intercept < mu_lower || intercept > mu_upper) upper[flat] <- 0
+    if (is.finite(mu_lower) || is.finite(mu_upper)) {
+      at_mu_lower <- (mu_lower - intercept) / slope[!flat]
+      at_mu_upper <- (mu_upper - intercept) / slope[!flat]
+      lower[!flat] <- pmax(lower[!flat], pmin(at_mu_lower, at_mu_upper))
+      upper[!flat] <- pmin(upper[!flat], pmax(at_mu_lower, at_mu_upper))
     }
-    if (upper <= lower || upper <= 0) return(0)
 
-    t_lower <- log(max(lower, 0))
-    t_upper <- log(upper)
-    log_kernel <- function(t) {
+    density <- numeric(length(c))
+    contour <- which(upper > lower & upper > 0)
+    if (length(contour) == 0L) return(density)
+    slope <- slope[contour]
+    t_lower <- log(pmax(lower[contour], 0))
+    t_upper <- log(upper[contour])
+
+    log_kernel <- function(t, slope) {
       sigma <- exp(t)
-      mu <- intercept + slope * sigma
-      vals <- rep(-Inf, length(t))
+      mu <- intercept + rep(slope, each = nrow(t)) * sigma
+      vals <- matrix(-Inf, nrow(t), ncol(t))
       valid <- is.finite(mu) & is.finite(sigma) & sigma > 0
       if (any(valid)) {
         # The second sigma factor is d sigma / d log(sigma).
@@ -142,47 +160,153 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
       vals[!is.finite(vals)] <- -Inf
       vals
     }
-
-    # Locate and scale the contour peak so quadrature does not miss a narrow
-    # posterior or underflow in the tails. Integrate on log(sigma), splitting
-    # at the peak, while retaining the full sigma support.
-    center <- min(max(log(sigma_ref), t_lower), t_upper)
-    peak <- .semi_sigma_find_log_peak(
-      log_kernel,
-      mu_domain = list(lower = center - 8, upper = center + 8, scale = 8),
-      lower = t_lower,
-      upper = t_upper,
-      probe_n = 65L,
-      max_expansions = 16L
-    )
-    # No finite kernel value anywhere on the contour: it misses the support.
-    if (is.null(peak)) return(0)
-
-    mode <- peak$mode
-    h_max <- peak$h_max
-    integrand <- function(u) exp(log_kernel(u + mode) - h_max)
-    integrate_part <- function(lower, upper) {
-      if (lower >= upper) return(0)
-      stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
-                       abs.tol = 1e-10, subdivisions = 400L)$value
+    column_grid <- function(unit, from, to) {
+      outer(unit, to - from) + rep(from, each = length(unit))
     }
-    # A failed quadrature is reported as NA (not 0) so callers can fall back
-    # to the survival solver instead of silently dropping density.
-    scaled <- tryCatch(
-      integrate_part(t_lower - mode, 0) + integrate_part(0, t_upper - mode),
-      error = function(e) NA_real_
+    best_row <- function(vals) {
+      max.col(t(pmax(vals, -.Machine$double.xmax)), ties.method = "first")
+    }
+
+    # Locate the contour peak so that the quadrature does not miss a narrow
+    # posterior, widening the probe while the peak sits on its edge.
+    center <- pmin(pmax(log(sigma_ref), t_lower), t_upper)
+    probe_lower <- pmax(t_lower, center - 8)
+    probe_upper <- pmin(t_upper, center + 8)
+    mode <- center
+    height <- rep(-Inf, length(contour))
+    active <- seq_along(contour)
+    for (iter in seq_len(17L)) {
+      t <- column_grid(probe_unit, probe_lower[active], probe_upper[active])
+      vals <- log_kernel(t, slope[active])
+      best <- best_row(vals)
+      peak <- cbind(best, seq_along(active))
+      mode[active] <- t[peak]
+      height[active] <- vals[peak]
+
+      missed <- vals[peak] == -Inf
+      widen_left <- probe_lower[active] > t_lower[active] &
+        (best <= 2L | missed)
+      widen_right <- probe_upper[active] < t_upper[active] &
+        (best >= length(probe_unit) - 1L | missed)
+      if (!any(widen_left | widen_right)) break
+
+      width <- probe_upper[active] - probe_lower[active]
+      probe_lower[active[widen_left]] <- pmax(
+        t_lower[active[widen_left]],
+        probe_lower[active[widen_left]] - width[widen_left]
+      )
+      probe_upper[active[widen_right]] <- pmin(
+        t_upper[active[widen_right]],
+        probe_upper[active[widen_right]] + width[widen_right]
+      )
+      active <- active[widen_left | widen_right]
+    }
+
+    # No finite kernel value anywhere on the contour: it misses the support.
+    on_support <- height > -Inf
+    if (!any(on_support)) return(density)
+    contour <- contour[on_support]
+    slope <- slope[on_support]
+    t_lower <- t_lower[on_support]
+    t_upper <- t_upper[on_support]
+    mode <- mode[on_support]
+    height <- height[on_support]
+    step <- ((probe_upper - probe_lower) / (length(probe_unit) - 1L))[on_support]
+
+    for (pass in seq_len(5L)) {
+      from <- pmax(t_lower, mode - step)
+      to <- pmin(t_upper, mode + step)
+      t <- column_grid(zoom_unit, from, to)
+      vals <- log_kernel(t, slope)
+      peak <- cbind(best_row(vals), seq_along(contour))
+      mode <- t[peak]
+      height <- vals[peak]
+      step <- (to - from) / (length(zoom_unit) - 1L)
+    }
+
+    # Distance from the peak at which the kernel has dropped by log_drop,
+    # keeping all of the sigma support when it never does.
+    reach_of_drop <- function(direction, log_drop, passes) {
+      limit <- if (direction > 0) t_upper else t_lower
+      clamp <- if (direction > 0) pmin else pmax
+      t_reach <- clamp(
+        rep(mode, each = length(reach_offsets)) +
+          direction * reach_offsets,
+        rep(limit, each = length(reach_offsets))
+      )
+      dim(t_reach) <- c(length(reach_offsets), length(contour))
+      above <- log_kernel(t_reach, slope) >
+        rep(height - log_drop, each = length(reach_offsets))
+      last <- max.col(t(above * seq_along(reach_offsets)), ties.method = "first")
+      inside <- ifelse(above[cbind(last, seq_along(last))], reach_offsets[last], 0)
+      outside <- reach_offsets[pmin(last + 1L, length(reach_offsets))]
+      # Bisection also pins down a hard support edge such as a truncated prior.
+      for (pass in seq_len(passes)) {
+        middle <- (inside + outside) / 2
+        t_middle <- matrix(clamp(mode + direction * middle, limit), nrow = 1L)
+        reached <- as.vector(log_kernel(t_middle, slope)) > height - log_drop
+        inside[reached] <- middle[reached]
+        outside[!reached] <- middle[!reached]
+      }
+      abs(clamp(mode + direction * inside, limit) - mode)
+    }
+
+    reach_below <- reach_of_drop(-1, tail_log_drop, 30L)
+    reach_above <- reach_of_drop(1, tail_log_drop, 30L)
+    scale_below <- reach_of_drop(-1, 1, 12L)
+    scale_above <- reach_of_drop(1, 1, 12L)
+
+    side_mass <- function(direction, rule, reach, scale) {
+      side <- .geometric_side_rule(rule, reach, scale)
+      t_nodes <- rep(mode, each = nrow(side$offsets)) + direction * side$offsets
+      scaled <- exp(log_kernel(t_nodes, slope) -
+                      rep(height, each = nrow(side$offsets)))
+      colSums(scaled * side$weights)
+    }
+    peak_mass <- function(rule) {
+      side_mass(-1, rule, reach_below, scale_below) +
+        side_mass(1, rule, reach_above, scale_above)
+    }
+
+    # The fixed rules can miss a second narrow mode on the contour, which shows
+    # as disagreement between them; such columns are integrated adaptively.
+    scaled <- peak_mass(check_rule)
+    unresolved <- which(
+      !is.finite(scaled) | abs(peak_mass(rule) - scaled) > 1e-6 * scaled
     )
-    if (!is.finite(scaled)) return(NA_real_)
-    if (scaled <= 0) 0 else exp(h_max + log(scaled))
+    for (i in unresolved) {
+      integrand <- function(u) {
+        exp(as.vector(log_kernel(matrix(u + mode[i]), slope[i])) - height[i])
+      }
+      integrate_part <- function(lower, upper) {
+        if (lower >= upper) return(0)
+        stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
+                         abs.tol = 1e-10, subdivisions = 400L)$value
+      }
+      # A failed quadrature is reported as NA (not 0) so callers can fall back
+      # to the survival solver instead of silently dropping density.
+      scaled[i] <- tryCatch(
+        integrate_part(-reach_below[i], 0) + integrate_part(0, reach_above[i]),
+        error = function(e) NA_real_
+      )
+    }
+
+    density[contour] <- ifelse(
+      is.finite(scaled),
+      exp(height + log(scaled)),
+      NA_real_
+    )
+    density
   }
 
   function(c) {
     c <- as.numeric(c)
     result <- numeric(length(c))
     valid <- is.finite(c)
-    result[valid] <- vapply(c[valid], function(ci) {
-      sum(vapply(branches, function(branch) branch_density(ci, branch), numeric(1)))
-    }, numeric(1))
+    if (!any(valid)) return(result)
+    result[valid] <- Reduce(`+`, lapply(branches, function(branch) {
+      branch_density(c[valid], branch)
+    }))
     result
   }
 }
@@ -793,6 +917,7 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   }
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
+    mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
     return(.linear_metric_density(
       function(mu, sigma) {
         beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
@@ -800,7 +925,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
           (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
       },
       LSL, USL, metric, sigma_level,
-      sigma_ref = state$sigma_scale
+      sigma_ref = state$sigma_scale,
+      mu_lower = mu_support$lower, mu_upper = mu_support$upper
     ))
   }
 
