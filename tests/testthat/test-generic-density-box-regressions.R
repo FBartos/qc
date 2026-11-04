@@ -58,10 +58,10 @@ expect_generic_density_mass_matches_survival <- function(
   )
 }
 
-testthat::test_that("generic Cpc bypasses the direct density backend", {
+testthat::test_that("generic Cpc and Cpm use the direct density backend", {
   prior <- generic_box_prior(mu_mean = 0, mu_sd = 1, sigma_shape = 2, sigma_rate = 1)
 
-  testthat::expect_false(qc:::.integration_can_use_density(prior, "Cpc"))
+  testthat::expect_true(qc:::.integration_can_use_density(prior, "Cpc"))
   testthat::expect_true(qc:::.integration_can_use_density(prior, "Cpm"))
 })
 

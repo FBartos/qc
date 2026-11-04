@@ -125,15 +125,6 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 .integration_can_use_density <- function(prior, metric) {
-  if (inherits(prior, "PriorSemiConjugateSigma") &&
-      metric %in% c("Cp", "Cpm", "Cpc")) {
-    return(FALSE)
-  }
-
-  if (inherits(prior, "PriorGeneric") && identical(metric, "Cpc")) {
-    return(FALSE)
-  }
-
   inherits(prior, "PriorConjugate") ||
     inherits(prior, "PriorGeneric") ||
     inherits(prior, "PriorSemiConjugateMu") ||

@@ -453,3 +453,122 @@ testthat::test_that("densities that lose mass fall back to the survival function
     testthat::expect_equal(S(unname(entry$stats["Q97.5"])), 0.025, tolerance = 0.1)
   }
 })
+
+semi_sigma_draws <- function(prior, state, n_draws = 5e5L) {
+  frame <- qc:::.prepare_semi_sigma_state(numeric(0), prior, state)
+  grid <- seq(frame$mu_frame$lower, frame$mu_frame$upper, length.out = 20001L)
+  log_weight <- frame$log_weight(grid)
+  mu <- sample(grid, n_draws, TRUE, exp(log_weight - max(log_weight))) +
+    stats::runif(n_draws, -0.5, 0.5) * (grid[2] - grid[1])
+  beta_n <- frame$beta0 + (frame$sse + frame$n * (mu - frame$x_bar)^2) / 2
+  list(
+    mu = mu,
+    sigma = sqrt(1 / stats::rgamma(n_draws, frame$alpha_n_eff, rate = beta_n))
+  )
+}
+
+testthat::test_that("semi-conjugate sigma Cp, Cpm and Cpc match draws", {
+  testthat::skip_if_not_installed("BayesTools")
+
+  priors <- list(
+    student = qc:::.bayestools_to_integration_prior(
+      BayesTools::prior("t", list(10, 5, 3)), "Jeffreys_sigma"
+    )$prior,
+    truncated = qc:::.bayestools_to_integration_prior(
+      BayesTools::prior("normal", list(10, 2), list(9.9, Inf)), "Jeffreys_sigma"
+    )$prior
+  )
+  cases <- list(
+    small = c(x_bar = 10.2, sd = 1, n = 5),
+    off_target = c(x_bar = 12, sd = 0.7, n = 100),
+    out_of_spec = c(x_bar = 15, sd = 1.5, n = 40),
+    narrow = c(x_bar = 10.3, sd = 0.02, n = 1e4),
+    large = c(x_bar = 10.2, sd = 1, n = 1e5)
+  )
+
+  set.seed(41)
+  for (prior in priors) {
+    for (case in cases) {
+      state <- qc:::.new_qc_suff_stats_state(
+        n = case[["n"]], x_bar = case[["x_bar"]],
+        sse = (case[["n"]] - 1) * case[["sd"]]^2
+      )
+      draws <- semi_sigma_draws(prior, state)
+      for (metric in c("Cp", "Cpm", "Cpc")) {
+        expect_entry_matches_draws(
+          analyze_from_state(state, prior, metric),
+          qc:::compute_metric_value(draws$mu, draws$sigma, 6, 14, 10, metric)
+        )
+      }
+    }
+  }
+})
+
+testthat::test_that("semi-conjugate sigma densities are evaluated in batches", {
+  calls <- 0L
+  prior <- qc:::create_prior_semi_sigma(2, 1, function(mu) {
+    calls <<- calls + 1L
+    stats::dt((mu - 10) / 5, 3, log = TRUE)
+  })
+  set.seed(42)
+  x <- stats::rnorm(100, 10, 1)
+  points <- seq(1, 2, length.out = 200L)
+
+  for (metric in c("Cp", "Cpm", "Cpc")) {
+    pdf_fn <- qc:::make_density_solver(x, 6, 14, prior, metric = metric, target = 10)
+    calls <- 0L
+    vals <- pdf_fn(points)
+    testthat::expect_true(all(is.finite(vals)), info = metric)
+    testthat::expect_lt(calls, length(points))
+    testthat::expect_equal(pdf_fn(points[100]), vals[100], tolerance = 1e-6, info = metric)
+  }
+})
+
+testthat::test_that("generic Cpc matches draws and the survival function", {
+  testthat::skip_if_not_installed("BayesTools")
+
+  prior <- qc:::.bayestools_to_integration_prior(
+    BayesTools::prior("normal", list(10, 5)),
+    BayesTools::prior("lognormal", list(0, 1))
+  )$prior
+  cases <- list(
+    centred = c(x_bar = 10.2, sd = 1, n = 30),
+    off_target = c(x_bar = 12, sd = 0.7, n = 100),
+    narrow = c(x_bar = 10.3, sd = 0.02, n = 1e4)
+  )
+
+  log_prior <- function(mu, sigma) {
+    stats::dnorm(mu, 10, 5, log = TRUE) + stats::dlnorm(sigma, 0, 1, log = TRUE)
+  }
+
+  set.seed(43)
+  for (case in cases) {
+    n <- case[["n"]]
+    x_bar <- case[["x_bar"]]
+    s <- case[["sd"]]
+    base_state <- qc:::.new_qc_suff_stats_state(
+      n = n, x_bar = x_bar, sse = (n - 1) * s^2
+    )
+    state <- qc:::precompute_generic_state(numeric(0), prior, cached_state = base_state)
+    entry <- analyze_from_state(state, prior, "Cpc")
+
+    # Sample the posterior from a fine (mu, log(sigma)) grid.
+    mu_grid <- x_bar + seq(-8, 8, length.out = 601L) * s / sqrt(n)
+    t_grid <- log(s) + seq(-8, 8, length.out = 401L) / sqrt(2 * n)
+    grid <- expand.grid(mu = mu_grid, t = t_grid)
+    log_post <- log_prior(grid$mu, exp(grid$t)) + (1 - n) * grid$t -
+      ((n - 1) * s^2 + n * (grid$mu - x_bar)^2) / (2 * exp(2 * grid$t))
+    pick <- sample(nrow(grid), 5e5L, TRUE, exp(log_post - max(log_post)))
+    mu <- grid$mu[pick] + stats::runif(5e5L, -0.5, 0.5) * (mu_grid[2] - mu_grid[1])
+    sigma <- exp(grid$t[pick] + stats::runif(5e5L, -0.5, 0.5) * (t_grid[2] - t_grid[1]))
+    expect_entry_matches_draws(
+      entry, qc:::compute_metric_value(mu, sigma, 6, 14, 10, "Cpc")
+    )
+
+    solver <- qc:::make_solver(
+      numeric(0), 6, 14, prior, metric = "Cpc", target = 10, cached_state = state
+    )
+    median_c <- unname(entry$stats["Median"])
+    testthat::expect_equal(solver(median_c), 0.5, tolerance = 0.01)
+  }
+})

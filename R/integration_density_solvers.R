@@ -888,60 +888,62 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   # Constant for the unnormalized sigma kernel
   log_C <- log(2) - lgamma(alpha_n_eff)
 
-  # Used only for Cpm and Cpc, which are supported on [0, Inf).
-  survival_density <- function(metric_name) {
-    .density_from_survival_fn(
-      make_solver(
-        data, LSL, USL, prior,
-        metric = metric_name,
-        target = target,
-        cached_state = cached_state,
-        sigma_level = sigma_level
-      ),
-      support_lower = 0
-    )
+  mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
+  semi_sigma_log_joint <- function(mu, sigma) {
+    beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
+    prior$log_dens_mu(mu) + log_C -
+      (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
   }
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
-    mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
     return(.linear_metric_density(
-      function(mu, sigma) {
-        beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
-        prior$log_dens_mu(mu) + log_C -
-          (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
-      },
+      semi_sigma_log_joint,
       LSL, USL, metric, sigma_level,
       sigma_ref = state$sigma_scale,
       mu_lower = mu_support$lower, mu_upper = mu_support$upper
     ))
   }
 
+  if (metric %in% c("Cpm", "Cpc")) {
+    return(.radial_metric_density(
+      semi_sigma_log_joint,
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = state$sigma_scale,
+      mu_ref = state$mu_frame$mode
+    ))
+  }
+
   if (metric == "Cp") {
+    rules <- .contour_rules()
+    mu_mode <- state$mu_frame$mode
+    mu_scale <- mean(state$mu_frame$scale)
     return(function(c) {
-      if (c <= 0) return(0)
-      sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid <- is.finite(c) & c > 0
+      if (!any(valid)) return(result)
 
-      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
+      sigma_c <- tol / ((2 * sigma_level) * c[valid])
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c[valid])
 
-      log_integrand <- function(mu) {
-        sse_mu <- sse + n * (mu - x_bar)^2
-        beta_n <- beta0 + sse_mu / 2
-        log_sigma_kernel <- log_C - (2 * alpha_n_eff + 1) * log(sigma_c) - beta_n / sigma_c^2
-        vals <- prior$log_dens_mu(mu) + log_sigma_kernel + log_jacobian - log_Z
+      # A Cp contour is the line sigma = sigma_c, which runs along mu.
+      log_kernel <- function(t, index) {
+        mu <- mu_mode + mu_scale * t
+        sigma <- rep(sigma_c[index], each = nrow(t))
+        vals <- semi_sigma_log_joint(as.vector(mu), sigma) +
+          rep(log_jacobian[index], each = nrow(t)) + log(mu_scale)
         vals[!is.finite(vals)] <- -Inf
-        vals
+        matrix(vals, nrow(t), ncol(t))
       }
-      .semi_sigma_integrate_log_mu(log_integrand, state$mu_frame)$value
+
+      result[valid] <- .contour_mass(
+        log_kernel, rules,
+        center = numeric(length(sigma_c)),
+        t_lower = rep((mu_support$lower - mu_mode) / mu_scale, length(sigma_c)),
+        t_upper = rep((mu_support$upper - mu_mode) / mu_scale, length(sigma_c))
+      )
+      result
     })
-  }
-
-  if (metric == "Cpm") {
-    return(survival_density("Cpm"))
-  }
-
-  if (metric == "Cpc") {
-    return(survival_density("Cpc"))
   }
 
   stop("Unsupported metric for density solver: ", metric)

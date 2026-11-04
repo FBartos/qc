@@ -103,17 +103,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
                                               metric = "Cpk", target = NULL,
                                               cached_state = NULL,
                                               sigma_level = 3, ...) {
-  request <- .new_qc_integration_request(
-    data = data,
-    LSL = LSL,
-    USL = USL,
-    prior = prior,
-    metric = metric,
-    target = target,
-    cached_state = cached_state,
-    sigma_level = sigma_level
-  )
-
   # For generic priors, we still use 1D integration along contours,
   # but evaluate the joint posterior numerically using vectorized operations
 
@@ -133,20 +122,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   log_post_vec <- cached_state$log_post_vec
   sigma_floor <- max(sigma_lower, 1e-10)
 
-  survival_density <- function(metric_name) {
-    .density_from_survival_fn(
-      .integration_make_solver(
-        request = .integration_request_update(
-          request,
-          metric = metric_name,
-          cached_state = cached_state
-        )
-      ),
-      support_lower = 0
-    )
-  }
-
-  M <- (LSL + USL) / 2
   target <- .integration_resolve_target(metric, target, LSL, USL)
   tol <- USL - LSL
 
@@ -221,7 +196,7 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "Cpm") {
+  if (metric %in% c("Cpm", "Cpc")) {
     return(.radial_metric_density(
       function(mu, sigma) {
         vals <- rep(-Inf, length(mu))
@@ -234,11 +209,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       mu_ref = cached_state$map_mu,
       sigma_lower = sigma_floor, sigma_upper = sigma_upper
     ))
-  }
-
-  if (metric == "Cpc") {
-    if (is.null(target)) target <- M
-    return(survival_density("Cpc"))
   }
 
   stop("Unsupported metric for density solver: ", metric)
