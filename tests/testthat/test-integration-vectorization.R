@@ -249,3 +249,207 @@ testthat::test_that("contour quadrature failures are reported as missing density
 
   testthat::expect_true(any(is.na(pdf_fn(seq(1, 1.5, length.out = 5L)))))
 })
+
+expect_entry_matches_draws <- function(entry, draws, tolerance = 0.02) {
+  expected <- stats::quantile(draws, c(0.025, 0.5, 0.975), names = FALSE)
+  width <- expected[3] - expected[1]
+  actual <- unname(entry$stats[c("Q2.5", "Median", "Q97.5")])
+  testthat::expect_lt(max(abs(actual - expected)) / width, tolerance)
+  testthat::expect_lt(abs(unname(entry$stats["Mean"]) - mean(draws)) / width, tolerance)
+  testthat::expect_lt(abs(unname(entry$stats["SD"]) - stats::sd(draws)) / width, tolerance)
+}
+
+analyze_from_state <- function(state, prior, metric, target = 10) {
+  qc:::analyze_capability_integration(
+    request = qc:::.new_qc_integration_request(
+      numeric(0), 6, 14, prior, metric, target, state, 3
+    )
+  )
+}
+
+conjugate_draws <- function(state, prior, metric, target = 10, n_draws = 5e5L) {
+  post <- qc:::.compute_validated_conjugate_posterior(
+    prior, numeric(0), state
+  )$post
+  sigma <- sqrt(1 / stats::rgamma(n_draws, post$alpha_n, rate = post$beta_n))
+  mu <- stats::rnorm(n_draws, post$mu_n, sigma / sqrt(post$k_n))
+  qc:::compute_metric_value(mu, sigma, 6, 14, target, metric)
+}
+
+testthat::test_that("conjugate Cpm and Cpc are right far from the target", {
+  prior <- qc:::create_prior_conjugate(10, 2, 3, 3)
+  cases <- list(
+    out_of_spec = c(x_bar = 15, sd = 1.5, n = 40),
+    off_target = c(x_bar = 12, sd = 0.5, n = 1e4),
+    far_narrow = c(x_bar = 15, sd = 0.1, n = 1e5),
+    centred = c(x_bar = 10, sd = 1, n = 1e6),
+    tiny_sd = c(x_bar = 10, sd = 0.001, n = 30)
+  )
+
+  set.seed(31)
+  for (case in cases) {
+    state <- qc:::.new_qc_suff_stats_state(
+      n = case[["n"]], x_bar = case[["x_bar"]],
+      sse = (case[["n"]] - 1) * case[["sd"]]^2
+    )
+    for (metric in c("Cpm", "Cpc")) {
+      entry <- analyze_from_state(state, prior, metric)
+      testthat::expect_equal(entry$area, 1, tolerance = 1e-3)
+      expect_entry_matches_draws(entry, conjugate_draws(state, prior, metric))
+    }
+  }
+})
+
+testthat::test_that("radial densities match the survival function", {
+  set.seed(32)
+  x <- stats::rnorm(40, 12.5, 1)
+  state <- qc:::.as_qc_suff_stats_state(data = x)
+  priors <- list(
+    conjugate = qc:::create_prior_conjugate(10, 2, 3, 3),
+    semi_mu = qc:::.bayestools_to_integration_prior(
+      "Jeffreys_mu", BayesTools::prior("gamma", list(2, 1))
+    )$prior
+  )
+
+  for (prior in priors) {
+    for (metric in c("Cpm", "Cpc")) {
+      request <- qc:::.new_qc_integration_request(x, 6, 14, prior, metric, 10, state, 3)
+      S <- qc:::.integration_make_solver(request = request)
+      pdf_fn <- qc:::.integration_make_density_solver(request = request)
+      moments <- qc:::.integration_compute_metric_moments(request = request)
+
+      edges <- moments$mean + seq(-3, 3, length.out = 61L) * moments$sd
+      survival <- vapply(edges, S, numeric(1))
+      expected <- -diff(survival) / diff(edges)
+      mids <- (edges[-1L] + edges[-61L]) / 2
+
+      testthat::expect_equal(pdf_fn(mids), expected, tolerance = 2e-2)
+      testthat::expect_equal(
+        pdf_fn(mids[30:31]), pdf_fn(mids)[30:31]
+      )
+    }
+  }
+})
+
+testthat::test_that("generic Cpm is right for narrow and off-target posteriors", {
+  testthat::skip_if_not_installed("BayesTools")
+  prior <- qc:::.bayestools_to_integration_prior(
+    BayesTools::prior("normal", list(10, 5)),
+    BayesTools::prior("lognormal", list(0, 1))
+  )$prior
+
+  for (case in list(c(x_bar = 5, sd = 2, n = 1e3), c(x_bar = 12, sd = 0.7, n = 1e5))) {
+    base_state <- qc:::.new_qc_suff_stats_state(
+      n = case[["n"]], x_bar = case[["x_bar"]],
+      sse = (case[["n"]] - 1) * case[["sd"]]^2
+    )
+    state <- qc:::precompute_generic_state(numeric(0), prior, cached_state = base_state)
+    entry <- analyze_from_state(state, prior, "Cpm")
+
+    # The likelihood dominates, so the sampling distribution is the reference.
+    plug_in <- qc:::compute_metric_value(
+      case[["x_bar"]], case[["sd"]], 6, 14, 10, "Cpm"
+    )
+    testthat::expect_equal(entry$area, 1, tolerance = 1e-3)
+    testthat::expect_equal(unname(entry$stats["Median"]), plug_in, tolerance = 0.02)
+  }
+})
+
+testthat::test_that("semi-conjugate mu posteriors are normalized at large n", {
+  testthat::skip_if_not_installed("BayesTools")
+  prior <- qc:::.bayestools_to_integration_prior(
+    "Jeffreys_mu", BayesTools::prior("gamma", list(2, 1))
+  )$prior
+
+  for (case in list(c(x_bar = 12, sd = 0.5, n = 1e4), c(x_bar = 15, sd = 0.1, n = 1e5))) {
+    state <- qc:::.new_qc_suff_stats_state(
+      n = case[["n"]], x_bar = case[["x_bar"]],
+      sse = (case[["n"]] - 1) * case[["sd"]]^2
+    )
+    # The sigma prior is negligible here, so Jeffreys is an exact-enough reference.
+    reference <- qc:::create_prior_conjugate(0, 0, -0.5, 0)
+
+    for (metric in c("Cp", "Cpu", "Cpk", "Cpm", "Cpc")) {
+      entry <- analyze_from_state(state, prior, metric)
+      expected <- analyze_from_state(state, reference, metric)
+      width <- unname(expected$stats["Q97.5"] - expected$stats["Q2.5"])
+
+      testthat::expect_lt(
+        max(abs(entry$stats[c("Mean", "Q2.5", "Median", "Q97.5")] -
+                  expected$stats[c("Mean", "Q2.5", "Median", "Q97.5")])) / width,
+        0.05
+      )
+    }
+  }
+})
+
+testthat::test_that("scalar and batched conjugate survival functions agree", {
+  prior <- qc:::create_prior_conjugate(0, 0, -0.5, 0)
+  state <- qc:::.new_qc_suff_stats_state(n = 1000L, x_bar = 10, sse = 999e-6)
+
+  for (metric in c("Cpm", "Cpc")) {
+    S <- qc:::make_solver(numeric(0), 6, 14, prior, metric = metric,
+                          target = 10, cached_state = state)
+    testthat::expect_equal(S(1000), 1, tolerance = 1e-6)
+    testthat::expect_equal(S(1300), S(c(1300, 1400))[1])
+
+    entry <- analyze_from_state(state, prior, metric)
+    testthat::expect_equal(entry$area, 1, tolerance = 1e-3)
+    expect_entry_matches_draws(entry, conjugate_draws(state, prior, metric))
+  }
+})
+
+testthat::test_that("very diffuse priors keep their mass near zero on the grid", {
+  state <- qc:::.new_qc_suff_stats_state(n = 0L, x_bar = 0, sse = 0)
+  priors <- list(
+    centred = qc:::create_prior_conjugate(10, 0.1, 0.05, 0.05),
+    tiny_scale = qc:::create_prior_conjugate(10, 0.1, 0.05, 5e-5),
+    # Cpm and Cpc pile up in a spike against their bound.
+    off_target = qc:::create_prior_conjugate(25, 0.1, 0.05, 1e-5)
+  )
+
+  set.seed(33)
+  for (prior in priors) {
+    for (metric in c("Cp", "Cpm", "Cpc", "Cpk")) {
+      entry <- analyze_from_state(state, prior, metric)
+      draws <- conjugate_draws(state, prior, metric, n_draws = 1e6L)
+      expected <- stats::quantile(draws, c(0.25, 0.5, 0.75), names = FALSE)
+
+      testthat::expect_lt(
+        abs(unname(entry$stats["Median"]) - expected[2]) / (expected[3] - expected[1]),
+        0.02
+      )
+      testthat::expect_lt(
+        abs(unname(entry$stats["Q97.5"]) / stats::quantile(draws, 0.975) - 1),
+        0.05
+      )
+    }
+  }
+})
+
+testthat::test_that("adaptive grids resolve the shoulders of a zoomed narrow peak", {
+  pdf_fn <- function(x) stats::dnorm(x, 4 / 3, 1e-3)
+
+  result <- qc:::.adaptive_density_grid(pdf_fn, 0, 2, n_grid = 512L)
+
+  testthat::expect_equal(result$area, 1, tolerance = 1e-5)
+})
+
+testthat::test_that("densities that lose mass fall back to the survival function", {
+  near_modes <- function(mu) {
+    log(0.5 * stats::dnorm(mu, 9.9, 0.01) + 0.5 * stats::dnorm(mu, 10.1, 0.01))
+  }
+  set.seed(9)
+  x <- stats::rnorm(4, 10, 0.8)
+  prior <- qc:::create_prior_semi_sigma(2, 1, near_modes)
+  state <- qc:::.as_qc_suff_stats_state(data = x)
+
+  for (metric in c("Cpu", "Cpl")) {
+    request <- qc:::.new_qc_integration_request(x, 6, 14, prior, metric, 10, state, 3)
+    entry <- qc:::analyze_capability_integration(request = request)
+    S <- qc:::.integration_make_solver(request = request)
+
+    testthat::expect_equal(S(unname(entry$stats["Median"])), 0.5, tolerance = 5e-3)
+    testthat::expect_equal(S(unname(entry$stats["Q97.5"])), 0.025, tolerance = 0.1)
+  }
+})

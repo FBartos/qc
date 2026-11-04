@@ -149,7 +149,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   M <- (LSL + USL) / 2
   target <- .integration_resolve_target(metric, target, LSL, USL)
   tol <- USL - LSL
-  cpm_dist <- .cpm_spec_distance(LSL, USL, target)
 
   if (metric %in% c("Cpk", "Cpu", "Cpl")) {
     return(.linear_metric_density(
@@ -223,82 +222,18 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   }
 
   if (metric == "Cpm") {
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      R <- cpm_dist / (sigma_level * cv)
-      valid_R <- is.finite(R) & R > 0
-      vals_out <- numeric(length(cv))
-      if (!any(valid_R)) {
-        result[valid_c] <- vals_out
-        return(result)
-      }
-
-      # Restrict each circle of radius R to the arc that crosses the
-      # (mu, sigma) box and map it onto v in [0, 1]. For a narrow posterior
-      # that arc is a tiny fraction of [0, pi], which a fixed-range
-      # pcubature misses entirely.
-      theta_lo <- pmax(
-        acos(pmin(1, pmax(-1, (mu_upper - target) / R[valid_R]))),
-        asin(pmin(1, sigma_floor / R[valid_R]))
-      )
-      theta_hi <- pmin(
-        acos(pmin(1, pmax(-1, (mu_lower - target) / R[valid_R]))),
-        pi - asin(pmin(1, sigma_floor / R[valid_R]))
-      )
-      has_arc <- theta_hi > theta_lo
-      valid_R[valid_R] <- has_arc
-      if (!any(valid_R)) {
-        result[valid_c] <- vals_out
-        return(result)
-      }
-      theta_lo <- theta_lo[has_arc]
-      theta_width <- theta_hi[has_arc] - theta_lo
-
-      Rv <- R[valid_R]
-      cv_valid <- cv[valid_R]
-      log_jacobian <- 2 * log(Rv) - log(cv_valid) + log(theta_width)
-
-      integrand <- function(v) {
-        v <- if (is.matrix(v)) as.numeric(v[1, ]) else as.numeric(v)
-        theta <- theta_lo + outer(theta_width, v)
-        sigma_mat <- Rv * sin(theta)
-        mu_mat <- target + Rv * cos(theta)
-        log_jacobian_mat <- matrix(
-          rep(log_jacobian, times = length(v)),
-          nrow = length(Rv)
-        )
-        valid <- is.finite(mu_mat) & is.finite(sigma_mat) &
-          sigma_mat >= sigma_floor & sigma_mat <= sigma_upper &
-          mu_mat >= mu_lower & mu_mat <= mu_upper
-        vals <- matrix(0, nrow = length(Rv), ncol = length(v))
-        if (any(valid)) {
-          log_p <- log_post_vec(mu_mat[valid], sigma_mat[valid])
-          vals[valid] <- exp(log_p + log_jacobian_mat[valid] - h_max) / Z
-        }
-        vals[!is.finite(vals)] <- 0
+    return(.radial_metric_density(
+      function(mu, sigma) {
+        vals <- rep(-Inf, length(mu))
+        in_box <- mu >= mu_lower & mu <= mu_upper
+        vals[in_box] <- log_post_vec(mu[in_box], sigma[in_box]) - h_max - log(Z)
         vals
-      }
-
-      vals <- tryCatch(
-        cubature::pcubature(
-          integrand,
-          lowerLimit = 0,
-          upperLimit = 1,
-          tol = 1e-5,
-          fDim = length(Rv),
-          vectorInterface = TRUE
-        )$integral,
-        error = function(e) rep(0, length(Rv))
-      )
-      vals_out[valid_R] <- vals
-      result[valid_c] <- vals_out
-      result
-    })
+      },
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = cached_state$map_sig,
+      mu_ref = cached_state$map_mu,
+      sigma_lower = sigma_floor, sigma_upper = sigma_upper
+    ))
   }
 
   if (metric == "Cpc") {
