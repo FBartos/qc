@@ -860,14 +860,47 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   )
 
   if (backend$can_use_density) {
-    result <- .adaptive_density_grid(
-      backend$pdf_fn,
-      x_start,
-      x_end,
-      n_grid,
-      is_prior_only = is_prior_only,
-      support_lower = .integration_density_support_lower(metric)
-    )
+    density_grid <- function(wide) {
+      .adaptive_density_grid(
+        backend$pdf_fn,
+        x_start,
+        x_end,
+        n_grid,
+        is_prior_only = wide,
+        support_lower = .integration_density_support_lower(metric)
+      )
+    }
+    result <- density_grid(is_prior_only)
+
+    # Without data the survival function is the less reliable of the two, as
+    # its tails are cut off for diffuse priors, so it is only a fallback.
+    S <- NULL
+    if (!is_prior_only || result$n_failed > 0L) {
+      S <- tryCatch(
+        .integration_make_solver(request = request),
+        error = function(e) NULL
+      )
+    }
+    # The density has lost mass that the survival function sees on the same
+    # grid, e.g. a narrow second mode on a contour or a step inside one cell.
+    lost_mass <- function(result) {
+      if (is_prior_only || is.null(S)) return(FALSE)
+      x <- result$grid_x
+      survival_mass <- tryCatch(S(x[1]) - S(x[length(x)]),
+                                error = function(e) NA_real_)
+      is.finite(survival_mass) && survival_mass - result$area > 0.005
+    }
+
+    # A long tail stretches the uniform grid past the peak, leaving most of
+    # the mass in a few cells. The wide grid resolves both.
+    too_coarse <- !is_prior_only && result$area > 0 &&
+      max(result$pdf_vals * result$dx) > 0.02 * result$area
+    if (result$n_failed == 0L && !is_prior_only &&
+        (too_coarse || lost_mass(result))) {
+      wide <- density_grid(TRUE)
+      if (wide$n_failed == 0L) result <- wide
+    }
+
     grid_x <- result$grid_x
     mid_x <- result$mid_x
     pdf_vals <- result$pdf_vals
@@ -875,26 +908,11 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
     area <- result$area
 
     # Rebuild the grid from the survival function when the density solver
-    # could not evaluate some grid points, or when the density has lost mass
-    # that the survival function sees on the same grid (e.g. a narrow second
-    # mode on a contour). Without data the survival function is the less
-    # reliable of the two, as its tails are cut off for diffuse priors.
-    S <- tryCatch(
-      .integration_make_solver(request = request),
-      error = function(e) NULL
-    )
-    if (!is.null(S)) {
-      survival_mass <- tryCatch(
-        S(grid_x[1]) - S(grid_x[length(grid_x)]),
-        error = function(e) NA_real_
-      )
-      lost_mass <- !is_prior_only && is.finite(survival_mass) &&
-        survival_mass - area > 0.005
-      if (result$n_failed > 0L || lost_mass) {
-        backend$S <- S
-        backend$mode <- "survival"
-        backend$can_use_density <- FALSE
-      }
+    # could not evaluate some grid points or still misses mass.
+    if (!is.null(S) && (result$n_failed > 0L || lost_mass(result))) {
+      backend$S <- S
+      backend$mode <- "survival"
+      backend$can_use_density <- FALSE
     }
   }
 

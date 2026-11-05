@@ -572,3 +572,42 @@ testthat::test_that("generic Cpc matches draws and the survival function", {
     testthat::expect_equal(solver(median_c), 0.5, tolerance = 0.01)
   }
 })
+
+testthat::test_that("long-tailed posteriors get a grid that resolves their peak", {
+  testthat::skip_if_not_installed("BayesTools")
+
+  # The prior holds sigma near 1 while two nearly equal points pull it to 0.
+  prior <- qc:::.bayestools_to_integration_prior(
+    "Jeffreys_mu",
+    BayesTools::prior("gamma", list(2, 1))
+  )$prior
+  state <- qc:::.new_qc_suff_stats_state(n = 2, x_bar = 10, sse = 1e-6)
+
+  set.seed(44)
+  n_draws <- 6e6L
+  t <- stats::runif(n_draws, log(1e-3) - 6, log(1e-3) + 9)
+  sigma <- exp(t)
+  mu <- stats::rnorm(n_draws, 10, sigma / sqrt(2))
+  log_weight <- stats::dgamma(sigma, 2, 1, log = TRUE) - 1e-6 / (2 * sigma^2)
+  pick <- sample(n_draws, 2e6L, TRUE, exp(log_weight - max(log_weight)))
+
+  for (metric in c("Cpu", "Cpc")) {
+    entry <- analyze_from_state(state, prior, metric)
+    draws <- qc:::compute_metric_value(mu[pick], sigma[pick], 6, 14, 10, metric)
+    expected <- stats::quantile(draws, c(0.025, 0.5, 0.975), names = FALSE)
+    actual <- unname(entry$stats[c("Q2.5", "Median", "Q97.5")])
+    testthat::expect_equal(actual, expected, tolerance = 0.02, info = metric)
+  }
+})
+
+testthat::test_that("a step in the density does not trigger the survival fallback", {
+  prior <- qc:::create_prior_conjugate(0, 0, -0.5, 0)
+  state <- qc:::.new_qc_suff_stats_state(n = 2, x_bar = 10, sse = 1e-6)
+  entry <- analyze_from_state(state, prior, "Cpk")
+
+  # Finite differences of the survival function ripple on this flat density.
+  rising <- diff(entry$grid$density) > 0
+  testthat::expect_lte(sum(diff(rising) != 0), 2L)
+  draws <- conjugate_draws(state, prior, "Cpk")
+  expect_entry_matches_draws(entry, draws)
+})
