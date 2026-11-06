@@ -96,6 +96,185 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
   }
 }
 
+.contour_rules <- function() {
+  list(
+    rule = .composite_gauss_legendre_unit(3L, 10L),
+    check_rule = .composite_gauss_legendre_unit(4L, 10L)
+  )
+}
+
+# Integrates exp(log_kernel) along many contours at once. log_kernel(t, index)
+# receives a matrix with one column of contour positions per element of index.
+# Every step works on such a matrix, so the kernel is evaluated in a handful of
+# batches regardless of the number of contours.
+.contour_mass <- function(log_kernel, rules, center, t_lower, t_upper,
+                          tail_log_drop = 40) {
+  probe_unit <- seq(0, 1, length.out = 65L)
+  zoom_unit <- seq(0, 1, length.out = 17L)
+  reach_offsets <- 2^seq(-20, 10)
+  n_contours <- length(center)
+
+  column_grid <- function(unit, from, to) {
+    outer(unit, to - from) + rep(from, each = length(unit))
+  }
+  best_row <- function(vals) {
+    max.col(t(pmax(vals, -.Machine$double.xmax)), ties.method = "first")
+  }
+
+  # Locate the contour peak so that the quadrature does not miss a narrow
+  # posterior, widening the probe while the peak sits on its edge.
+  center <- pmin(pmax(center, t_lower), t_upper)
+  probe_lower <- pmax(t_lower, center - 8)
+  probe_upper <- pmin(t_upper, center + 8)
+  mode <- center
+  height <- rep(-Inf, n_contours)
+  active <- seq_len(n_contours)
+  for (iter in seq_len(17L)) {
+    t <- column_grid(probe_unit, probe_lower[active], probe_upper[active])
+    vals <- log_kernel(t, active)
+    best <- best_row(vals)
+    peak <- cbind(best, seq_along(active))
+    mode[active] <- t[peak]
+    height[active] <- vals[peak]
+
+    missed <- vals[peak] == -Inf
+    widen_left <- probe_lower[active] > t_lower[active] &
+      (best <= 2L | missed)
+    widen_right <- probe_upper[active] < t_upper[active] &
+      (best >= length(probe_unit) - 1L | missed)
+    if (!any(widen_left | widen_right)) break
+
+    width <- probe_upper[active] - probe_lower[active]
+    probe_lower[active[widen_left]] <- pmax(
+      t_lower[active[widen_left]],
+      probe_lower[active[widen_left]] - width[widen_left]
+    )
+    probe_upper[active[widen_right]] <- pmin(
+      t_upper[active[widen_right]],
+      probe_upper[active[widen_right]] + width[widen_right]
+    )
+    active <- active[widen_left | widen_right]
+  }
+
+  # No finite kernel value anywhere on a contour: it misses the support.
+  density <- numeric(n_contours)
+  on_support <- which(height > -Inf)
+  if (length(on_support) == 0L) return(density)
+  mode <- mode[on_support]
+  height <- height[on_support]
+  t_lower <- t_lower[on_support]
+  t_upper <- t_upper[on_support]
+  step <- ((probe_upper - probe_lower) / (length(probe_unit) - 1L))[on_support]
+
+  for (pass in seq_len(5L)) {
+    from <- pmax(t_lower, mode - step)
+    to <- pmin(t_upper, mode + step)
+    t <- column_grid(zoom_unit, from, to)
+    vals <- log_kernel(t, on_support)
+    peak <- cbind(best_row(vals), seq_along(on_support))
+    mode <- t[peak]
+    height <- vals[peak]
+    step <- (to - from) / (length(zoom_unit) - 1L)
+  }
+
+  scan_offsets <- function(direction) {
+    limit <- if (direction > 0) t_upper else t_lower
+    clamp <- if (direction > 0) pmin else pmax
+    t_reach <- clamp(
+      rep(mode, each = length(reach_offsets)) +
+        direction * reach_offsets,
+      rep(limit, each = length(reach_offsets))
+    )
+    dim(t_reach) <- c(length(reach_offsets), length(on_support))
+    log_kernel(t_reach, on_support)
+  }
+  scan_below <- scan_offsets(-1)
+  scan_above <- scan_offsets(1)
+
+  # Distance from the peak at which the kernel has dropped by log_drop,
+  # keeping all of the support when it never does.
+  reach_of_drop <- function(direction, scan, log_drop, passes) {
+    limit <- if (direction > 0) t_upper else t_lower
+    clamp <- if (direction > 0) pmin else pmax
+    above <- scan > rep(height - log_drop, each = length(reach_offsets))
+    last <- max.col(t(above * seq_along(reach_offsets)), ties.method = "first")
+    inside <- ifelse(above[cbind(last, seq_along(last))], reach_offsets[last], 0)
+    outside <- reach_offsets[pmin(last + 1L, length(reach_offsets))]
+    # A smooth drop needs only a rough position, but a hard support edge such
+    # as a truncated prior has to be pinned down.
+    active <- seq_along(on_support)
+    for (pass in seq_len(passes)) {
+      if (pass == 9L) {
+        t_outside <- matrix(clamp(mode + direction * outside, limit), nrow = 1L)
+        active <- which(is.infinite(log_kernel(t_outside, on_support)))
+        if (length(active) == 0L) break
+      }
+      middle <- (inside[active] + outside[active]) / 2
+      t_middle <- matrix(
+        clamp(mode[active] + direction * middle, limit[active]),
+        nrow = 1L
+      )
+      reached <- as.vector(log_kernel(t_middle, on_support[active])) >
+        height[active] - log_drop
+      inside[active[reached]] <- middle[reached]
+      outside[active[!reached]] <- middle[!reached]
+    }
+    abs(clamp(mode + direction * inside, limit) - mode)
+  }
+
+  reach_below <- reach_of_drop(-1, scan_below, tail_log_drop, 30L)
+  reach_above <- reach_of_drop(1, scan_above, tail_log_drop, 30L)
+  scale_below <- reach_of_drop(-1, scan_below, 1, 4L)
+  scale_above <- reach_of_drop(1, scan_above, 1, 4L)
+
+  side_mass <- function(direction, rule, reach, scale) {
+    side <- .geometric_side_rule(rule, reach, scale)
+    t_nodes <- rep(mode, each = nrow(side$offsets)) + direction * side$offsets
+    scaled <- exp(log_kernel(t_nodes, on_support) -
+                    rep(height, each = nrow(side$offsets)))
+    colSums(scaled * side$weights)
+  }
+  peak_mass <- function(rule) {
+    side_mass(-1, rule, reach_below, scale_below) +
+      side_mass(1, rule, reach_above, scale_above)
+  }
+
+  # The fixed rules can miss a second narrow mode on the contour, which shows
+  # as disagreement between them; such columns are integrated adaptively
+  # unless they are negligible next to the others.
+  scaled <- peak_mass(rules$check_rule)
+  log_density <- height + log(scaled)
+  negligible <- is.finite(log_density) &
+    log_density < max(log_density[is.finite(log_density)], -Inf) - 30
+  unresolved <- which(
+    !negligible &
+      (!is.finite(scaled) | abs(peak_mass(rules$rule) - scaled) > 1e-6 * scaled)
+  )
+  for (i in unresolved) {
+    integrand <- function(u) {
+      exp(as.vector(log_kernel(matrix(u + mode[i]), on_support[i])) - height[i])
+    }
+    integrate_part <- function(lower, upper) {
+      if (lower >= upper) return(0)
+      stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
+                       abs.tol = 1e-10, subdivisions = 400L)$value
+    }
+    # A failed quadrature is reported as NA (not 0) so callers can fall back
+    # to the survival solver instead of silently dropping density.
+    scaled[i] <- tryCatch(
+      integrate_part(-reach_below[i], 0) + integrate_part(0, reach_above[i]),
+      error = function(e) NA_real_
+    )
+  }
+
+  density[on_support] <- ifelse(
+    is.finite(scaled),
+    exp(height + log(scaled)),
+    NA_real_
+  )
+  density
+}
+
 # For Cpu/Cpl, mu is USL - sigma_level*c*sigma or
 # LSL + sigma_level*c*sigma. The change-of-variables Jacobian is
 # sigma_level*sigma. Cpk adds both branches up to their meeting at the
@@ -106,33 +285,40 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
   force(log_joint)
   branches <- switch(metric, Cpu = "upper", Cpl = "lower",
                      Cpk = c("lower", "upper"))
+  rules <- .contour_rules()
 
   branch_density <- function(c, branch) {
     intercept <- if (branch == "upper") USL else LSL
     slope <- if (branch == "upper") -sigma_level * c else sigma_level * c
-    lower <- sigma_lower
-    upper <- sigma_upper
-    if (metric == "Cpk" && c > 0) {
-      upper <- min(upper, (USL - LSL) / (2 * sigma_level * c))
+    lower <- rep(sigma_lower, length(c))
+    upper <- rep(sigma_upper, length(c))
+    if (metric == "Cpk") {
+      positive <- c > 0
+      upper[positive] <- pmin(
+        upper[positive],
+        (USL - LSL) / (2 * sigma_level * c[positive])
+      )
     }
     # Generic posterior normalization uses a finite (mu, sigma) box.
     # Restrict the contour to that same box, including for negative c.
-    if (slope == 0) {
-      if (intercept < mu_lower || intercept > mu_upper) return(0)
-    } else {
-      mu_bounds <- sort(c((mu_lower - intercept) / slope,
-                          (mu_upper - intercept) / slope))
-      lower <- max(lower, mu_bounds[1])
-      upper <- min(upper, mu_bounds[2])
+    flat <- slope == 0
+    if (intercept < mu_lower || intercept > mu_upper) upper[flat] <- 0
+    if (is.finite(mu_lower) || is.finite(mu_upper)) {
+      at_mu_lower <- (mu_lower - intercept) / slope[!flat]
+      at_mu_upper <- (mu_upper - intercept) / slope[!flat]
+      lower[!flat] <- pmax(lower[!flat], pmin(at_mu_lower, at_mu_upper))
+      upper[!flat] <- pmin(upper[!flat], pmax(at_mu_lower, at_mu_upper))
     }
-    if (upper <= lower || upper <= 0) return(0)
 
-    t_lower <- log(max(lower, 0))
-    t_upper <- log(upper)
-    log_kernel <- function(t) {
+    density <- numeric(length(c))
+    contour <- which(upper > lower & upper > 0)
+    if (length(contour) == 0L) return(density)
+    contour_slope <- slope[contour]
+
+    log_kernel <- function(t, index) {
       sigma <- exp(t)
-      mu <- intercept + slope * sigma
-      vals <- rep(-Inf, length(t))
+      mu <- intercept + rep(contour_slope[index], each = nrow(t)) * sigma
+      vals <- matrix(-Inf, nrow(t), ncol(t))
       valid <- is.finite(mu) & is.finite(sigma) & sigma > 0
       if (any(valid)) {
         # The second sigma factor is d sigma / d log(sigma).
@@ -143,46 +329,136 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
       vals
     }
 
-    # Locate and scale the contour peak so quadrature does not miss a narrow
-    # posterior or underflow in the tails. Integrate on log(sigma), splitting
-    # at the peak, while retaining the full sigma support.
-    center <- min(max(log(sigma_ref), t_lower), t_upper)
-    peak <- .semi_sigma_find_log_peak(
-      log_kernel,
-      mu_domain = list(lower = center - 8, upper = center + 8, scale = 8),
-      lower = t_lower,
-      upper = t_upper,
-      probe_n = 65L,
-      max_expansions = 16L
+    density[contour] <- .contour_mass(
+      log_kernel, rules,
+      center = rep(log(sigma_ref), length(contour)),
+      t_lower = log(pmax(lower[contour], 0)),
+      t_upper = log(upper[contour])
     )
-    # No finite kernel value anywhere on the contour: it misses the support.
-    if (is.null(peak)) return(0)
-
-    mode <- peak$mode
-    h_max <- peak$h_max
-    integrand <- function(u) exp(log_kernel(u + mode) - h_max)
-    integrate_part <- function(lower, upper) {
-      if (lower >= upper) return(0)
-      stats::integrate(integrand, lower, upper, rel.tol = 1e-7,
-                       abs.tol = 1e-10, subdivisions = 400L)$value
-    }
-    # A failed quadrature is reported as NA (not 0) so callers can fall back
-    # to the survival solver instead of silently dropping density.
-    scaled <- tryCatch(
-      integrate_part(t_lower - mode, 0) + integrate_part(0, t_upper - mode),
-      error = function(e) NA_real_
-    )
-    if (!is.finite(scaled)) return(NA_real_)
-    if (scaled <= 0) 0 else exp(h_max + log(scaled))
+    density
   }
 
   function(c) {
     c <- as.numeric(c)
     result <- numeric(length(c))
     valid <- is.finite(c)
-    result[valid] <- vapply(c[valid], function(ci) {
-      sum(vapply(branches, function(branch) branch_density(ci, branch), numeric(1)))
-    }, numeric(1))
+    if (!any(valid)) return(result)
+    result[valid] <- Reduce(`+`, lapply(branches, function(branch) {
+      branch_density(c[valid], branch)
+    }))
+    result
+  }
+}
+
+# Cpm and Cpc contours are arcs around (target, 0). With z = |mu - target| /
+# sigma they are sigma(z, c), one branch on either side of the target, and
+# both metrics have the Jacobian sigma^2 / c in z. The peak of a contour can
+# lie at any z, which grows without bound as the posterior narrows away from
+# the target, so the contours are integrated over log(z).
+.radial_metric_density <- function(log_joint, LSL, USL, target, metric,
+                                   sigma_level, sigma_ref, mu_ref,
+                                   sigma_lower = 0, sigma_upper = Inf,
+                                   mu_lower = -Inf, mu_upper = Inf) {
+  force(log_joint)
+  rules <- .contour_rules()
+  tol <- USL - LSL
+  cpm_dist <- .cpm_spec_distance(LSL, USL, target)
+
+  sigma_of_z <- function(z, c) {
+    if (metric == "Cpm") {
+      cpm_dist / (sigma_level * c * sqrt(1 + z^2))
+    } else {
+      tol / ((2 * sigma_level) * sqrt(pi / 2) * c * .cpc_g(z))
+    }
+  }
+  z_of_sigma <- function(sigma, c) {
+    z <- if (metric == "Cpm") {
+      sqrt(pmax((cpm_dist / (sigma_level * c * sigma))^2 - 1, 0))
+    } else {
+      .cpc_mu_width_from_sigma(sigma, c, tol, sigma_level) / sigma
+    }
+    z[is.na(z)] <- 0
+    z[sigma <= 0] <- Inf
+    z
+  }
+  # z at which a contour reaches |mu - target| = delta; Inf once it cannot.
+  # A narrow mu support can be thinner on log(z) than the error of the
+  # interpolated Cpc inverse, so it is polished with Newton steps on
+  # z / g(z) = q. Beyond z = 5 that ratio is too flat to polish, but there
+  # any mu support is wide on log(z).
+  z_of_delta <- function(delta, c) {
+    if (delta <= 0) return(rep(0, length(c)))
+    if (metric == "Cpm") {
+      return(delta / sqrt(pmax((cpm_dist / (sigma_level * c))^2 - delta^2, 0)))
+    }
+    z <- delta / .cpc_sigma_limit_from_delta(rep(delta, length(c)), c, tol, sigma_level)
+    q <- delta * c * (2 * sigma_level) * sqrt(pi / 2) / tol
+    for (step in 1:3) {
+      polish <- is.finite(z) & z < 5
+      g <- .cpc_g(z[polish])
+      z[polish] <- z[polish] - (z[polish] / g - q[polish]) * g^2 /
+        (sqrt(2 / pi) * exp(-z[polish]^2 / 2))
+    }
+    z
+  }
+
+  branch_density <- function(c, direction, t_lower, t_upper) {
+    density <- numeric(length(c))
+    has_arc <- t_upper > t_lower
+    if (!any(has_arc)) return(density)
+    c <- c[has_arc]
+
+    log_kernel <- function(t, index) {
+      z <- exp(t)
+      c_mat <- rep(c[index], each = nrow(t))
+      sigma <- sigma_of_z(z, c_mat)
+      vals <- matrix(-Inf, nrow(t), ncol(t))
+      valid <- is.finite(z) & is.finite(sigma) & sigma > 0
+      if (any(valid)) {
+        mu <- target + direction * sigma[valid] * z[valid]
+        vals[valid] <- log_joint(mu, sigma[valid]) +
+          2 * log(sigma[valid]) - log(c_mat[valid]) + t[valid]
+      }
+      vals[!is.finite(vals)] <- -Inf
+      vals
+    }
+
+    z_ref <- max(abs(mu_ref - target) / sigma_ref, 0.1)
+    density[has_arc] <- .contour_mass(
+      log_kernel, rules,
+      center = rep(log(z_ref), length(c)),
+      t_lower = t_lower[has_arc],
+      t_upper = t_upper[has_arc]
+    )
+    density
+  }
+
+  function(c) {
+    c <- as.numeric(c)
+    result <- numeric(length(c))
+    valid <- is.finite(c) & c > 0
+    if (!any(valid)) return(result)
+
+    cv <- c[valid]
+    # Padded so that the interpolated Cpc geometry never clips the contour.
+    t_lower <- suppressWarnings(log(z_of_sigma(rep(sigma_upper, length(cv)), cv))) - 1e-6
+    t_upper <- suppressWarnings(log(z_of_sigma(rep(sigma_lower, length(cv)), cv))) + 1e-6
+
+    result[valid] <- Reduce(`+`, lapply(c(-1, 1), function(direction) {
+      # |mu - target| grows with z along a contour, so the mu support also
+      # bounds z. A narrow support away from the target would otherwise fall
+      # between the probe points of the contour search. The padding covers
+      # the rounding error of z_of_delta.
+      delta <- direction * (c(mu_lower, mu_upper) - target)
+      if (max(delta) <= 0) return(numeric(length(cv)))
+      branch_lower <- suppressWarnings(log(z_of_delta(max(min(delta), 0), cv))) - 1e-8
+      branch_upper <- suppressWarnings(log(z_of_delta(max(delta), cv))) + 1e-8
+      branch_density(
+        cv, direction,
+        pmax(t_lower, branch_lower),
+        pmin(t_upper, branch_upper)
+      )
+    }))
     result
   }
 }
@@ -205,7 +481,6 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   M <- (LSL + USL) / 2
   if (is.null(target)) target <- M
   tol <- USL - LSL
-  cpm_dist <- .cpm_spec_distance(LSL, USL, target)
   request <- .new_qc_integration_request(
     data = data,
     LSL = LSL,
@@ -228,6 +503,10 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
   }
 
   log_Z_sigma <- lgamma(alpha_n) - log(2) - alpha_n * log(beta_n)
+  conjugate_log_joint <- function(mu, sigma) {
+    -(2 * alpha_n + 1) * log(sigma) - beta_n / sigma^2 -
+      log_Z_sigma + stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
+  }
 
   # Cp: no integration needed (contour is a single sigma point)
   if (metric == "Cp") {
@@ -254,98 +533,19 @@ make_density_solver.PriorConjugate <- function(data, LSL, USL, prior,
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
     return(.linear_metric_density(
-      function(mu, sigma) {
-        -(2 * alpha_n + 1) * log(sigma) - beta_n / sigma^2 -
-          log_Z_sigma + stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
-      },
+      conjugate_log_joint,
       LSL, USL, metric, sigma_level,
       sigma_ref = sqrt(beta_n / alpha_n)
     ))
   }
 
-  if (metric == "Cpm") {
-    n_theta <- 1024L
-    theta_grid <- seq(1e-8, pi - 1e-8, length.out = n_theta)
-    d_theta <- theta_grid[2] - theta_grid[1]
-
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      R <- cpm_dist / (sigma_level * cv)
-      valid_R <- is.finite(R) & R > 0
-      vals_out <- numeric(length(cv))
-      if (any(valid_R)) {
-        Rv <- R[valid_R]
-        cv_valid <- cv[valid_R]
-        sigma_mat <- outer(sin(theta_grid), Rv, `*`)
-        mu_mat <- target + outer(cos(theta_grid), Rv, `*`)
-        valid <- sigma_mat > 1e-10
-        sd_mu <- sigma_mat / sqrt(k_n)
-        log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_mat) - beta_n / sigma_mat^2
-        log_p_mu <- stats::dnorm(mu_mat, mu_n, sd_mu, log = TRUE)
-        log_jacobian <- matrix(
-          2 * log(Rv) - log(cv_valid),
-          nrow = length(theta_grid),
-          ncol = length(Rv),
-          byrow = TRUE
-        )
-        vals <- exp(log_p_sigma + log_p_mu + log_jacobian - log_Z_sigma)
-        vals[!is.finite(vals) | !valid] <- 0
-        vals_out[valid_R] <- colSums(vals) * d_theta
-      }
-      result[valid_c] <- vals_out
-      result
-    })
-  }
-
-  if (metric == "Cpc") {
-    if (is.null(target)) target <- M
-
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      integrand <- function(z) {
-        z <- if (is.matrix(z)) as.numeric(z[1, ]) else as.numeric(z)
-        g_z <- .cpc_g(z)
-        sigma_mat <- tol / (
-          (2 * sigma_level) * sqrt(pi / 2) * outer(cv, g_z, `*`)
-        )
-        delta_mat <- sweep(sigma_mat, 2, z, `*`)
-        mu_lower <- target - delta_mat
-        mu_upper <- target + delta_mat
-        sd_mu <- sigma_mat / sqrt(k_n)
-        log_p_sigma <- -(2 * alpha_n + 1) * log(sigma_mat) -
-          beta_n / sigma_mat^2
-        log_jacobian <- 2 * log(sigma_mat) - log(cv)
-        log_p_mu_L <- stats::dnorm(mu_lower, mu_n, sd_mu, log = TRUE)
-        log_p_mu_U <- stats::dnorm(mu_upper, mu_n, sd_mu, log = TRUE)
-
-        vals <- exp(log_p_sigma + log_p_mu_L + log_jacobian - log_Z_sigma) +
-          exp(log_p_sigma + log_p_mu_U + log_jacobian - log_Z_sigma)
-        vals[!is.finite(vals)] <- 0
-        vals
-      }
-
-      vals <- cubature::pcubature(
-        integrand,
-        lowerLimit = 0,
-        upperLimit = 20,
-        tol = 1e-5,
-        fDim = length(cv),
-        vectorInterface = TRUE
-      )$integral
-      vals[!is.finite(vals)] <- 0
-      result[valid_c] <- vals
-      result
-    })
+  if (metric %in% c("Cpm", "Cpc")) {
+    return(.radial_metric_density(
+      conjugate_log_joint,
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = sqrt(beta_n / alpha_n),
+      mu_ref = mu_n
+    ))
   }
 
   stop("Unsupported metric for density solver: ", metric)
@@ -368,20 +568,20 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
   M <- (LSL + USL) / 2
   if (is.null(target)) target <- M
   tol <- USL - LSL
-  cpm_dist <- .cpm_spec_distance(LSL, USL, target)
   log_Z <- state$log_Z
   log_p_sigma <- state$log_p_sigma
   sigma_support <- state$sigma_support
   sigma_domain <- state$sigma_domain
   sigma_lower <- max(sigma_support$lower, sigma_domain$lower)
   sigma_upper <- min(sigma_support$upper, sigma_domain$upper)
+  semi_mu_log_joint <- function(mu, sigma) {
+    log_p_sigma(sigma) - log_Z +
+      stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
+  }
 
   if (metric %in% c("Cpk", "Cpu", "Cpl")) {
     return(.linear_metric_density(
-      function(mu, sigma) {
-        log_p_sigma(sigma) - log_Z +
-          stats::dnorm(mu, mu_n, sigma / sqrt(k_n), log = TRUE)
-      },
+      semi_mu_log_joint,
       LSL, USL, metric, sigma_level,
       sigma_ref = exp((state$t_lower + state$t_upper) / 2),
       sigma_lower = sigma_lower, sigma_upper = sigma_upper
@@ -413,93 +613,14 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "Cpm") {
-    n_theta <- 1024L
-    theta_grid <- seq(1e-8, pi - 1e-8, length.out = n_theta)
-    d_theta <- theta_grid[2] - theta_grid[1]
-
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      R <- cpm_dist / (sigma_level * cv)
-      valid_R <- is.finite(R) & R > 0
-      vals_out <- numeric(length(cv))
-      if (any(valid_R)) {
-        Rv <- R[valid_R]
-        cv_valid <- cv[valid_R]
-        sigma_mat <- outer(sin(theta_grid), Rv, `*`)
-        mu_mat <- target + outer(cos(theta_grid), Rv, `*`)
-        valid <- sigma_mat >= sigma_lower &
-          sigma_mat <= sigma_upper &
-          sigma_mat > 1e-10
-
-        sd_mu <- sigma_mat / sqrt(k_n)
-        lps <- log_p_sigma(sigma_mat)
-        log_p_mu <- stats::dnorm(mu_mat, mu_n, sd_mu, log = TRUE)
-        log_jacobian <- matrix(
-          2 * log(Rv) - log(cv_valid),
-          nrow = length(theta_grid),
-          ncol = length(Rv),
-          byrow = TRUE
-        )
-
-        vals <- exp(lps + log_p_mu + log_jacobian - log_Z)
-        vals[!is.finite(vals) | !valid] <- 0
-        vals_out[valid_R] <- colSums(vals) * d_theta
-      }
-      result[valid_c] <- vals_out
-      result
-    })
-  }
-
-  if (metric == "Cpc") {
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      integrand <- function(z) {
-        z <- if (is.matrix(z)) as.numeric(z[1, ]) else as.numeric(z)
-        g_z <- .cpc_g(z)
-        sigma_mat <- tol / (
-          (2 * sigma_level) * sqrt(pi / 2) * outer(cv, g_z, `*`)
-        )
-        delta_mat <- sweep(sigma_mat, 2, z, `*`)
-        mu_lower <- target - delta_mat
-        mu_upper <- target + delta_mat
-        valid <- sigma_mat >= sigma_lower &
-          sigma_mat <= sigma_upper &
-          sigma_mat > 0
-        sd_mu <- sigma_mat / sqrt(k_n)
-        lps <- log_p_sigma(sigma_mat)
-        log_jacobian <- 2 * log(sigma_mat) - log(cv)
-        log_p_mu_L <- stats::dnorm(mu_lower, mu_n, sd_mu, log = TRUE)
-        log_p_mu_U <- stats::dnorm(mu_upper, mu_n, sd_mu, log = TRUE)
-
-        vals <- exp(lps + log_p_mu_L + log_jacobian - log_Z) +
-          exp(lps + log_p_mu_U + log_jacobian - log_Z)
-        vals[!is.finite(vals) | !valid] <- 0
-        vals
-      }
-
-      vals <- cubature::pcubature(
-        integrand,
-        lowerLimit = 0,
-        upperLimit = 20,
-        tol = 1e-5,
-        fDim = length(cv),
-        vectorInterface = TRUE
-      )$integral
-      vals[!is.finite(vals)] <- 0
-      result[valid_c] <- vals
-      result
-    })
+  if (metric %in% c("Cpm", "Cpc")) {
+    return(.radial_metric_density(
+      semi_mu_log_joint,
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = exp((state$t_lower + state$t_upper) / 2),
+      mu_ref = mu_n,
+      sigma_lower = sigma_lower, sigma_upper = sigma_upper
+    ))
   }
 
   stop("Unsupported metric for density solver: ", metric)
@@ -637,6 +758,30 @@ make_density_solver.PriorSemiConjugateMu <- function(data, LSL, USL, prior,
       ),
       call. = FALSE
     )
+  }
+
+  # The search above steps in wide units, which leaves a narrow posterior as a
+  # tiny fraction of the domain that adaptive quadrature cannot find.
+  tail_edge <- function(outer) {
+    inner <- t_mode
+    probe <- seq(outer, inner, length.out = 257L)
+    keep <- which(log_base_t(probe) > h_max - tail_log_drop)
+    if (length(keep) == 0L || keep[1] == 1L) return(outer)
+    outer <- probe[keep[1] - 1L]
+    inner <- probe[keep[1]]
+    for (i in seq_len(30L)) {
+      middle <- (outer + inner) / 2
+      if (log_base_t(middle) > h_max - tail_log_drop) {
+        inner <- middle
+      } else {
+        outer <- middle
+      }
+    }
+    outer
+  }
+  if (t_lower < t_mode && t_mode < t_upper) {
+    t_lower <- tail_edge(t_lower)
+    t_upper <- tail_edge(t_upper)
   }
 
   list(lower = t_lower, upper = t_upper, mode = t_mode, h_max = h_max)
@@ -778,58 +923,63 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
   # Constant for the unnormalized sigma kernel
   log_C <- log(2) - lgamma(alpha_n_eff)
 
-  # Used only for Cpm and Cpc, which are supported on [0, Inf).
-  survival_density <- function(metric_name) {
-    .density_from_survival_fn(
-      make_solver(
-        data, LSL, USL, prior,
-        metric = metric_name,
-        target = target,
-        cached_state = cached_state,
-        sigma_level = sigma_level
-      ),
-      support_lower = 0
-    )
+  mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
+  semi_sigma_log_joint <- function(mu, sigma) {
+    beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
+    prior$log_dens_mu(mu) + log_C -
+      (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
   }
 
   if (metric %in% c("Cpu", "Cpl", "Cpk")) {
     return(.linear_metric_density(
-      function(mu, sigma) {
-        beta_n <- beta0 + (sse + n * (mu - x_bar)^2) / 2
-        prior$log_dens_mu(mu) + log_C -
-          (2 * alpha_n_eff + 1) * log(sigma) - beta_n / sigma^2 - log_Z
-      },
+      semi_sigma_log_joint,
       LSL, USL, metric, sigma_level,
-      sigma_ref = state$sigma_scale
+      sigma_ref = state$sigma_scale,
+      mu_lower = mu_support$lower, mu_upper = mu_support$upper
+    ))
+  }
+
+  if (metric %in% c("Cpm", "Cpc")) {
+    return(.radial_metric_density(
+      semi_sigma_log_joint,
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = state$sigma_scale,
+      mu_ref = state$mu_frame$mode,
+      mu_lower = mu_support$lower, mu_upper = mu_support$upper
     ))
   }
 
   if (metric == "Cp") {
+    rules <- .contour_rules()
+    mu_mode <- state$mu_frame$mode
+    mu_scale <- mean(state$mu_frame$scale)
     return(function(c) {
-      if (c <= 0) return(0)
-      sigma_c <- tol / ((2 * sigma_level) * c)
-      if (sigma_c <= 0) return(0)
+      c <- as.numeric(c)
+      result <- numeric(length(c))
+      valid <- is.finite(c) & c > 0
+      if (!any(valid)) return(result)
 
-      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c)
+      sigma_c <- tol / ((2 * sigma_level) * c[valid])
+      log_jacobian <- log(tol / (2 * sigma_level)) - 2 * log(c[valid])
 
-      log_integrand <- function(mu) {
-        sse_mu <- sse + n * (mu - x_bar)^2
-        beta_n <- beta0 + sse_mu / 2
-        log_sigma_kernel <- log_C - (2 * alpha_n_eff + 1) * log(sigma_c) - beta_n / sigma_c^2
-        vals <- prior$log_dens_mu(mu) + log_sigma_kernel + log_jacobian - log_Z
+      # A Cp contour is the line sigma = sigma_c, which runs along mu.
+      log_kernel <- function(t, index) {
+        mu <- mu_mode + mu_scale * t
+        sigma <- rep(sigma_c[index], each = nrow(t))
+        vals <- semi_sigma_log_joint(as.vector(mu), sigma) +
+          rep(log_jacobian[index], each = nrow(t)) + log(mu_scale)
         vals[!is.finite(vals)] <- -Inf
-        vals
+        matrix(vals, nrow(t), ncol(t))
       }
-      .semi_sigma_integrate_log_mu(log_integrand, state$mu_frame)$value
+
+      result[valid] <- .contour_mass(
+        log_kernel, rules,
+        center = numeric(length(sigma_c)),
+        t_lower = rep((mu_support$lower - mu_mode) / mu_scale, length(sigma_c)),
+        t_upper = rep((mu_support$upper - mu_mode) / mu_scale, length(sigma_c))
+      )
+      result
     })
-  }
-
-  if (metric == "Cpm") {
-    return(survival_density("Cpm"))
-  }
-
-  if (metric == "Cpc") {
-    return(survival_density("Cpc"))
   }
 
   stop("Unsupported metric for density solver: ", metric)
