@@ -115,8 +115,11 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   uni_s <- cached_state$uni_s
   map_mu <- cached_state$map_mu
   mu_scale <- cached_state$mu_scale
-  mu_lower <- cached_state$mu_lower
-  mu_upper <- cached_state$mu_upper
+  # The box can be far wider than a truncated mu prior, whose support the
+  # contour searches need to find.
+  mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
+  mu_lower <- max(cached_state$mu_lower, mu_support$lower)
+  mu_upper <- min(cached_state$mu_upper, mu_support$upper)
   sigma_lower <- cached_state$sigma_lower
   sigma_upper <- cached_state$sigma_upper
   log_post_vec <- cached_state$log_post_vec
@@ -207,7 +210,8 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
       LSL, USL, target, metric, sigma_level,
       sigma_ref = cached_state$map_sig,
       mu_ref = cached_state$map_mu,
-      sigma_lower = sigma_floor, sigma_upper = sigma_upper
+      sigma_lower = sigma_floor, sigma_upper = sigma_upper,
+      mu_lower = mu_lower, mu_upper = mu_upper
     ))
   }
 

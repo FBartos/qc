@@ -518,10 +518,11 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   }
   rule <- .composite_gauss_legendre_unit(4L, 10L)
   span <- if (length(grid_x) >= 2L) grid_x[length(grid_x)] - grid_x[1] else 1
-  # One batch of nodes, anchored at the finite end of the range with a spacing
-  # that grows into the tail, as each node can be a costly contour integral.
+  # One batch of nodes, as each node can be a costly contour integral. The
+  # tails decay away from the grid, so the nodes start at the end facing it
+  # (the upper end, except for the right tail) and spread out from there.
   integrate_mass <- function(lower, upper) {
-    from_lower <- is.finite(lower)
+    from_lower <- !is.finite(upper)
     anchor <- if (from_lower) lower else upper
     reach <- if (is.finite(lower) && is.finite(upper)) upper - lower else 1e6 * span
     side <- .geometric_side_rule(rule, reach, min(reach, span) * 1e-3)

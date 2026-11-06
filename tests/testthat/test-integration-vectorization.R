@@ -611,3 +611,110 @@ testthat::test_that("a step in the density does not trigger the survival fallbac
   draws <- conjugate_draws(state, prior, "Cpk")
   expect_entry_matches_draws(entry, draws)
 })
+
+testthat::test_that("conjugate Cpm and Cpc moments are finite for very diffuse priors", {
+  # With mu0 = target and k0 = 1, Cpm = (4 / 3) sqrt(G / 10) / sqrt(1 + Z^2)
+  # for independent G ~ Gamma(alpha, 1) and Z ~ N(0, 1); Cpc replaces
+  # sqrt(1 + Z^2) by sqrt(pi / 2) g(|Z|).
+  spread <- list(
+    Cpm = function(z) sqrt(1 + z^2),
+    Cpc = function(z) sqrt(pi / 2) * qc:::.cpc_g(abs(z))
+  )
+  for (alpha in c(0.01, 0.001)) {
+    prior <- qc:::create_prior_conjugate(10, 1, alpha, 10)
+    for (metric in names(spread)) {
+      z_moment <- function(power) {
+        stats::integrate(function(z) 2 * stats::dnorm(z) / spread[[metric]](z)^power,
+                         0, Inf, rel.tol = 1e-10)$value
+      }
+      mean_ref <- 4 / 3 / sqrt(10) *
+        exp(lgamma(alpha + 0.5) - lgamma(alpha)) * z_moment(1)
+      sd_ref <- sqrt((4 / 3)^2 / 10 * alpha * z_moment(2) - mean_ref^2)
+
+      moments <- qc:::compute_metric_moments(
+        numeric(0), 6, 14, prior, metric, target = 10
+      )
+      info <- paste(alpha, metric)
+      testthat::expect_equal(moments$mean, mean_ref, tolerance = 1e-6, info = info)
+      testthat::expect_equal(moments$sd, sd_ref, tolerance = 1e-6, info = info)
+    }
+  }
+})
+
+testthat::test_that("radial densities keep a narrow mean support away from the target", {
+  # mu ~ normal(12.2, 1) truncated to [12, 12.1] and sigma ~ inverse gamma
+  # (3, scale 2), so |mu - target| >= 2 and Cpm <= 4 / (3 * 2).
+  log_joint_on <- function(lower, upper) {
+    mu_mass <- stats::pnorm(upper, 12.2, 1) - stats::pnorm(lower, 12.2, 1)
+    function(mu, sigma) {
+      vals <- stats::dnorm(mu, 12.2, 1, log = TRUE) - log(mu_mass) +
+        stats::dgamma(1 / sigma, 3, rate = 2, log = TRUE) - 2 * log(sigma)
+      vals[mu < lower | mu > upper] <- -Inf
+      vals
+    }
+  }
+  radial_pdf <- function(metric, lower, upper) {
+    qc:::.radial_metric_density(
+      log_joint_on(lower, upper), 6, 14, target = 10, metric = metric,
+      sigma_level = 3, sigma_ref = 1, mu_ref = (lower + upper) / 2,
+      mu_lower = lower, mu_upper = upper
+    )
+  }
+
+  # On a Cpm contour sigma = sqrt(R^2 - delta^2) with R = 4 / (3 c), and
+  # |d sigma / d c| = R^2 / (c sigma).
+  log_joint <- log_joint_on(12, 12.1)
+  reference <- function(c) {
+    stats::integrate(function(mu) {
+      R <- 4 / (3 * c)
+      sigma <- sqrt(pmax(R^2 - (mu - 10)^2, 0))
+      dens <- exp(log_joint(mu, sigma)) * R^2 / (c * sigma)
+      dens[!is.finite(dens)] <- 0
+      dens
+    }, 12, 12.1, rel.tol = 1e-10)$value
+  }
+  pdf_fn <- radial_pdf("Cpm", 12, 12.1)
+  c_values <- c(0.35, 0.45, 0.5, 0.55, 0.6, 0.64)
+  testthat::expect_equal(pdf_fn(c_values), vapply(c_values, reference, numeric(1)),
+                         tolerance = 1e-6)
+  testthat::expect_equal(pdf_fn(0.7), 0)
+
+  # A support far thinner than the Cpc lookup table's resolution on log(z).
+  for (metric in c("Cpm", "Cpc")) {
+    pdf_fn <- radial_pdf(metric, 12, 12 + 1e-8)
+    mass <- stats::integrate(pdf_fn, 0, 0.7, subdivisions = 400L)$value
+    testthat::expect_equal(mass, 1, tolerance = 1e-4, info = metric)
+  }
+})
+
+testthat::test_that("truncated mean priors keep the radial density on its support", {
+  testthat::skip_if_not_installed("BayesTools")
+
+  set.seed(5)
+  x <- stats::rnorm(20, 12.05, 1.4)
+  sigma_priors <- list(
+    semi_sigma = "Jeffreys_sigma",
+    # The generic posterior box is far wider than the truncation here.
+    generic = BayesTools::prior("lognormal", list(0, 1))
+  )
+  # |mu - target| >= 2 bounds Cpm by 0.667 and Cpc by about 0.532.
+  c_values <- seq(0.0025, 0.7, by = 0.005)
+
+  for (case in names(sigma_priors)) {
+    prior <- qc:::.bayestools_to_integration_prior(
+      BayesTools::prior("normal", list(12.2, 1), list(12, 12.1)),
+      sigma_priors[[case]]
+    )$prior
+    for (metric in c("Cpm", "Cpc")) {
+      pdf_fn <- qc:::make_density_solver(x, 6, 14, prior, metric = metric, target = 10)
+      vals <- pdf_fn(c_values)
+      on_support <- range(which(vals > 0))
+      info <- paste(case, metric)
+      # The contours sweep the support continuously, so it has no holes.
+      testthat::expect_true(all(vals[on_support[1]:on_support[2]] > 0), info = info)
+      # The generic box normalization is good to about 0.3% under a hard
+      # truncation of mu.
+      testthat::expect_equal(sum(vals) * 0.005, 1, tolerance = 5e-3, info = info)
+    }
+  }
+})

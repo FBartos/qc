@@ -219,16 +219,19 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   t_mode <- 0.5 * (log(beta_n) - log(alpha_n))
   t_scale <- 1 / (2 * sqrt(alpha_n))
   t_below <- .geometric_side_rule(
-    rule, t_mode - 0.5 * log(2 * beta_n / y_upper), t_scale
+    rule, t_mode - 0.5 * (log(2 * beta_n) - log(y_upper)), t_scale
   )
   t_above <- .geometric_side_rule(
-    rule, 0.5 * log(2 * beta_n / y_lower) - t_mode, t_scale
+    rule, 0.5 * (log(2 * beta_n) - log(y_lower)) - t_mode, t_scale
   )
 
+  # Normalized exactly rather than by the sum of the weights: for a diffuse
+  # prior the cut at y_lower can leave out much of the sigma mass, where both
+  # metrics are close to zero.
   t <- t_mode + c(-t_below$offsets, t_above$offsets)
-  log_sigma_density <- -df * t - beta_n * exp(-2 * t)
-  sigma_weights <- c(t_below$weights, t_above$weights) *
-    exp(log_sigma_density - max(log_sigma_density))
+  log_sigma_density <- -df * t - beta_n * exp(-2 * t) -
+    (lgamma(alpha_n) - log(2) - alpha_n * log(beta_n))
+  sigma_weights <- c(t_below$weights, t_above$weights) * exp(log_sigma_density)
   sigma <- exp(t)
 
   ridge <- pmin(z_limit, pmax(-z_limit, sqrt(k_n) * (target - mu_n) / sigma))
@@ -237,7 +240,8 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
   z_above <- .geometric_side_rule(rule, z_limit - ridge, z_scale)
   ridge_nodes <- rep(ridge, each = length(rule$nodes))
   z <- rbind(ridge_nodes - z_below$offsets, ridge_nodes + z_above$offsets)
-  z_weights <- rbind(z_below$weights, z_above$weights)
+  z_weights <- rbind(z_below$weights, z_above$weights) * stats::dnorm(z)
+  z_weights <- sweep(z_weights, 2, colSums(z_weights), `/`)
 
   sigma_nodes <- rep(sigma, each = nrow(z))
   values <- compute_metric_value(
@@ -245,9 +249,7 @@ compute_metric_moments.PriorConjugate <- function(data, LSL, USL, prior,
     sigma_nodes, LSL, USL, target, metric,
     sigma_level = sigma_level
   )
-  weights <- stats::dnorm(as.vector(z)) * as.vector(z_weights) *
-    rep(sigma_weights, each = nrow(z))
-  weights <- weights / sum(weights)
+  weights <- as.vector(z_weights) * rep(sigma_weights, each = nrow(z))
 
   E1 <- sum(weights * values)
   E2 <- sum(weights * values^2)

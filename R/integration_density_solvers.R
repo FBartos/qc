@@ -357,7 +357,8 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
 # the target, so the contours are integrated over log(z).
 .radial_metric_density <- function(log_joint, LSL, USL, target, metric,
                                    sigma_level, sigma_ref, mu_ref,
-                                   sigma_lower = 0, sigma_upper = Inf) {
+                                   sigma_lower = 0, sigma_upper = Inf,
+                                   mu_lower = -Inf, mu_upper = Inf) {
   force(log_joint)
   rules <- .contour_rules()
   tol <- USL - LSL
@@ -380,8 +381,33 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     z[sigma <= 0] <- Inf
     z
   }
+  # z at which a contour reaches |mu - target| = delta; Inf once it cannot.
+  # A narrow mu support can be thinner on log(z) than the error of the
+  # interpolated Cpc inverse, so it is polished with Newton steps on
+  # z / g(z) = q. Beyond z = 5 that ratio is too flat to polish, but there
+  # any mu support is wide on log(z).
+  z_of_delta <- function(delta, c) {
+    if (delta <= 0) return(rep(0, length(c)))
+    if (metric == "Cpm") {
+      return(delta / sqrt(pmax((cpm_dist / (sigma_level * c))^2 - delta^2, 0)))
+    }
+    z <- delta / .cpc_sigma_limit_from_delta(rep(delta, length(c)), c, tol, sigma_level)
+    q <- delta * c * (2 * sigma_level) * sqrt(pi / 2) / tol
+    for (step in 1:3) {
+      polish <- is.finite(z) & z < 5
+      g <- .cpc_g(z[polish])
+      z[polish] <- z[polish] - (z[polish] / g - q[polish]) * g^2 /
+        (sqrt(2 / pi) * exp(-z[polish]^2 / 2))
+    }
+    z
+  }
 
   branch_density <- function(c, direction, t_lower, t_upper) {
+    density <- numeric(length(c))
+    has_arc <- t_upper > t_lower
+    if (!any(has_arc)) return(density)
+    c <- c[has_arc]
+
     log_kernel <- function(t, index) {
       z <- exp(t)
       c_mat <- rep(c[index], each = nrow(t))
@@ -398,12 +424,13 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     }
 
     z_ref <- max(abs(mu_ref - target) / sigma_ref, 0.1)
-    .contour_mass(
+    density[has_arc] <- .contour_mass(
       log_kernel, rules,
       center = rep(log(z_ref), length(c)),
-      t_lower = t_lower,
-      t_upper = t_upper
+      t_lower = t_lower[has_arc],
+      t_upper = t_upper[has_arc]
     )
+    density
   }
 
   function(c) {
@@ -416,14 +443,22 @@ make_density_solver <- function(data, LSL, USL, prior, metric = "Cpk",
     # Padded so that the interpolated Cpc geometry never clips the contour.
     t_lower <- suppressWarnings(log(z_of_sigma(rep(sigma_upper, length(cv)), cv))) - 1e-6
     t_upper <- suppressWarnings(log(z_of_sigma(rep(sigma_lower, length(cv)), cv))) + 1e-6
-    has_arc <- t_upper > t_lower
-    if (!any(has_arc)) return(result)
 
-    vals <- numeric(length(cv))
-    vals[has_arc] <- Reduce(`+`, lapply(c(-1, 1), function(direction) {
-      branch_density(cv[has_arc], direction, t_lower[has_arc], t_upper[has_arc])
+    result[valid] <- Reduce(`+`, lapply(c(-1, 1), function(direction) {
+      # |mu - target| grows with z along a contour, so the mu support also
+      # bounds z. A narrow support away from the target would otherwise fall
+      # between the probe points of the contour search. The padding covers
+      # the rounding error of z_of_delta.
+      delta <- direction * (c(mu_lower, mu_upper) - target)
+      if (max(delta) <= 0) return(numeric(length(cv)))
+      branch_lower <- suppressWarnings(log(z_of_delta(max(min(delta), 0), cv))) - 1e-8
+      branch_upper <- suppressWarnings(log(z_of_delta(max(delta), cv))) + 1e-8
+      branch_density(
+        cv, direction,
+        pmax(t_lower, branch_lower),
+        pmin(t_upper, branch_upper)
+      )
     }))
-    result[valid] <- vals
     result
   }
 }
@@ -909,7 +944,8 @@ make_density_solver.PriorSemiConjugateSigma <- function(data, LSL, USL, prior,
       semi_sigma_log_joint,
       LSL, USL, target, metric, sigma_level,
       sigma_ref = state$sigma_scale,
-      mu_ref = state$mu_frame$mode
+      mu_ref = state$mu_frame$mode,
+      mu_lower = mu_support$lower, mu_upper = mu_support$upper
     ))
   }
 
