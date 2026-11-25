@@ -309,7 +309,8 @@ samples_to_posterior_predictives.normal <- function(samples) {
 #' @export
 samples_to_posterior_predictives.t      <- function(samples) {
 
-  return(samples[["mu"]] + stats::rt(length(samples[["mu"]]), df = samples[["nu"]]) * samples[["scale"]])
+  # rstan::extract() returns 1d arrays, drop the dim so the result is a plain vector as for the normal
+  return(as.vector(samples[["mu"]] + stats::rt(length(samples[["mu"]]), df = samples[["nu"]]) * samples[["scale"]]))
 }
 
 .capability_metrics_from_percentiles <- function(percentiles, E_abs_dev,

@@ -41,10 +41,9 @@ bpc(
 "integration" for numerical integration, or \code{NULL} to use the
 distribution-specific default.}
 
-\item{prior}{unified prior specification. When omitted, the normal
-integration path uses \code{"DCSI"}, while MCMC and Student-t fits use
-\code{"Jeffreys"}. Use \code{prior_independent()} for parameter-wise
-priors.}
+\item{prior}{unified prior specification, defaults to \code{"DCSI"} for
+every distribution and method. Use \code{prior_independent()} for
+parameter-wise priors.}
 
 \item{chains}{number of chains to run, defaults to 4}
 
@@ -77,15 +76,17 @@ Student-t model requires raw observations in \code{x}.}
 Bayesian Process Capability
 }
 \details{
-Priors are specified through the single \code{prior} argument. When
-\code{method} is omitted, the normal likelihood defaults to
-\code{method = "integration"} and \code{prior = "DCSI"}, which resolves to a
-conjugate Normal-Inverse-Gamma prior centered at the midpoint of the
-specification limits. Explicit MCMC fits with omitted \code{prior} use
-\code{prior = "Jeffreys"} because MCMC currently supports parameter-wise
-priors. Use \code{prior_independent()} for custom parameter-wise priors, or
+Priors are specified through the single \code{prior} argument and are
+independent of \code{method}. The default \code{prior = "DCSI"} resolves to
+a conjugate Normal-Inverse-Gamma prior on the mean and standard deviation,
+centered at the midpoint of the specification limits; the Student-t degrees
+of freedom use their default prior. When \code{method} is omitted, the normal
+likelihood uses \code{method = "integration"} and other likelihoods use MCMC.
+Use \code{prior_independent()} for custom parameter-wise priors, or
 \code{prior_conjugate()}, \code{prior_joint()}, and
-\code{prior_semi_conjugate()} for normal-likelihood integration priors.
+\code{prior_semi_conjugate()} for joint priors on the mean and standard
+deviation. With MCMC, joint priors defined by R log-density functions need
+their \code{bayestools_priors}.
 }
 \examples{
 data("pistonrings", package = "qc")
@@ -116,7 +117,7 @@ summary(fit_conjugate, LSL = 73.975, target = 74.00, USL = 74.025)
 data("pistonrings", package = "qc")
 diameter <- subset(pistonrings, trial)[["diameter"]]
 
-# MCMC uses parameter-wise priors.
+# MCMC with parameter-wise priors.
 fit_mcmc <- bpc(
   diameter,
   LSL = 73.98, target = 74.00, USL = 74.02,

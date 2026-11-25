@@ -115,3 +115,16 @@ test_that("extract_predictive_samples rejects improper conjugate prior-only stat
     regexp = "improper"
   )
 })
+
+test_that("Student-t posterior predictives are a plain numeric vector", {
+  # rstan::extract() returns one-dimensional arrays
+  draws   <- function(x) array(x, dim = length(x))
+  samples <- structure(list(mu = draws(rep(10, 100)), scale = draws(rep(1, 100)), nu = draws(rep(5, 100))), class = "t")
+
+  set.seed(1)
+  predictive <- samples_to_posterior_predictives(samples)
+
+  expect_null(dim(predictive))
+  expect_true(is.numeric(predictive))
+  expect_length(predictive, 100L)
+})

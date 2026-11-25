@@ -2,7 +2,6 @@ test_that("DCSI resolves from specification limits and ignores target", {
   state <- qc:::.as_qc_suff_stats_state(data = rnorm(5))
   resolved <- qc:::.resolve_bpc_prior(
     prior = "DCSI",
-    prior_missing = FALSE,
     distribution = "normal",
     method = "integration",
     LSL = 0,
@@ -83,51 +82,121 @@ test_that("unsupported named arguments are rejected at the public boundary", {
   )
 })
 
-test_that("DCSI and other joint normal priors are integration-only until Stan supports joint priors", {
-  expect_error(
-    bpc(
-      c(1, 2, 3),
-      LSL = 0, target = 2, USL = 4,
+test_that("omitted priors resolve to DCSI for every method and distribution", {
+  state <- qc:::.as_qc_suff_stats_state(data = c(1, 2, 3))
+  for (distribution in c("normal", "t")) {
+    resolved <- qc:::.resolve_bpc_prior(
+      prior = eval(formals(bpc)$prior),
+      distribution = distribution,
       method = "mcmc",
-      prior = "DCSI",
-      chains = 1,
-      iter = 100,
-      warmup = 50,
-      silent = TRUE
-    ),
-    regexp = "DCSI.*integration"
-  )
+      LSL = 0,
+      USL = 4,
+      cached_state = state
+    )
+
+    expect_s3_class(resolved$specification, "PriorDCSI")
+    expect_s3_class(resolved$prior, "PriorConjugate")
+    expect_s3_class(resolved$stan_prior_map$mu, "qc_stan_prior")
+    expect_s3_class(resolved$stan_prior_map$sigma, "qc_stan_prior")
+  }
+  expect_identical(resolved$stan_prior_map$nu, "uniform_nu")
+})
+
+test_that("joint priors map to the integration density for Stan", {
+  state <- qc:::.as_qc_suff_stats_state(data = c(1, 2, 3))
+  resolve_mcmc <- function(prior) {
+    qc:::.resolve_bpc_prior(
+      prior = prior, distribution = "normal", method = "mcmc",
+      LSL = 0, USL = 4, cached_state = state
+    )$stan_prior_map
+  }
+
+  # NIG(mu0, k0, alpha0, beta0): N(mu0, sigma^2 / k0) * sigma^-(2 alpha0 + 1) * exp(-beta0 / sigma^2)
+  dcsi <- resolve_mcmc("DCSI")
+  expect_equal(dcsi$mu$type, 10)
+  expect_equal(dcsi$mu$parameters[1:2], c(2, 2))
+  expect_equal(dcsi$sigma$type, 11)
+  expect_equal(dcsi$sigma$parameters[1:2], c(7, 3 * (4 / 7.5)^2))
+  expect_true(dcsi$mu$proper && dcsi$sigma$proper)
+
+  # the flat conjugate limit is the Jeffreys prior 1 / sigma
+  flat <- resolve_mcmc(prior_conjugate())
+  expect_equal(flat$mu$parameters[2], 0)
+  expect_equal(flat$sigma$parameters[1:2], c(1, 0))
+  expect_false(flat$mu$proper || flat$sigma$proper)
+
+  # parameter-wise priors containing conjugate components follow the integration conversion
+  semi_mu <- resolve_mcmc(prior_independent(
+    mu = prior_conjugate(mu0 = 1, k0 = 2, alpha0 = 3, beta0 = 4),
+    sigma = BayesTools::prior("gamma", list(2, 1))
+  ))
+  expect_equal(semi_mu$mu$parameters[1:2], c(1, 2))
+  expect_identical(semi_mu$sigma, BayesTools::prior("gamma", list(2, 1)))
+
+  semi_sigma <- resolve_mcmc(prior_independent(
+    mu = BayesTools::prior("normal", list(1, 2)),
+    sigma = prior_conjugate(mu0 = 0, k0 = 0, alpha0 = 3, beta0 = 4)
+  ))
+  expect_identical(semi_sigma$mu, BayesTools::prior("normal", list(1, 2)))
+  expect_equal(semi_sigma$sigma$parameters[1:2], c(7, 4))
+
+  # independent BayesTools priors are passed through unchanged
+  independent <- resolve_mcmc("Jeffreys")
+  expect_identical(independent$mu, "Jeffreys_mu")
+  expect_identical(independent$sigma, "Jeffreys_sigma")
 
   expect_error(
-    bpc(
-      c(1, 2, 3),
-      LSL = 0, target = 2, USL = 4,
-      method = "mcmc",
-      prior = prior_conjugate(mu0 = 2, k0 = 1, alpha0 = 2, beta0 = 1),
-      chains = 1,
-      iter = 100,
-      warmup = 50,
-      silent = TRUE
-    ),
-    regexp = "Joint normal likelihood priors"
+    resolve_mcmc(prior_joint(function(mu, sigma) stats::dnorm(mu, log = TRUE) - log(sigma))),
+    regexp = "bayestools_priors"
   )
 })
 
-test_that("omitted priors resolve to Jeffreys for explicit MCMC", {
-  state <- qc:::.as_qc_suff_stats_state(data = c(1, 2, 3))
-  resolved <- qc:::.resolve_bpc_prior(
-    prior = "DCSI",
-    prior_missing = TRUE,
-    distribution = "normal",
-    method = "mcmc",
-    LSL = 0,
-    USL = 4,
-    cached_state = state
-  )
+test_that("MCMC with DCSI matches the analytic Normal-Inverse-Gamma posterior", {
+  skip_on_cran()
+  set.seed(1)
+  x <- rnorm(20, mean = 1.5, sd = 0.6)
+  LSL <- 0; USL <- 4
+  n <- length(x)
+  prior <- qc:::.prior_DCSI(LSL, USL)
+  post <- qc:::.nig_posterior(prior, n, mean(x), sum((x - mean(x))^2))
 
-  expect_s3_class(resolved$specification, "PriorIndependent")
-  expect_identical(resolved$prior_map$mu, "Jeffreys_mu")
-  expect_identical(resolved$prior_map$sigma, "Jeffreys_sigma")
+  check_moments <- function(fit, mu_n, alpha_n, beta_n) {
+    samples <- rstan::extract(fit$stanfit, pars = c("mu", "sigma"))
+    sigma2 <- samples$sigma^2
+    # Monte Carlo standard errors from the effective sample size
+    ess <- min(rstan::summary(fit$stanfit, pars = c("mu", "sigma"))$summary[, "n_eff"])
+    se_mu <- stats::sd(samples$mu) / sqrt(ess)
+    se_sigma2 <- stats::sd(sigma2) / sqrt(ess)
+    expect_lt(abs(mean(samples$mu) - mu_n), 5 * se_mu)
+    expect_lt(abs(mean(sigma2) - beta_n / (alpha_n - 1)), 5 * se_sigma2)
+  }
+
+  fit <- bpc(
+    x, LSL = LSL, target = 2, USL = USL, method = "mcmc",
+    chains = 2, iter = 6000, warmup = 1000, seed = 1, silent = TRUE
+  )
+  expect_s3_class(fit$prior, "PriorDCSI")
+  check_moments(fit, post$mu_n, post$alpha_n, post$beta_n)
+
+  prior_fit <- bpc(
+    x, LSL = LSL, target = 2, USL = USL, method = "mcmc", sample_priors = TRUE,
+    chains = 2, iter = 6000, warmup = 1000, seed = 1, silent = TRUE
+  )
+  check_moments(prior_fit, prior$mu0, prior$alpha0, prior$beta0)
+})
+
+test_that("Student-t MCMC fits accept DCSI and joint priors", {
+  skip_on_cran()
+  set.seed(1)
+  x <- rnorm(20, mean = 1.5, sd = 0.6)
+  for (prior in list("DCSI", "unit_information", prior_conjugate(mu0 = 2, k0 = 1, alpha0 = 2, beta0 = 1))) {
+    fit <- bpc(
+      x, LSL = 0, target = 2, USL = 4, distribution = "t",
+      prior = prior, chains = 1, iter = 1000, warmup = 500, seed = 1, silent = TRUE
+    )
+    expect_equal(fit$method, "mcmc")
+    expect_true(all(is.finite(coef(fit))))
+  }
 })
 
 test_that("prior sampling rejects improper parameter-wise priors for both methods", {

@@ -54,7 +54,13 @@ transformed parameters {
 }
 model {
   // priors for mu and sigma
-  if(estimate_mu    == 1) target += set_prior(mu_est[1],     prior_type_mu,     prior_parameters_mu,     bounds_type_mu,     bounds_mu);
+  if(estimate_mu == 1){
+    if(prior_type_mu == 10){
+      target += conditional_mu_lpdf(mu_est[1] | prior_parameters_mu, sigma);
+    }else{
+      target += set_prior(mu_est[1], prior_type_mu, prior_parameters_mu, bounds_type_mu, bounds_mu);
+    }
+  }
   if(estimate_sigma == 1) target += set_prior(sigma_est[1],  prior_type_sigma,  prior_parameters_sigma,  bounds_type_sigma,  bounds_sigma);
 
   // likelihood of the data

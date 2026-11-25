@@ -16,15 +16,15 @@
 #' the Student-t likelihood. Unspecified parameters use the distribution's
 #' default parameter-wise prior.
 #'
-#' Joint normal-likelihood priors are supplied with \code{prior_conjugate()},
-#' \code{prior_joint()}, or \code{prior_semi_conjugate()}. These priors are
-#' currently available only with \code{distribution = "normal"} and
-#' \code{method = "integration"}.
+#' Joint priors on the mean and standard deviation are supplied with
+#' \code{prior_conjugate()}, \code{prior_joint()}, or
+#' \code{prior_semi_conjugate()}. Other parameters, such as the Student-t
+#' degrees of freedom, use their default parameter-wise prior. With
+#' \code{method = "mcmc"}, joint priors defined by R log-density functions
+#' need their \code{bayestools_priors}.
 #'
-#' When \code{method} is omitted, the normal likelihood defaults to
-#' \code{method = "integration"} and DCSI. Explicit MCMC fits with omitted
-#' \code{prior} use the parameter-wise Jeffreys specification because the MCMC
-#' backend currently supports only parameter-wise priors.
+#' Every prior is available with both methods. When \code{prior} is omitted,
+#' \code{bpc()} uses DCSI.
 #'
 #' DCSI is a Normal-Inverse-Gamma prior centered at the midpoint of the
 #' specification limits. For lower limit \eqn{L}, upper limit \eqn{U}, and
@@ -283,25 +283,35 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   prior_map[prior_parameters]
 }
 
-.resolve_bpc_prior <- function(prior, prior_missing, distribution, method,
+.resolve_bpc_prior <- function(prior, distribution, method,
                                LSL, USL, cached_state) {
-  if (isTRUE(prior_missing) &&
-      (!identical(method, "integration") || !identical(distribution, "normal"))) {
-    prior <- "Jeffreys"
+  prior_info <- .resolve_bpc_prior_info(
+    prior = prior,
+    distribution = distribution,
+    method = method,
+    LSL = LSL,
+    USL = USL,
+    cached_state = cached_state
+  )
+
+  if (identical(method, "mcmc")) {
+    prior_info$stan_prior_map <- .stan_prior_map(prior_info, distribution)
   }
 
+  prior_info
+}
+
+.has_location_scale_priors <- function(distribution) {
+  all(c("mu", "sigma") %in% .qc_distribution_parameter_names(distribution, type = "prior"))
+}
+
+.resolve_bpc_prior_info <- function(prior, distribution, method,
+                                    LSL, USL, cached_state) {
   specification <- .normalize_prior_specification(prior)
 
   if (inherits(specification, "PriorDCSI")) {
-    if (!identical(distribution, "normal")) {
-      stop("`prior = \"DCSI\"` is only available for `distribution = \"normal\"`.", call. = FALSE)
-    }
-    if (!identical(method, "integration")) {
-      stop(
-        "`prior = \"DCSI\"` is a joint Normal-Inverse-Gamma prior and is ",
-        "currently only supported with `method = \"integration\"`.",
-        call. = FALSE
-      )
+    if (!.has_location_scale_priors(distribution)) {
+      stop(sprintf("`prior = \"DCSI\"` is not available for `distribution = \"%s\"`.", distribution), call. = FALSE)
     }
 
     prior_obj <- .prior_DCSI(LSL = LSL, USL = USL)
@@ -314,15 +324,8 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   }
 
   if (inherits(specification, "PriorUnitInformation")) {
-    if (!identical(distribution, "normal")) {
-      stop("`prior = \"unit_information\"` is only available for `distribution = \"normal\"`.", call. = FALSE)
-    }
-    if (!identical(method, "integration")) {
-      stop(
-        "`prior = \"unit_information\"` is a joint Normal-Inverse-Gamma prior ",
-        "and is currently only supported with `method = \"integration\"`.",
-        call. = FALSE
-      )
+    if (!.has_location_scale_priors(distribution)) {
+      stop(sprintf("`prior = \"unit_information\"` is not available for `distribution = \"%s\"`.", distribution), call. = FALSE)
     }
 
     prior_obj <- .prior_unit_information_from_state(cached_state, n0 = specification$n0)
@@ -369,15 +372,8 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   }
 
   if (.is_integration_prior(specification)) {
-    if (!identical(distribution, "normal")) {
-      stop("Joint normal likelihood priors are only available for `distribution = \"normal\"`.", call. = FALSE)
-    }
-    if (!identical(method, "integration")) {
-      stop(
-        "Joint normal likelihood priors are currently only supported with ",
-        "`method = \"integration\"`.",
-        call. = FALSE
-      )
+    if (!.has_location_scale_priors(distribution)) {
+      stop(sprintf("Joint location-scale priors are not available for `distribution = \"%s\"`.", distribution), call. = FALSE)
     }
 
     return(list(
@@ -389,4 +385,78 @@ prior_semi_conjugate <- function(conjugate = c("mu", "sigma"), ...) {
   }
 
   stop("Unsupported prior specification.", call. = FALSE)
+}
+
+# Translates a resolved prior into the parameter-wise map used by the Stan
+# backend. Joint priors use the same (mu, sigma) density as the integration
+# backend; the remaining parameters (e.g., nu) use the distribution defaults.
+.stan_prior_map <- function(prior_info, distribution) {
+  prior_map <- prior_info$prior_map
+
+  if (!is.null(prior_map)) {
+    uses_conjugate <- vapply(prior_map, inherits, logical(1), what = "PriorConjugate")
+    if (!any(uses_conjugate)) {
+      return(prior_map)
+    }
+    location_scale <- .stan_location_scale_priors(
+      .bayestools_to_integration_prior(prior_map$mu, prior_map$sigma)$prior
+    )
+  } else {
+    prior_map <- .qc_distribution_prior_defaults(distribution)
+    location_scale <- .stan_location_scale_priors(prior_info$prior)
+  }
+
+  prior_map$mu <- location_scale$mu
+  prior_map$sigma <- location_scale$sigma
+  prior_map
+}
+
+.stan_location_scale_priors <- function(prior) {
+  # sigma^(-(2 * alpha0 + 1)) * exp(-beta0 / sigma^2) is InvGamma(alpha0, beta0)
+  # on sigma^2 expressed as a density on sigma
+  conjugate_power <- function(alpha0) 2 * alpha0 + 1
+
+  if (inherits(prior, "PriorConjugate")) {
+    # the flat k0 = 0 limit keeps the sigma^-1 normalizing term of N(mu0, sigma^2 / k0)
+    return(list(
+      mu = .stan_conditional_mu_prior(prior$mu0, prior$k0),
+      sigma = .stan_conjugate_sigma_prior(conjugate_power(prior$alpha0) + (prior$k0 == 0), prior$beta0)
+    ))
+  }
+
+  bayestools_priors <- prior$bayestools_priors
+  required <- switch(
+    class(prior)[1],
+    "PriorSemiConjugateMu" = "sigma",
+    "PriorSemiConjugateSigma" = "mu",
+    "PriorGeneric" = c("mu", "sigma")
+  )
+  if (!all(required %in% names(bayestools_priors))) {
+    stop(
+      "`method = \"mcmc\"` requires priors that can be evaluated by Stan. ",
+      "Joint priors defined only through R log-density functions need ",
+      "`bayestools_priors` with BayesTools priors for ",
+      paste(sprintf("`%s`", required), collapse = " and "),
+      ".",
+      call. = FALSE
+    )
+  }
+
+  if (inherits(prior, "PriorSemiConjugateMu")) {
+    return(list(
+      mu = .stan_conditional_mu_prior(prior$mu0, prior$k0),
+      sigma = bayestools_priors$sigma
+    ))
+  }
+
+  if (inherits(prior, "PriorSemiConjugateSigma")) {
+    # the semi-conjugate backend treats (alpha0, beta0) = (-0.5, 0) as Jeffreys 1 / sigma
+    jeffreys <- prior$alpha0 == -0.5 && prior$beta0 == 0
+    return(list(
+      mu = bayestools_priors$mu,
+      sigma = .stan_conjugate_sigma_prior(conjugate_power(prior$alpha0) + jeffreys, prior$beta0)
+    ))
+  }
+
+  list(mu = bayestools_priors$mu, sigma = bayestools_priors$sigma)
 }

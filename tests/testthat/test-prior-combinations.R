@@ -24,6 +24,68 @@ testthat::test_that("selected prior-family combinations keep matched-prior backe
       expect_failure = FALSE
     ),
     list(
+      name = "with-data DCSI",
+      x = x,
+      LSL = 2, target = 10, USL = 18,
+      prior = "DCSI",
+      sample_priors = FALSE,
+      metrics = qc:::.qc_metric_names(),
+      columns = c("mean", "median", "lower", "upper"),
+      summary_abs_tol = 0.03,
+      summary_rel_tol = 0.02,
+      interval_breaks = c(1.00, 1.33, 1.50, 2.00),
+      interval_abs_tol = 0.02,
+      expect_failure = FALSE
+    ),
+    list(
+      name = "prior-only DCSI",
+      x = numeric(2L),
+      LSL = 2, target = 10, USL = 18,
+      prior = "DCSI",
+      sample_priors = TRUE,
+      metrics = c("Cp", "Cpk", "Cpm"),
+      columns = c("median", "lower", "upper"),
+      summary_abs_tol = 0.08,
+      summary_rel_tol = 0.05,
+      interval_breaks = c(1.00, 1.33, 1.50, 2.00),
+      interval_abs_tol = 0.03,
+      expect_failure = FALSE
+    ),
+    list(
+      name = "with-data conjugate mu/gamma",
+      x = x,
+      LSL = 2, target = 10, USL = 18,
+      prior = qc::prior_independent(
+        mu = qc::prior_conjugate(mu0 = 9, k0 = 2, alpha0 = 3, beta0 = 4),
+        sigma = BayesTools::prior("gamma", list(4, 2))
+      ),
+      sample_priors = FALSE,
+      metrics = c("Cp", "Cpk", "Cpm"),
+      columns = c("mean", "median", "lower", "upper"),
+      summary_abs_tol = 0.05,
+      summary_rel_tol = 0.05,
+      interval_breaks = c(1.00, 1.33, 1.50, 2.00),
+      interval_abs_tol = 0.03,
+      expect_failure = FALSE
+    ),
+    list(
+      name = "with-data normal/conjugate sigma",
+      x = x,
+      LSL = 2, target = 10, USL = 18,
+      prior = qc::prior_independent(
+        mu = BayesTools::prior("normal", list(10, 5)),
+        sigma = qc::prior_conjugate(alpha0 = 3, beta0 = 8)
+      ),
+      sample_priors = FALSE,
+      metrics = c("Cp", "Cpk", "Cpm"),
+      columns = c("mean", "median", "lower", "upper"),
+      summary_abs_tol = 0.05,
+      summary_rel_tol = 0.05,
+      interval_breaks = c(1.00, 1.33, 1.50, 2.00),
+      interval_abs_tol = 0.03,
+      expect_failure = FALSE
+    ),
+    list(
       name = "with-data normal/invgamma",
       x = x,
       LSL = 2, target = 10, USL = 18,
