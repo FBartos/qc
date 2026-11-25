@@ -116,6 +116,22 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15){
     return(out)
   }
 
+  # conjugate components of joint priors (see .stan_prior_map)
+  if(inherits(prior, "qc_stan_prior")){
+
+    if (sample_priors && !prior$proper)
+      stop("Improper prior distributions cannot be sampled from with `sample_priors = TRUE`")
+
+    out[[paste0("estimate_", parameter)]]         <- 1
+    out[[paste0("fixed_",    parameter)]]         <- numeric()
+    out[[paste0("prior_type_", parameter)]]       <- prior$type
+    out[[paste0("bounds_", parameter)]]           <- prior$bounds
+    out[[paste0("bounds_type_", parameter)]]      <- prior$bounds_type
+    out[[paste0("prior_parameters_", parameter)]] <- prior$parameters
+
+    return(out)
+  }
+
   out[[paste0("prior_type_", parameter)]] <- switch(
     prior[["distribution"]],
     "point"           = 0,
@@ -161,6 +177,26 @@ set_control             <- function(adapt_delta = 0.80, max_treedepth = 15){
   }
 
   return(out)
+}
+# conjugate N(mu0, sigma^2 / k0) prior for mu given sigma
+.stan_conditional_mu_prior    <- function(mu0, k0){
+  structure(list(
+    type        = 10,
+    parameters  = c(mu0, k0, 999),
+    bounds      = c(999, 999),
+    bounds_type = c(0, 0),
+    proper      = k0 > 0
+  ), class = "qc_stan_prior")
+}
+# conjugate sigma^(-power) * exp(-beta0 / sigma^2) prior for sigma
+.stan_conjugate_sigma_prior   <- function(power, beta0){
+  structure(list(
+    type        = 11,
+    parameters  = c(power, beta0, 999),
+    bounds      = c(0, 999),
+    bounds_type = c(1, 0),
+    proper      = power > 1 && beta0 > 0
+  ), class = "qc_stan_prior")
 }
 .stan_distribution_parameters <- function(prior){
 

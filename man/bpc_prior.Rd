@@ -21,15 +21,15 @@ likelihood or \code{prior_independent(mu = ..., sigma = ..., nu = ...)} for
 the Student-t likelihood. Unspecified parameters use the distribution's
 default parameter-wise prior.
 
-Joint normal-likelihood priors are supplied with \code{prior_conjugate()},
-\code{prior_joint()}, or \code{prior_semi_conjugate()}. These priors are
-currently available only with \code{distribution = "normal"} and
-\code{method = "integration"}.
+Joint priors on the mean and standard deviation are supplied with
+\code{prior_conjugate()}, \code{prior_joint()}, or
+\code{prior_semi_conjugate()}. Other parameters, such as the Student-t
+degrees of freedom, use their default parameter-wise prior. With
+\code{method = "mcmc"}, joint priors defined by R log-density functions
+need their \code{bayestools_priors}.
 
-When \code{method} is omitted, the normal likelihood defaults to
-\code{method = "integration"} and DCSI. Explicit MCMC fits with omitted
-\code{prior} use the parameter-wise Jeffreys specification because the MCMC
-backend currently supports only parameter-wise priors.
+Every prior is available with both methods. When \code{prior} is omitted,
+\code{bpc()} uses DCSI.
 
 DCSI is a Normal-Inverse-Gamma prior centered at the midpoint of the
 specification limits. For lower limit \eqn{L}, upper limit \eqn{U}, and

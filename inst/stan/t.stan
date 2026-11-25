@@ -62,7 +62,13 @@ transformed parameters {
 }
 model {
   // priors for mu and sigma2
-  if (estimate_mu    == 1) target += set_prior(mu_est[1],     prior_type_mu,     prior_parameters_mu,     bounds_type_mu,     bounds_mu);
+  if (estimate_mu == 1) {
+    if (prior_type_mu == 10) {
+      target += conditional_mu_lpdf(mu_est[1] | prior_parameters_mu, estimate_sigma == 1 ? sigma_est[1] : fixed_sigma[1]);
+    } else {
+      target += set_prior(mu_est[1], prior_type_mu, prior_parameters_mu, bounds_type_mu, bounds_mu);
+    }
+  }
   if (estimate_sigma == 1) target += set_prior(sigma_est[1],  prior_type_sigma,  prior_parameters_sigma,  bounds_type_sigma,  bounds_sigma);
   if (estimate_nu    == 1) target += set_prior(nu_est[1],     prior_type_nu,     prior_parameters_nu,     bounds_type_nu,     bounds_nu);
 

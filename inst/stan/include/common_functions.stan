@@ -8,6 +8,13 @@ functions {
     return log(1/sigma);
   }
 
+  // conjugate prior for mu given sigma: N(mu0, sigma^2 / k0), flat for k0 = 0
+  real conditional_mu_lpdf(real mu, vector prior_parameters, real sigma){
+    if (prior_parameters[2] == 0)
+      return 0;
+    return normal_lpdf(mu | prior_parameters[1], sigma / sqrt(prior_parameters[2]));
+  }
+
   // function for setting parameter bounds
   real coefs_lb(array[] int type_in, vector bound_in) {
     int type;
@@ -71,6 +78,8 @@ functions {
   // type 6 = inverse-gamma
   // type 7 = uniform
   // type 8 = beta
+  // type 10 = conjugate normal prior for mu given sigma (set in the model block)
+  // type 11 = conjugate kernel for sigma: sigma^(-power) * exp(-beta / sigma^2)
   // type 98 = Jeffrey's prior for mu
   // type 99 = Jeffrey's prior for sigma
   real set_prior(real parameter, int prior_type, vector prior_parameters, array[] int bounds_type, vector bounds){
@@ -174,6 +183,8 @@ functions {
       }else if(bounds_type[2] != 0){
         ll -= exponential_lcdf(bounds[2]  | prior_parameters[1]);
       }
+    }else if(prior_type == 11){
+      ll = -prior_parameters[1] * log(parameter) - prior_parameters[2] / square(parameter);
     }else if(prior_type == 98){
       ll = Jeffreys_mu_lpdf(parameter);
     }else if(prior_type == 99){

@@ -8,10 +8,9 @@
 #' @param method computation method: "mcmc" for Stan-based MCMC sampling,
 #'   "integration" for numerical integration, or \code{NULL} to use the
 #'   distribution-specific default.
-#' @param prior unified prior specification. When omitted, the normal
-#'   integration path uses \code{"DCSI"}, while MCMC and Student-t fits use
-#'   \code{"Jeffreys"}. Use \code{prior_independent()} for parameter-wise
-#'   priors.
+#' @param prior unified prior specification, defaults to \code{"DCSI"} for
+#'   every distribution and method. Use \code{prior_independent()} for
+#'   parameter-wise priors.
 #' @param chains number of chains to run, defaults to 4
 #' @param iter number of iterations per chain, defaults to 10000
 #' @param warmup number of warmup iterations per chain, defaults to 5000
@@ -29,15 +28,17 @@
 #' Student-t model requires raw observations in \code{x}.
 #'
 #' @details
-#' Priors are specified through the single \code{prior} argument. When
-#' \code{method} is omitted, the normal likelihood defaults to
-#' \code{method = "integration"} and \code{prior = "DCSI"}, which resolves to a
-#' conjugate Normal-Inverse-Gamma prior centered at the midpoint of the
-#' specification limits. Explicit MCMC fits with omitted \code{prior} use
-#' \code{prior = "Jeffreys"} because MCMC currently supports parameter-wise
-#' priors. Use \code{prior_independent()} for custom parameter-wise priors, or
+#' Priors are specified through the single \code{prior} argument and are
+#' independent of \code{method}. The default \code{prior = "DCSI"} resolves to
+#' a conjugate Normal-Inverse-Gamma prior on the mean and standard deviation,
+#' centered at the midpoint of the specification limits; the Student-t degrees
+#' of freedom use their default prior. When \code{method} is omitted, the normal
+#' likelihood uses \code{method = "integration"} and other likelihoods use MCMC.
+#' Use \code{prior_independent()} for custom parameter-wise priors, or
 #' \code{prior_conjugate()}, \code{prior_joint()}, and
-#' \code{prior_semi_conjugate()} for normal-likelihood integration priors.
+#' \code{prior_semi_conjugate()} for joint priors on the mean and standard
+#' deviation. With MCMC, joint priors defined by R log-density functions need
+#' their \code{bayestools_priors}.
 #'
 #' @examples
 #' data("pistonrings", package = "qc")
@@ -68,7 +69,7 @@
 #' data("pistonrings", package = "qc")
 #' diameter <- subset(pistonrings, trial)[["diameter"]]
 #'
-#' # MCMC uses parameter-wise priors.
+#' # MCMC with parameter-wise priors.
 #' fit_mcmc <- bpc(
 #'   diameter,
 #'   LSL = 73.98, target = 74.00, USL = 74.02,
@@ -105,7 +106,6 @@ bpc <- function(
 
   dots <- list(...)
   call <- match.call()
-  prior_missing <- missing(prior)
 
   # Process method argument first (handles default value)
   .qc_distribution_spec(distribution)
@@ -135,7 +135,6 @@ bpc <- function(
 
   prior_info <- .resolve_bpc_prior(
     prior = prior,
-    prior_missing = prior_missing,
     distribution = distribution,
     method = method,
     LSL = LSL,
@@ -181,7 +180,7 @@ bpc <- function(
     stan_data <- prepared_data$stan_data
     stan_priors <- .bpc_priors(
       distribution = distribution,
-      prior_map = prior_info$prior_map,
+      prior_map = prior_info$stan_prior_map,
       sample_priors = sample_priors
     )
 
@@ -653,7 +652,6 @@ bpc <- function(
 
   prior_info <- .resolve_bpc_prior(
     prior = prior_specification,
-    prior_missing = FALSE,
     distribution = object$distribution %||% "normal",
     method = "integration",
     LSL = limits$LSL,
