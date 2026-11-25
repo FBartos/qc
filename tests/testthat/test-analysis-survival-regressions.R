@@ -250,7 +250,7 @@ test_that("semi-conjugate sigma solvers default target to the midpoint for Cpm a
   }
 })
 
-test_that("semi-conjugate sigma Cpm and Cpc avoid the unstable density backend", {
+test_that("semi-conjugate sigma Cpm and Cpc density backend agrees with the survival backend", {
   skip_if_not_installed("BayesTools")
 
   x <- c(0.05, 0.12)
@@ -260,7 +260,7 @@ test_that("semi-conjugate sigma Cpm and Cpc avoid the unstable density backend",
   )$prior
 
   for (metric in c("Cpm", "Cpc")) {
-    expect_false(qc:::.integration_can_use_density(prior, metric), info = metric)
+    expect_true(qc:::.integration_can_use_density(prior, metric), info = metric)
 
     solver <- qc:::make_solver(
       x, -1, 1, prior,
@@ -268,17 +268,17 @@ test_that("semi-conjugate sigma Cpm and Cpc avoid the unstable density backend",
       target = 0
     )
 
-    expect_equal(
-      qc:::compute_cpk_prob_integration(
-        x, -1, 1, c(0.5, Inf),
-        prior,
-        metric = metric,
-        target = 0
-      ),
-      solver(0.5),
-      tolerance = 1e-6,
-      info = metric
+    # P(metric > 0.5) from a nested integral over the exact metric. The solver
+    # interpolates the Cpc sigma limit, so it is only held to 1e-5 here.
+    density_prob <- qc:::compute_cpk_prob_integration(
+      x, -1, 1, c(0.5, Inf),
+      prior,
+      metric = metric,
+      target = 0
     )
+    exact_prob <- c(Cpm = 0.1247739611, Cpc = 0.1219729829)[[metric]]
+    expect_equal(density_prob, exact_prob, tolerance = 1e-6, info = metric)
+    expect_equal(solver(0.5), exact_prob, tolerance = 1e-5, info = metric)
 
     fit_default <- qc:::analyze_capability_integration(
       x, -1, 1, prior,

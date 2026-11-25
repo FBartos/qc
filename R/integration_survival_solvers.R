@@ -84,6 +84,18 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
     })
   }
 
+  # Cpm, Cpc and Cpk integrate over the same sigma quantile grid.
+  eps <- 1e-10
+  u_grid <- sort(unique(c(
+    seq(eps, 1 - eps, length.out = 4096L),
+    1 - 10^seq(-10, -3, length.out = 512L)
+  )))
+  u_edges <- c(0, (u_grid[-1] + u_grid[-length(u_grid)]) / 2, 1)
+  u_weights <- diff(u_edges)
+  y_grid <- stats::qchisq(u_grid, df = df_p)
+  sigma_grid <- sqrt((2 * beta_n) / y_grid)
+  sd_mu_grid <- sigma_grid / sqrt(k_n)
+
   if (metric %in% c("Cpm", "Cpc")) {
     if (is.null(target)) target <- (LSL + USL) / 2
     cpm_dist <- .cpm_spec_distance(LSL, USL, target)
@@ -132,65 +144,15 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
       }
 
       c_vec <- c[use]
-      if (length(c_vec) == 1L) {
-        ci <- c_vec
-        constr <- get_metric_constraints(metric, ci, LSL, USL, target,
-                                         sigma_level = sigma_level)
-        s_max <- constr$s_max_fn()
-        vals <- if (!is.infinite(s_max) && s_max <= 0) {
-          0
-        } else {
-          y_min <- if (is.infinite(s_max)) 0 else (2 * beta_n) / (s_max^2)
-          h_max <- stats::dchisq(max(df_p - 2, 1e-6), df_p, log = TRUE)
-          log_int <- function(y) {
-            sigma <- sqrt((2 * beta_n) / y)
-            sd_mu <- sigma / sqrt(k_n)
-            mb <- constr$mu_b_fn_vec(sigma)
-            z_U <- ifelse(is.infinite(mb$upper), Inf, (mb$upper - mu_n) / sd_mu)
-            z_L <- ifelse(is.infinite(mb$lower), -Inf, (mb$lower - mu_n) / sd_mu)
-            log_prob <- log_diff_exp(
-              stats::pnorm(z_U, log.p = TRUE),
-              stats::pnorm(z_L, log.p = TRUE)
-            )
-            invalid <- mb$lower >= mb$upper
-            log_prob[invalid] <- -Inf
-            log_prob + stats::dchisq(y, df_p, log = TRUE)
-          }
-          scaled <- stats::integrate(
-            function(y) {
-              vals <- exp(log_int(y) - h_max)
-              vals[!is.finite(vals)] <- 0
-              vals
-            },
-            y_min,
-            Inf
-          )$value
-          if (scaled <= 0) 0 else exp(h_max + log(scaled))
-        }
-        result[use] <- pmin(pmax(vals, 0), 1)
-        return(result)
-      }
 
-      eps <- 1e-10
-      u_grid <- sort(unique(c(
-        seq(eps, 1 - eps, length.out = 4096L),
-        1 - 10^seq(-10, -3, length.out = 512L)
-      )))
-      u_edges <- c(0, (u_grid[-1] + u_grid[-length(u_grid)]) / 2, 1)
-      u_weights <- diff(u_edges)
-
-      survival_matrix <- function(u) {
-        y <- stats::qchisq(u, df = df_p)
-        sigma <- sqrt((2 * beta_n) / y)
-        sd_mu <- sigma / sqrt(k_n)
-
+      survival_matrix <- function() {
         if (metric == "Cpm") {
           R <- cpm_dist / (sigma_level * c_vec)
-          width_sq <- outer(R^2, sigma^2, "-")
+          width_sq <- outer(R^2, sigma_grid^2, "-")
           valid_width <- is.finite(width_sq) & width_sq > 0
           width <- sqrt(pmax(width_sq, 0))
         } else {
-          width <- cpc_width_matrix(sigma, c_vec)
+          width <- cpc_width_matrix(sigma_grid, c_vec)
           valid_width <- is.finite(width)
         }
 
@@ -199,8 +161,8 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
         lower[!valid_width] <- 0
         upper[!valid_width] <- -1
 
-        z_U <- sweep(upper - mu_n, 2, sd_mu, "/")
-        z_L <- sweep(lower - mu_n, 2, sd_mu, "/")
+        z_U <- sweep(upper - mu_n, 2, sd_mu_grid, "/")
+        z_L <- sweep(lower - mu_n, 2, sd_mu_grid, "/")
         log_prob <- log_diff_exp(
           stats::pnorm(z_U, log.p = TRUE),
           stats::pnorm(z_L, log.p = TRUE)
@@ -211,7 +173,7 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
       }
 
       vals <- tryCatch({
-        prob <- survival_matrix(u_grid)
+        prob <- survival_matrix()
         as.numeric(prob %*% u_weights)
       }, error = function(e) rep(NA_real_, length(c_vec)))
       vals[!is.finite(vals)] <- 0
@@ -221,17 +183,6 @@ make_solver.PriorConjugate <- function(data, LSL, USL, prior, metric = "Cpk",
   }
 
   if (metric == "Cpk") {
-    eps <- 1e-10
-    u_grid <- sort(unique(c(
-      seq(eps, 1 - eps, length.out = 4096L),
-      1 - 10^seq(-10, -3, length.out = 512L)
-    )))
-    u_edges <- c(0, (u_grid[-1] + u_grid[-length(u_grid)]) / 2, 1)
-    u_weights <- diff(u_edges)
-    y_grid <- stats::qchisq(u_grid, df = df_p)
-    sigma_grid <- sqrt((2 * beta_n) / y_grid)
-    sd_mu_grid <- sigma_grid / sqrt(k_n)
-
     return(function(c) {
       c <- as.numeric(c)
       result <- numeric(length(c))

@@ -95,6 +95,9 @@ testthat::test_that("custom and support intervals pass through the plotting help
   expect_length(support_layers, 4L)
   expect_equal(custom_layers[[3]]$xmax[[1]], 1.2)
   expect_equal(support_layers[[3]]$xmax[[1]], 1.4)
-  expect_equal(custom_layers[[4]]$label[[1]], "Custom CI [0.800, 1.200]")
+  expect_match(
+    custom_layers[[4]]$label[[1]],
+    "^P\\(0\\.800 \u2264 Cp \u2264 1\\.200\\) = [0-9.]+%$"
+  )
   expect_equal(support_layers[[4]]$label[[1]], "Support [0.900, 1.400]")
 })

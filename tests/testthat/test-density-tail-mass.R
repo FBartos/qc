@@ -85,3 +85,26 @@ testthat::test_that("density tail masses measure the right tail directly", {
   testthat::expect_equal(tails$right_tail_mass,
                          1 - tails$left_tail_mass - 0.5 * true_grid)
 })
+
+testthat::test_that("density tails next to the grid are kept for narrow posteriors", {
+  for (sd in c(0.3, 0.01, 0.001)) {
+    grid_x <- seq(4 / 3 - 3 * sd, 4 / 3 + 3 * sd, length.out = 400L)
+    mids <- (grid_x[-1L] + grid_x[-400L]) / 2
+    pdf_fn <- function(x) stats::dnorm(x, 4 / 3, sd)
+    grid_mass <- sum(pdf_fn(mids) * diff(grid_x))
+
+    for (support_lower in c(0, -Inf)) {
+      tails <- qc:::.integration_density_tail_masses(
+        pdf_fn, grid_x, grid_mass, support_lower = support_lower
+      )
+      info <- paste(sd, support_lower)
+      cut_off <- if (support_lower == 0) stats::pnorm(0, 4 / 3, sd) else 0
+      testthat::expect_equal(
+        tails$mass_nonpositive + tails$left_tail_mass, stats::pnorm(-3) - cut_off,
+        tolerance = 1e-4, info = info
+      )
+      testthat::expect_equal(tails$right_tail_mass, stats::pnorm(-3),
+                             tolerance = 1e-4, info = info)
+    }
+  }
+})

@@ -92,8 +92,12 @@ for (prior_name in c("DCSI", "independent")) {
       testthat::expect_equal(g$density, expected, tolerance = 1e-5, info = metric)
 
       built <- ggplot2::ggplot_build(qc::plot_density(s, what = metric))
-      plotted <- built$data[[1]]$y[match(g$x, built$data[[1]]$x)]
-      testthat::expect_equal(plotted, expected, tolerance = 1e-5, info = metric)
+      # The plot trims the far tails, so compare the grid points it keeps.
+      curve <- built$data[[1]]
+      kept <- match(curve$x, g$x)
+      testthat::expect_false(anyNA(kept), info = metric)
+      testthat::expect_gte(sum((g$density * g$width)[kept]), 0.999)
+      testthat::expect_equal(curve$y, expected[kept], tolerance = 1e-5, info = metric)
     }
   })
 }

@@ -103,17 +103,6 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
                                               metric = "Cpk", target = NULL,
                                               cached_state = NULL,
                                               sigma_level = 3, ...) {
-  request <- .new_qc_integration_request(
-    data = data,
-    LSL = LSL,
-    USL = USL,
-    prior = prior,
-    metric = metric,
-    target = target,
-    cached_state = cached_state,
-    sigma_level = sigma_level
-  )
-
   # For generic priors, we still use 1D integration along contours,
   # but evaluate the joint posterior numerically using vectorized operations
 
@@ -126,30 +115,18 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
   uni_s <- cached_state$uni_s
   map_mu <- cached_state$map_mu
   mu_scale <- cached_state$mu_scale
-  mu_lower <- cached_state$mu_lower
-  mu_upper <- cached_state$mu_upper
+  # The box can be far wider than a truncated mu prior, whose support the
+  # contour searches need to find.
+  mu_support <- .extract_prior_bounds(prior$bayestools_priors$mu)
+  mu_lower <- max(cached_state$mu_lower, mu_support$lower)
+  mu_upper <- min(cached_state$mu_upper, mu_support$upper)
   sigma_lower <- cached_state$sigma_lower
   sigma_upper <- cached_state$sigma_upper
   log_post_vec <- cached_state$log_post_vec
   sigma_floor <- max(sigma_lower, 1e-10)
 
-  survival_density <- function(metric_name) {
-    .density_from_survival_fn(
-      .integration_make_solver(
-        request = .integration_request_update(
-          request,
-          metric = metric_name,
-          cached_state = cached_state
-        )
-      ),
-      support_lower = 0
-    )
-  }
-
-  M <- (LSL + USL) / 2
   target <- .integration_resolve_target(metric, target, LSL, USL)
   tol <- USL - LSL
-  cpm_dist <- .cpm_spec_distance(LSL, USL, target)
 
   if (metric %in% c("Cpk", "Cpu", "Cpl")) {
     return(.linear_metric_density(
@@ -222,88 +199,20 @@ make_density_solver.PriorGeneric <- function(data, LSL, USL, prior,
     })
   }
 
-  if (metric == "Cpm") {
-    return(function(c) {
-      c <- as.numeric(c)
-      result <- numeric(length(c))
-      valid_c <- is.finite(c) & c > 0
-      if (!any(valid_c)) return(result)
-
-      cv <- c[valid_c]
-      R <- cpm_dist / (sigma_level * cv)
-      valid_R <- is.finite(R) & R > 0
-      vals_out <- numeric(length(cv))
-      if (!any(valid_R)) {
-        result[valid_c] <- vals_out
-        return(result)
-      }
-
-      # Restrict each circle of radius R to the arc that crosses the
-      # (mu, sigma) box and map it onto v in [0, 1]. For a narrow posterior
-      # that arc is a tiny fraction of [0, pi], which a fixed-range
-      # pcubature misses entirely.
-      theta_lo <- pmax(
-        acos(pmin(1, pmax(-1, (mu_upper - target) / R[valid_R]))),
-        asin(pmin(1, sigma_floor / R[valid_R]))
-      )
-      theta_hi <- pmin(
-        acos(pmin(1, pmax(-1, (mu_lower - target) / R[valid_R]))),
-        pi - asin(pmin(1, sigma_floor / R[valid_R]))
-      )
-      has_arc <- theta_hi > theta_lo
-      valid_R[valid_R] <- has_arc
-      if (!any(valid_R)) {
-        result[valid_c] <- vals_out
-        return(result)
-      }
-      theta_lo <- theta_lo[has_arc]
-      theta_width <- theta_hi[has_arc] - theta_lo
-
-      Rv <- R[valid_R]
-      cv_valid <- cv[valid_R]
-      log_jacobian <- 2 * log(Rv) - log(cv_valid) + log(theta_width)
-
-      integrand <- function(v) {
-        v <- if (is.matrix(v)) as.numeric(v[1, ]) else as.numeric(v)
-        theta <- theta_lo + outer(theta_width, v)
-        sigma_mat <- Rv * sin(theta)
-        mu_mat <- target + Rv * cos(theta)
-        log_jacobian_mat <- matrix(
-          rep(log_jacobian, times = length(v)),
-          nrow = length(Rv)
-        )
-        valid <- is.finite(mu_mat) & is.finite(sigma_mat) &
-          sigma_mat >= sigma_floor & sigma_mat <= sigma_upper &
-          mu_mat >= mu_lower & mu_mat <= mu_upper
-        vals <- matrix(0, nrow = length(Rv), ncol = length(v))
-        if (any(valid)) {
-          log_p <- log_post_vec(mu_mat[valid], sigma_mat[valid])
-          vals[valid] <- exp(log_p + log_jacobian_mat[valid] - h_max) / Z
-        }
-        vals[!is.finite(vals)] <- 0
+  if (metric %in% c("Cpm", "Cpc")) {
+    return(.radial_metric_density(
+      function(mu, sigma) {
+        vals <- rep(-Inf, length(mu))
+        in_box <- mu >= mu_lower & mu <= mu_upper
+        vals[in_box] <- log_post_vec(mu[in_box], sigma[in_box]) - h_max - log(Z)
         vals
-      }
-
-      vals <- tryCatch(
-        cubature::pcubature(
-          integrand,
-          lowerLimit = 0,
-          upperLimit = 1,
-          tol = 1e-5,
-          fDim = length(Rv),
-          vectorInterface = TRUE
-        )$integral,
-        error = function(e) rep(0, length(Rv))
-      )
-      vals_out[valid_R] <- vals
-      result[valid_c] <- vals_out
-      result
-    })
-  }
-
-  if (metric == "Cpc") {
-    if (is.null(target)) target <- M
-    return(survival_density("Cpc"))
+      },
+      LSL, USL, target, metric, sigma_level,
+      sigma_ref = cached_state$map_sig,
+      mu_ref = cached_state$map_mu,
+      sigma_lower = sigma_floor, sigma_upper = sigma_upper,
+      mu_lower = mu_lower, mu_upper = mu_upper
+    ))
   }
 
   stop("Unsupported metric for density solver: ", metric)
@@ -353,6 +262,21 @@ make_solver.PriorGeneric <- function(data, LSL, USL, prior, metric = "Cpk",
   list(
     nodes = as.vector(outer(rule$nodes, half) + rep(mid, each = k)),
     weights = as.vector(outer(rule$weights, half))
+  )
+}
+
+# Nodes and weights on [0, reach] with spacing that grows geometrically from
+# about `scale` next to 0, one column per element of reach. The spacing stays
+# proportional to the distance from 0, so a narrow peak and a long tail are
+# resolved together.
+.geometric_side_rule <- function(rule, reach, scale) {
+  scale <- pmax(scale, reach * 1e-12, .Machine$double.xmin)
+  log_ratio <- log(pmax(reach / scale, 1 + 1e-6))
+  growth <- exp(outer(rule$nodes, log_ratio))
+  list(
+    offsets = sweep(growth - 1, 2, reach / expm1(log_ratio), `*`),
+    weights = sweep(growth * rule$weights, 2,
+                    reach * log_ratio / expm1(log_ratio), `*`)
   )
 }
 

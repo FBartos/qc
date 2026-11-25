@@ -125,15 +125,6 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 }
 
 .integration_can_use_density <- function(prior, metric) {
-  if (inherits(prior, "PriorSemiConjugateSigma") &&
-      metric %in% c("Cp", "Cpm", "Cpc")) {
-    return(FALSE)
-  }
-
-  if (inherits(prior, "PriorGeneric") && identical(metric, "Cpc")) {
-    return(FALSE)
-  }
-
   inherits(prior, "PriorConjugate") ||
     inherits(prior, "PriorGeneric") ||
     inherits(prior, "PriorSemiConjugateMu") ||
@@ -276,6 +267,77 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
   )
 }
 
+# A diffuse prior can spread a metric over many orders of magnitude, which a
+# grid built from its mean and sd cannot resolve: the sd is dominated by the
+# tail while most of the mass sits close to zero. Returns NULL unless the
+# density needs a grid that is spaced on log(x), or on asinh(x / scale) for
+# metrics that can be negative.
+.wide_density_grid <- function(eval_pdf, n_grid, support_lower = 0) {
+  decades <- 10^seq(-30, 30, by = 0.25)
+  positive <- is.finite(support_lower) && support_lower >= 0
+  probe_edges <- if (positive) decades else c(-rev(decades), 0, decades)
+  probe_mid <- (probe_edges[-1L] + probe_edges[-length(probe_edges)]) / 2
+  n_failed_before <- get("n_failed", envir = environment(eval_pdf))
+  probe_mass <- eval_pdf(probe_mid) * diff(probe_edges)
+  n_probe_failed <- get("n_failed", envir = environment(eval_pdf)) - n_failed_before
+  skip <- structure(list(), n_probe_failed = n_probe_failed)
+  if (!any(probe_mass > 0)) return(skip)
+
+  kept <- which(probe_mass > 1e-10 * max(probe_mass))
+  lower <- probe_edges[min(kept)]
+  upper <- probe_edges[max(kept) + 1L]
+  n_grid <- max(n_grid, 1024L)
+  scale <- 1
+
+  if (positive) {
+    if (upper / lower < 100) return(skip)
+    grid_x <- exp(seq(log(lower), log(upper), length.out = n_grid))
+  } else {
+    cum_mass <- cumsum(probe_mass) / sum(probe_mass)
+    scale <- probe_mid[which(cum_mass >= 0.75)[1L]] -
+      probe_mid[which(cum_mass >= 0.25)[1L]]
+    if (scale <= 0 || (upper - lower) / scale < 100) return(skip)
+    grid_x <- scale * sinh(seq(
+      asinh(lower / scale), asinh(upper / scale),
+      length.out = n_grid
+    ))
+  }
+
+  # The metric can pile up against a bound in a spike narrower than a grid
+  # cell, so cells are halved wherever the density changes fast between neighbours.
+  known_x <- numeric(0)
+  known_pdf <- numeric(0)
+  pdf_at <- function(x) {
+    unseen <- x[!x %in% known_x]
+    if (length(unseen) > 0L) {
+      known_x <<- c(known_x, unseen)
+      known_pdf <<- c(known_pdf, eval_pdf(unseen))
+    }
+    known_pdf[match(x, known_x)]
+  }
+  for (pass in seq_len(14L)) {
+    mid_x <- (grid_x[-1L] + grid_x[-length(grid_x)]) / 2
+    pdf_vals <- pdf_at(mid_x)
+    # Compared per unit of the grid's spacing, as the density itself can
+    # diverge at zero and hide everything else.
+    spaced_mass <- pdf_vals * if (positive) mid_x else sqrt(mid_x^2 + scale^2)
+    floored <- log(pmax(spaced_mass, max(spaced_mass) * 1e-12))
+    jump <- which(abs(diff(floored)) > log(1.25))
+    if (length(jump) == 0L || length(grid_x) > 16384L) break
+    grid_x <- sort(c(grid_x, mid_x[unique(c(jump, jump + 1L))]))
+  }
+
+  mid_x <- (grid_x[-1L] + grid_x[-length(grid_x)]) / 2
+  pdf_vals <- pdf_at(mid_x)
+  dx <- diff(grid_x)
+  area <- sum(pdf_vals * dx)
+  if (area > 0) pdf_vals <- pdf_vals / area
+  structure(
+    list(grid_x = grid_x, mid_x = mid_x, pdf_vals = pdf_vals, dx = dx, area = area),
+    n_probe_failed = n_probe_failed
+  )
+}
+
 # Two-pass adaptive grid for density evaluation.
 # Pass 1 (coarse): ~n_coarse uniform points to locate the significant region
 #   and extend edges if density is non-negligible at boundaries.
@@ -300,6 +362,18 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
     vals[!is.finite(vals) | vals < 0] <- 0
     vals
   }
+  if (is_prior_only) {
+    # The probe reaches far outside the metric's range, where a failed
+    # contour says nothing about the density; only the final grid counts.
+    wide <- .wide_density_grid(eval_pdf, n_grid, support_lower)
+    n_probe_failed <- attr(wide, "n_probe_failed")
+    n_failed <- n_failed - n_probe_failed
+    if (!is.null(wide$grid_x)) {
+      wide$n_failed <- n_failed
+      return(wide)
+    }
+  }
+
   # Every coarse evaluation is kept, so a peak located by an earlier pass is
   # not lost when edge extension widens the coarse spacing past its width.
   seen_x <- numeric(0)
@@ -390,7 +464,13 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
 
   # The 1% region spans only ~±3 sd of a normal peak, and the coarse tail
   # cells beyond it are too wide for the midpoint rule on the shoulders.
-  # Extend the fine region to every probed point above 1e-6 of the peak.
+  # Extend the fine region to every probed point above 1e-6 of the peak,
+  # probing the shoulders directly since a zoomed peak may not have been.
+  sig_width <- sig_hi - sig_lo
+  shoulder_probe <- c(sig_lo - sig_width * (1:4) / 8, sig_hi + sig_width * (1:4) / 8)
+  shoulder_probe <- shoulder_probe[shoulder_probe > x_start & shoulder_probe < x_end]
+  seen_x <- c(seen_x, shoulder_probe)
+  seen_pdf <- c(seen_pdf, eval_pdf(shoulder_probe))
   shoulder_x <- seen_x[seen_pdf > 1e-6 * peak]
   sig_lo <- max(x_start, min(sig_lo, shoulder_x))
   sig_hi <- min(x_end, max(sig_hi, shoulder_x))
@@ -436,12 +516,22 @@ compute_cpk_prob_integration <- function(data, LSL, USL, bounds, prior,
       context = "The integration density solver"
     )
   }
+  rule <- .composite_gauss_legendre_unit(4L, 10L)
+  span <- if (length(grid_x) >= 2L) grid_x[length(grid_x)] - grid_x[1] else 1
+  # One batch of nodes, as each node can be a costly contour integral. The
+  # tails decay away from the grid, so the nodes start at the end facing it
+  # (the upper end, except for the right tail) and spread out from there.
   integrate_mass <- function(lower, upper) {
+    from_lower <- !is.finite(upper)
+    anchor <- if (from_lower) lower else upper
+    reach <- if (is.finite(lower) && is.finite(upper)) upper - lower else 1e6 * span
+    side <- .geometric_side_rule(rule, reach, min(reach, span) * 1e-3)
+    nodes <- anchor + (if (from_lower) 1 else -1) * as.vector(side$offsets)
     mass <- tryCatch(
-      stats::integrate(pdf_vec, lower, upper, rel.tol = 1e-4)$value,
+      sum(pdf_vec(nodes) * as.vector(side$weights)),
       error = function(e) NA_real_
     )
-    # Tiny negative values are quadrature noise; NA marks a failure.
+    # NA marks a failure.
     if (is.finite(mass)) max(mass, 0) else NA_real_
   }
 
@@ -771,31 +861,59 @@ analyze_capability_integration <- function(data, LSL, USL, prior,
   )
 
   if (backend$can_use_density) {
-    result <- .adaptive_density_grid(
-      backend$pdf_fn,
-      x_start,
-      x_end,
-      n_grid,
-      is_prior_only = is_prior_only,
-      support_lower = .integration_density_support_lower(metric)
-    )
+    density_grid <- function(wide) {
+      .adaptive_density_grid(
+        backend$pdf_fn,
+        x_start,
+        x_end,
+        n_grid,
+        is_prior_only = wide,
+        support_lower = .integration_density_support_lower(metric)
+      )
+    }
+    result <- density_grid(is_prior_only)
+
+    # Without data the survival function is the less reliable of the two, as
+    # its tails are cut off for diffuse priors, so it is only a fallback.
+    S <- NULL
+    if (!is_prior_only || result$n_failed > 0L) {
+      S <- tryCatch(
+        .integration_make_solver(request = request),
+        error = function(e) NULL
+      )
+    }
+    # The density has lost mass that the survival function sees on the same
+    # grid, e.g. a narrow second mode on a contour or a step inside one cell.
+    lost_mass <- function(result) {
+      if (is_prior_only || is.null(S)) return(FALSE)
+      x <- result$grid_x
+      survival_mass <- tryCatch(S(x[1]) - S(x[length(x)]),
+                                error = function(e) NA_real_)
+      is.finite(survival_mass) && survival_mass - result$area > 0.005
+    }
+
+    # A long tail stretches the uniform grid past the peak, leaving most of
+    # the mass in a few cells. The wide grid resolves both.
+    too_coarse <- !is_prior_only && result$area > 0 &&
+      max(result$pdf_vals * result$dx) > 0.02 * result$area
+    if (result$n_failed == 0L && !is_prior_only &&
+        (too_coarse || lost_mass(result))) {
+      wide <- density_grid(TRUE)
+      if (wide$n_failed == 0L) result <- wide
+    }
+
     grid_x <- result$grid_x
     mid_x <- result$mid_x
     pdf_vals <- result$pdf_vals
     dx <- result$dx
     area <- result$area
 
-    # The density solver could not evaluate some grid points; rebuild the
-    # grid from the survival function instead of keeping zero-filled holes.
-    if (result$n_failed > 0L) {
-      backend$S <- tryCatch(
-        .integration_make_solver(request = request),
-        error = function(e) NULL
-      )
-      if (!is.null(backend$S)) {
-        backend$mode <- "survival"
-        backend$can_use_density <- FALSE
-      }
+    # Rebuild the grid from the survival function when the density solver
+    # could not evaluate some grid points or still misses mass.
+    if (!is.null(S) && (result$n_failed > 0L || lost_mass(result))) {
+      backend$S <- S
+      backend$mode <- "survival"
+      backend$can_use_density <- FALSE
     }
   }
 
